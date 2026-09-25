@@ -87,7 +87,7 @@ def test_settings_change_scope_retains_unedited_budgets_and_database_tls(tmp_pat
         settings_config(config, values)
 
 
-def test_settings_window_save_restarts_with_selected_scope(tmp_path, monkeypatch):
+def test_settings_window_save_restarts_with_selected_scope(tmp_path, monkeypatch, tk_root):
     tkinter = pytest.importorskip("tkinter")
     from data_search import service, setup_ui
     root = tmp_path / "docs"
@@ -97,10 +97,7 @@ def test_settings_window_save_restarts_with_selected_scope(tmp_path, monkeypatch
     original["semantic"]["enabled"] = False
     original["resource"]["memory_mb"] = 640
     path.write_text(json.dumps(original), encoding="utf-8")
-    try:
-        window = tkinter.Tk()
-    except tkinter.TclError as error:
-        pytest.skip(f"No GUI display is available: {error}")
+    window = tkinter.Toplevel(tk_root)
     window.withdraw()
     calls, errors = [], []
     monkeypatch.setattr(service, "stop_service", lambda config: calls.append(("stop", config["scope"])))

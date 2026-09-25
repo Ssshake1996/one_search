@@ -8,6 +8,12 @@ import pytest
 from data_search.database_ui import connection_candidate, editor_selection, open_database_editor
 
 
+@pytest.fixture(scope="module")
+def database_ui_root(tk_root):
+    tk_root.withdraw()
+    return tk_root
+
+
 def test_connection_form_preserves_advanced_options_but_never_plaintext_password():
     original = {"id": "orders", "kind": "postgres", "host": "old", "database": "business", "user": "reader",
         "password_env": "OLD_VARIABLE", "ssl": {"sslcert": "client.pem", "sslkey": "key.pem", "sslmode": "require"},
@@ -43,13 +49,11 @@ def test_editor_never_implicitly_grants_columns_or_watermark_maintenance():
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Real Tk dialog smoke runs on the validated Windows host")
-def test_real_tk_discovery_field_selection_preflight_and_callback(tmp_path):
-    import tkinter as tk
+def test_real_tk_discovery_field_selection_preflight_and_callback(tmp_path, database_ui_root):
     path = tmp_path / "资料.sqlite3"
     with sqlite3.connect(path) as connection:
         connection.executescript("CREATE TABLE notes(id INTEGER PRIMARY KEY, body TEXT, secret TEXT); INSERT INTO notes VALUES(1,'synthetic','excluded');")
-    root = tk.Tk()
-    root.withdraw()
+    root = database_ui_root
     saved = []
     editor = open_database_editor(root, {}, saved.append)
     editor.window.withdraw()
@@ -81,18 +85,16 @@ def test_real_tk_discovery_field_selection_preflight_and_callback(tmp_path):
     finally:
         if not editor.closed:
             editor.close()
-        root.destroy()
+        root.update()
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Real Tk dialog smoke runs on the validated Windows host")
-def test_real_tk_changed_connection_cannot_save_old_discovery(tmp_path):
-    import tkinter as tk
+def test_real_tk_changed_connection_cannot_save_old_discovery(tmp_path, database_ui_root):
     path = tmp_path / "source.sqlite3"
     with sqlite3.connect(path) as connection:
         connection.execute("CREATE TABLE notes(id INTEGER PRIMARY KEY, body TEXT)")
     source = {"id": "notes", "kind": "sqlite", "path": str(path), "allowed_tables": ["notes"], "allowed_columns": {"notes": ["id"]}}
-    root = tk.Tk()
-    root.withdraw()
+    root = database_ui_root
     saved = []
     editor = open_database_editor(root, source, saved.append)
     editor.window.withdraw()
@@ -105,4 +107,4 @@ def test_real_tk_changed_connection_cannot_save_old_discovery(tmp_path):
         assert not saved and "重新发现" in editor.activity.get()
     finally:
         editor.close()
-        root.destroy()
+        root.update()

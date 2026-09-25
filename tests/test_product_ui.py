@@ -15,15 +15,10 @@ pytestmark = pytest.mark.skipif(os.name != 'nt', reason='Tk workflow acceptance 
 
 
 @pytest.fixture(scope='module')
-def ui_root():
-    import tkinter as tk
-    # The real settings application owns one Tcl/Tk interpreter. Reuse that
-    # lifecycle here; repeatedly recreating Tcl interpreters in this Windows
-    # Python build intermittently reports unreadable existing library files.
-    root = tk.Tk()
-    root.attributes('-alpha', 0.0)
-    yield root
-    root.destroy()
+def ui_root(tk_root):
+    tk_root.deiconify()
+    yield tk_root
+    tk_root.withdraw()
 
 
 @pytest.fixture

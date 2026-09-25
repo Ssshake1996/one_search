@@ -1,13 +1,14 @@
 import asyncio
 import http.client
 import json
+import os
 from pathlib import Path
 import threading
 import time
 
 import pytest
 
-from data_search import cli
+from data_search import cli, service
 from data_search.config import defaults
 from data_search.service import (
     InstanceLock, ServiceError, _call_state, _read_state,
@@ -98,6 +99,68 @@ def test_daemon_lifecycle_and_dispatch(daemon):
     assert start_service(config)["started"] is False
     assert stop_service(config)["stopped"] is True
     assert stop_service(config) == {"status": "not_running", "stopped": False}
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows read handles deny delete sharing")
+def test_stop_retries_state_removal_while_windows_reader_holds_file(daemon):
+    config, engine, _state = daemon
+    path = Path(config["data_dir"]) / "service.json"
+    outcomes, errors = [], []
+
+    def stop():
+        try:
+            outcomes.append(stop_service(config, timeout=3))
+        except Exception as error:
+            errors.append(error)
+
+    thread = threading.Thread(target=stop)
+    with path.open("rb"):
+        # Prove this is a real OS sharing conflict, not a mocked unlink failure.
+        with pytest.raises(PermissionError):
+            path.unlink()
+        thread.start()
+        deadline = time.monotonic() + 2
+        while not engine.closed and time.monotonic() < deadline:
+            time.sleep(.01)
+        assert engine.closed
+        time.sleep(.15)
+        assert thread.is_alive() and path.exists()
+    thread.join(4)
+    assert not thread.is_alive() and not errors
+    assert outcomes == [{"status": "stopped", "stopped": True}]
+    assert not path.exists()
+
+
+def test_state_removal_rechecks_identity_after_sharing_failure(tmp_path, monkeypatch):
+    path = tmp_path / "service.json"
+    path.write_text(json.dumps({"service_id": "ours"}))
+    attempts = []
+
+    def locked_unlink(self, *args, **kwargs):
+        assert self == path
+        attempts.append(self)
+        path.write_text(json.dumps({"service_id": "replacement"}))
+        raise PermissionError("Temporary sharing conflict")
+
+    monkeypatch.setattr(Path, "unlink", locked_unlink)
+    assert not service._remove_owned_state(path, "ours", timeout=.2)
+    assert len(attempts) == 1
+    assert json.loads(path.read_text())["service_id"] == "replacement"
+
+
+def test_state_removal_persistent_sharing_failure_is_bounded(tmp_path, monkeypatch):
+    path = tmp_path / "service.json"
+    path.write_text(json.dumps({"service_id": "ours"}))
+    attempts = []
+
+    def locked_unlink(self, *args, **kwargs):
+        attempts.append(self)
+        raise PermissionError("Persistent sharing conflict")
+
+    monkeypatch.setattr(Path, "unlink", locked_unlink)
+    assert not service._remove_owned_state(path, "ours", timeout=0)
+    assert len(attempts) == 1
+    assert path.exists()
 
 
 @pytest.mark.parametrize("headers,status", [
