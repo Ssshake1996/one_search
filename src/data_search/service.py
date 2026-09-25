@@ -93,6 +93,29 @@ def _state_path(config):
     return Path(config["data_dir"]) / "service.json"
 
 
+def _remove_owned_state(path, service_id, *, timeout=5):
+    """Remove our state while holding service.lock, tolerating short read locks."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            current = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(current, dict) or current.get("service_id") != service_id:
+                return False
+            path.unlink(missing_ok=True)
+            return True
+        except FileNotFoundError:
+            return True
+        except ValueError:
+            return False
+        except OSError:
+            # Windows readers and scanners can briefly deny delete sharing.
+            # Re-read ownership on every retry; never delete replacement state.
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            time.sleep(min(.05, remaining))
+
+
 def _read_state(config):
     try:
         state = json.loads(_state_path(config).read_text(encoding="utf-8"))
@@ -331,12 +354,7 @@ def run_daemon(config: dict, *, engine_factory=None):
                 engine.close()
             finally:
                 if state:
-                    try:
-                        current = json.loads(_state_path(config).read_text(encoding="utf-8"))
-                        if current.get("service_id") == service_id:
-                            _state_path(config).unlink(missing_ok=True)
-                    except (OSError, ValueError):
-                        pass
+                    _remove_owned_state(_state_path(config), service_id)
 
 
 def reap_child(process):

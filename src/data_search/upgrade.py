@@ -15,6 +15,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 
 from .service import InstanceLock
@@ -164,6 +165,24 @@ def _restore_files(source: Path, destination: Path, current_files):
     _copy_files(_files(source), source, destination)
 
 
+def _rename_runtime(source: Path, destination: Path, *, timeout=5):
+    """Allow Windows image/file handles to close after the service lock is released."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            source.rename(destination)
+            return
+        except OSError as error:
+            # The authenticated service may have removed its state and released
+            # its locks while native process teardown still has DLLs mapped.
+            # Keep the maintenance locks held and retain the ordinary failure
+            # path if the directory remains locked or permissions are wrong.
+            remaining = deadline - time.monotonic()
+            if getattr(error, "winerror", None) not in {5, 32, 33} or remaining <= 0:
+                raise
+            time.sleep(min(0.1, remaining))
+
+
 def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, disk_usage=shutil.disk_usage):
     from .maintenance import IndexDirectoryLease, MaintenanceGuard, _index_files
     install, data, runtime = (_target_path(request[key]) for key in ("InstallDir", "DataDir", "RuntimeDir"))
@@ -274,8 +293,8 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
             snapshot_ready = True
             mark("snapshot_complete")
             if new_cli.parent.exists():
-                new_cli.parent.rename(old_runtime)
-            stage.rename(new_cli.parent)
+                _rename_runtime(new_cli.parent, old_runtime)
+            _rename_runtime(stage, new_cli.parent)
             swapped = True
             mark("activating")
         continuation = dict(request, RuntimeDir=str(new_cli.parent))
@@ -297,9 +316,9 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
                     if previous_config:
                         guards.enter_context(IndexDirectoryLease(previous_config, directory=index))
                     if new_cli.parent.exists():
-                        new_cli.parent.rename(transaction / "failed-runtime")
+                        _rename_runtime(new_cli.parent, transaction / "failed-runtime")
                     if old_runtime.exists():
-                        old_runtime.rename(new_cli.parent)
+                        _rename_runtime(old_runtime, new_cli.parent)
                     if snapshot_ready:
                         _restore_files(snapshot, data, _files(data, excluded))
                         if index != data:
