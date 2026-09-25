@@ -76,13 +76,20 @@ def test_real_daemon_and_official_mcp_stdio(tmp_path):
                 async with ClientSession(read, write) as session:
                     await session.initialize()
                     tools = await session.list_tools()
-                    assert {tool.name for tool in tools.tools} == {"search", "fetch", "inspect_source", "query_database", "index_status"}
+                    assert {tool.name for tool in tools.tools} == {"search", "fetch", "inspect_source", "query_database", "index_status",
+                        'diagnose_path','read_context','refresh_path','prioritize_path','pause_indexing','resume_indexing'}
                     calls = [
                         ("search", {"query": "服务器", "mode": "keyword"}),
                         ("fetch", {"id": file_id}),
                         ("inspect_source", {"source_id": "test-db"}),
                         ("query_database", {"source_id": "test-db", "request": {"table": "tickets", "columns": ["id"]}}),
                         ("index_status", {}),
+                        ('diagnose_path',{'path':str(root/'server-plan.txt')}),
+                        ('read_context',{'id':file_id}),
+                        ('pause_indexing',{'seconds':60}),
+                        ('refresh_path',{'path':str(root/'server-plan.txt')}),
+                        ('prioritize_path',{'path':str(root)}),
+                        ('resume_indexing',{}),
                     ]
                     for name, arguments in calls:
                         response = await session.call_tool(name, arguments)

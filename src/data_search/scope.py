@@ -122,7 +122,7 @@ class FileScope:
         skipped_paths = [item['path'] for item in self.skipped_volumes
                          if any(Path(os.path.abspath(item['path'])).is_relative_to(root) for root in self.discovered_roots)]
         self.exclusions = _normalize([
-            config['data_dir'], config['semantic']['model_dir'],
+            config['data_dir'], config.get('index_dir',config['data_dir']), config['semantic']['model_dir'],
             *program_paths(), *config.get('exclude_paths', []),
             *(LINUX_SPECIAL if self.mode == 'machine' and platform.system() == 'Linux' else []),
         ])

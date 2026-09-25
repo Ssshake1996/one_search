@@ -179,3 +179,23 @@ def test_filtered_semantic_engine_dispatch_scores_only_matching_source_extension
     assert result['results'][0]['name'] == 'target.md'
     assert any(w.startswith('filtered_semantic_exact:') for w in result['warnings'])
     assert not instance.search('semantic question','semantic',source_id='absent')['results']
+
+
+def test_combined_semantic_filters_narrow_published_vectors_before_scoring(engine,monkeypatch):
+    instance,root = engine
+    folder = root/'project_%'
+    folder.mkdir()
+    for path in [root/'outside.md',folder/'allowed.md',folder/'wrong.txt']:
+        path.write_text('semantic filter evidence '+path.name)
+    instance.scan_once()
+    query = np.zeros(512,dtype=np.float32)
+    query[0] = 1
+    with instance.store.db:
+        for row in instance.store.rows('SELECT hash FROM chunks'):
+            instance.store.db.execute('INSERT OR REPLACE INTO embeddings VALUES(?,?,?)',(row['hash'],MODEL_ID,pack_vector(query)))
+    instance._changed()
+    instance.vectors.sync(isolated=False)
+    monkeypatch.setattr(instance,'_encode',lambda *a,**k:[query.tolist()])
+    result = instance.search('evidence','semantic',directory=str(folder),extensions=['.md'],min_size=10,max_size=500,category='document')
+    assert [r['name'] for r in result['results']]==['allowed.md']
+    assert result['applied_filters']['directory']==str(folder)

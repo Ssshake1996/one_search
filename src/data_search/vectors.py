@@ -391,7 +391,7 @@ class Vectors:
             self.readers.popitem(last=False)
         return reader
 
-    def _valid_hits(self, connection, keys, segment, *, catalog, source_id, extension):
+    def _valid_hits(self, connection, keys, segment, *, catalog, source_id, extension, filter_sql='',filter_args=()):
         eligible, extra, args = self._eligible(connection), '', []
         if catalog:
             extra += ' AND EXISTS(SELECT 1 FROM anncat.members m WHERE m.segment=? AND m.id=c.id AND m.hash=c.hash)'
@@ -402,6 +402,8 @@ class Vectors:
         if extension:
             extra += ' AND d.extension=?'
             args.append(extension.lower())
+        extra += filter_sql
+        args.extend(filter_args)
         result = set()
         for offset in range(0, len(keys), 256):
             batch = keys[offset:offset+256]
@@ -410,7 +412,7 @@ class Vectors:
             result.update(row[0] for row in connection.execute(sql, [MODEL_ID, *batch, *args]))
         return result
 
-    def _filtered_hits(self, connection, vector, segment, limit, source_id, extension):
+    def _filtered_hits(self, connection, vector, segment, limit, source_id, extension, filter_sql='',filter_args=()):
         import numpy as np
         extra, args = '', [MODEL_ID, segment['snapshot']]
         if source_id:
@@ -419,6 +421,8 @@ class Vectors:
         if extension:
             extra += ' AND d.extension=?'
             args.append(extension.lower())
+        extra += filter_sql
+        args.extend(filter_args)
         sql = ('SELECT c.id,e.vector FROM anncat.members m JOIN chunks c ON c.id=m.id AND c.hash=m.hash '
                'JOIN documents d ON d.id=c.doc_id JOIN embeddings e ON c.hash=e.hash AND e.model=? '
                'WHERE m.segment=?' + self._eligible(connection) + extra)
@@ -455,7 +459,7 @@ class Vectors:
             connection.close()
         raise RuntimeError('semantic_index_pending: publication changed during query setup')
 
-    def search(self, vector: list[float], limit: int, *, source_id=None, extension=None) -> list[tuple[int, float]]:
+    def search(self, vector: list[float], limit: int, *, source_id=None, extension=None,filter_sql='',filter_args=()) -> list[tuple[int, float]]:
         import numpy as np
         limit = max(1, min(int(limit), 8192))
         query = np.asarray(vector, dtype=np.float32)
@@ -473,10 +477,10 @@ class Vectors:
                 for segment, catalog in segments:
                     if not segment['count']:
                         continue
-                    if (source_id or extension) and catalog:
+                    if (source_id or extension or filter_sql) and catalog:
                         # SQL narrows each bounded segment first. Exact batch scoring
                         # avoids giant allowed-ID sets and rare-source ANN starvation.
-                        hits = self._filtered_hits(connection, query, segment, limit, source_id, extension)
+                        hits = self._filtered_hits(connection, query, segment, limit, source_id, extension,filter_sql,filter_args)
                     else:
                         try:
                             reader = self._get_reader(segment)
@@ -487,7 +491,7 @@ class Vectors:
                         while True:
                             found = reader.search(query, count=count, threads=1)
                             keys = [int(key) for key in found.keys]
-                            valid = self._valid_hits(connection, keys, segment, catalog=catalog, source_id=source_id, extension=extension)
+                            valid = self._valid_hits(connection, keys, segment, catalog=catalog, source_id=source_id, extension=extension,filter_sql=filter_sql,filter_args=filter_args)
                             hits = [(int(key), float(distance)) for key, distance in zip(found.keys, found.distances) if int(key) in valid]
                             if len(hits) >= limit or count >= cap:
                                 break
@@ -505,7 +509,7 @@ class Vectors:
 def build_in_worker(config):
     from types import SimpleNamespace
     from .resources import Budget
-    path = Path(config['data_dir']).resolve() / 'index.sqlite3'
+    path = Path(config.get('index_dir',config['data_dir'])).resolve() / 'index.sqlite3'
     os.chdir(path.parent)  # This is the isolated worker, never the daemon.
     cache = Vectors(SimpleNamespace(path=path), Budget(config), local_io=True)
     cache.sync(isolated=False)

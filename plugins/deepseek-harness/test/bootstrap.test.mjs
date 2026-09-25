@@ -3,7 +3,8 @@ import test from 'node:test';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { findRelease, prepareService, settings } from '../bootstrap.mjs';
+import { backendCompatible, findRelease, prepareService, settings } from '../bootstrap.mjs';
+import { registerBundle, stageBundle } from '../register.mjs';
 
 test('DSH manifest registers a bundle patch, without blocked install lifecycle scripts', async () => {
   const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
@@ -19,6 +20,33 @@ test('new installations default to whole machine and normal installer paths', ()
   assert.equal(config.noAutostart, false);
   assert.equal(config.skipModel, false);
   assert.equal(config.installDir, resolve('test-user', 'data-search', 'app'));
+});
+
+test('DSH staging is repeatable, colocates on home drive and refuses changed content', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'one-search-stage-test-'));
+  const first = await stageBundle(home);
+  const repeated = await stageBundle(home);
+  assert.equal(first.directory, repeated.directory);
+  assert.ok(first.directory.startsWith(home));
+  assert.ok(JSON.parse(await readFile(join(first.directory, 'package.json'))).files.includes('register.mjs'));
+  await writeFile(join(first.directory, 'index.mjs'), 'unexpected modification');
+  await assert.rejects(stageBundle(home), /differs from expected/);
+});
+
+test('registration invokes DSH CLI and restores caller environment without claiming connection', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'one-search-register-test-'));
+  const previous = process.env.DSH_HOME;
+  const calls = [];
+  const result = await registerBundle({ dshPackage: home, dshHome: home, profile: 'test-profile', offline: true }, async (...args) => {
+    calls.push(args);
+    assert.equal(process.env.DSH_HOME, home);
+  });
+  assert.equal(process.env.DSH_HOME, previous);
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0][1].includes('--ignore-scripts'));
+  assert.ok(calls[0][1].includes('--offline'));
+  assert.equal(result.registered, true);
+  assert.equal(result.connected, false);
 });
 
 test('Linux paths honor XDG_DATA_HOME', () => {
@@ -45,10 +73,13 @@ test('existing source backend starts idempotently and preserves configuration', 
   await writeFile(path, original);
   const calls = [];
   const request = { command: process.execPath, configPath: path, commandArgs: ['module'], roots: [resolve('other-root')] };
-  const first = await prepareService(request, async (...args) => calls.push(args));
-  await prepareService(request, async (...args) => calls.push(args));
-  assert.equal(calls.length, 2);
-  assert.deepEqual(calls[0][1], ['module', 'start', '--config', path]);
+  const runner = async (...args) => { calls.push(args); return JSON.stringify({ version: '0.4.0' }); };
+  const first = await prepareService(request, runner);
+  await prepareService(request, runner);
+  assert.equal(calls.length, 6);
+  assert.deepEqual(calls[1][1], ['module', 'start', '--config', path]);
+  assert.equal(calls[2][1][1], 'register-client');
+  assert.equal(calls[2][1][2], calls[5][1][2]);
   assert.equal(await readFile(path, 'utf8'), original);
   assert.equal(first.command, process.execPath);
   assert.deepEqual(first.args, ['module', 'mcp', '--config', path]);
@@ -80,7 +111,7 @@ test('activation provisions a missing Windows backend with JSON arguments, then 
   const root = join(dir, "corpus quote ' and spaces");
   await mkdir(releaseDir);
   await mkdir(root);
-  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.3.0' }));
+  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.4.0' }));
   const calls = [];
   let requestPath;
   const runner = async (command, args) => {
@@ -101,15 +132,23 @@ test('activation provisions a missing Windows backend with JSON arguments, then 
     }
   };
   const result = await prepareService({ releaseDir, installDir, dataDir, roots: [root], skipModel: true, noAutostart: true }, runner);
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.deepEqual(calls[1].args, ['start', '--config', join(dataDir, 'config.json')]);
   assert.equal(result.command, join(installDir, 'runtime/data-search.exe'));
   await assert.rejects(readFile(requestPath), { code: 'ENOENT' });
 });
 
+test('explicit profile client identities remain distinct and reject control characters', () => {
+  const first = settings({ clientId: 'dsh-web', clientLabel: 'DSH web' });
+  const second = settings({ clientId: 'dsh-terminal', clientLabel: 'DSH terminal' });
+  assert.notEqual(first.clientId, second.clientId);
+  assert.throws(() => settings({ clientLabel: 'bad\nlabel' }));
+  assert.equal(settings().clientId, settings().clientId);
+});
+
 test('installer failure prevents MCP activation and cleans its temporary request', { skip: process.platform !== 'win32' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-install-fail-test-'));
-  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native' }));
+  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.4.0' }));
   let requestPath;
   let calls = 0;
   await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async (_command, args) => {
@@ -119,4 +158,43 @@ test('installer failure prevents MCP activation and cleans its temporary request
   }), /synthetic installer failure/);
   assert.equal(calls, 1);
   await assert.rejects(readFile(requestPath), { code: 'ENOENT' });
+});
+
+test('old explicit backend fails with an upgrade action before start/register', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'one-search-old-backend-'));
+  const path = join(dir, 'config.json');
+  await writeFile(path, '{}');
+  const calls = [];
+  await assert.rejects(prepareService({ command: process.execPath, configPath: path }, async (...args) => {
+    calls.push(args); return JSON.stringify({ version: '0.3.0' });
+  }), /backend_update_required/);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][1][0], 'version');
+  assert.equal(backendCompatible('0.4.0'), true);
+  assert.equal(backendCompatible('0.3.0'), false);
+});
+
+test('old managed backend upgrades through the verified installer then preserves config', { skip: process.platform !== 'win32' }, async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'one-search-managed-upgrade-'));
+  const app = join(dir, 'app');
+  const data = join(dir, 'data');
+  const release = join(dir, 'release');
+  await mkdir(join(app, 'runtime'), { recursive: true });
+  await mkdir(data);
+  await mkdir(release);
+  const path = join(data, 'config.json');
+  const original = '{"scope":"directories","roots":[]}';
+  await writeFile(path, original);
+  await writeFile(join(app, 'runtime', 'data-search.exe'), 'mock runtime');
+  await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.3.0' }));
+  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.4.0' }));
+  const calls = [];
+  await prepareService({ installDir: app, dataDir: data, releaseDir: release }, async (...args) => {
+    calls.push(args);
+    if (calls.length === 1) await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.4.0' }));
+  });
+  assert.equal(calls.length, 3);
+  assert.ok(calls[0][1].includes('-NonInteractive'));
+  assert.equal(calls[1][1][0], 'start');
+  assert.equal(await readFile(path, 'utf8'), original);
 });

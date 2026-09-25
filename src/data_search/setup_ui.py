@@ -37,6 +37,9 @@ def settings_config(current: dict, values: dict) -> dict:
     candidate.setdefault("indexing", {}).update(values["indexing"])
     if "resource" in values:
         candidate.setdefault("resource", {}).update(values["resource"])
+    for key in ('exclude_paths','exclude_names','runtime_policy','scheduler'):
+        if key in values:
+            candidate[key] = deepcopy(values[key])
     all_roots = list(candidate["roots"])
     for tier in ("content", "semantic"):
         if candidate["indexing"][f"{tier}_scope"] == "directories":
@@ -81,13 +84,16 @@ def status_rows(payload: dict) -> list[tuple[str, str]]:
     documents = coverage.get("documents", {})
     eligible = coverage.get("semantic_eligible_chunks", 0)
     embedded = coverage.get("embedded_chunks", 0)
-    state = "已暂停" if index.get("paused") else "正在发现 / 建立索引" if coverage.get("scanning") else "等待变化"
+    policy = index.get('runtime_policy',{})
+    state = "已暂停" if index.get("paused") else '等待资源 · '+str(policy.get('reason')) if policy.get('automatic_wait') else "正在发现 / 建立索引" if coverage.get("scanning") else "服务运行中；覆盖见队列"
     rows = [("服务 / 索引", state), ("已发现文件与记录", str(sum(documents.values()))),
         ("正文待处理", str(documents.get("pending", 0))),
         ("受预算限制", str(documents.get("budget", 0))),
         ("语义片段", f"{embedded} 已完成 / {eligible} 已知可处理；待处理 {max(0, eligible - embedded)}"),
         ("内存 RSS / 系统可用", f"{resource.get('rss_mb', '—')} / {resource.get('available_mb', '—')} MiB"),
         ("索引与模型 / 磁盘可用", f"{resource.get('disk_mb', '—')} / {resource.get('free_disk_mb', '—')} MiB")]
+    rows.extend([('资源档位',str(policy.get('preset','balanced'))),('定时暂停恢复时间',str(policy.get('pause_until') or '—')),
+                 ('模型准备',str(index.get('semantic',{}).get('lifecycle',{}).get('state','—')))])
     scheduler = index.get("scheduler", {})
     for key, label in (("queued_directories", "等待发现的目录"), ("queued_files", "持久化正文任务"),
                        ("queued_events", "等待处理的文件变化")):
@@ -160,6 +166,8 @@ def main(argv=None):
     tabs.add(database_tab, text="数据库")
     tabs.add(resource_tab, text="资源预算")
     tabs.add(status_tab, text="状态与错误")
+    from .product_ui import add_product_panels
+    add_product_panels(tabs,config_path)
     scope = tk.StringVar(value=current["scope"])
     ttk.Radiobutton(scope_tab, text="整个电脑 / 服务器（当前账号可访问的本地文件系统）", variable=scope, value="machine").pack(anchor="w")
     ttk.Radiobutton(scope_tab, text="仅下列目录", variable=scope, value="directories").pack(anchor="w")
@@ -180,6 +188,8 @@ def main(argv=None):
         return text
 
     roots = folder_list(scope_tab, current.get("roots", []))
+    ttk.Label(scope_tab,text='排除目录（文件名、正文与语义均不检索）').pack(anchor='w',pady=(6,0))
+    excluded_paths = folder_list(scope_tab,current.get('exclude_paths',[]),height=2)
     ttk.Label(scope_tab, text="文件名索引覆盖上述范围。正文与语义可进一步缩小范围以节省资源。", wraplength=780).pack(anchor="w", pady=5)
     tier_widgets = {}
     for tier, label in (("content", "正文"), ("semantic", "语义")):
@@ -194,7 +204,12 @@ def main(argv=None):
         extensions = tk.StringVar(value=", ".join(current["indexing"][f"{tier}_extensions"]))
         ttk.Label(frame, text="扩展名（逗号分隔，留空为全部支持类型）：").pack(anchor="w")
         ttk.Entry(frame, textvariable=extensions).pack(fill="x")
-        tier_widgets[tier] = (mode, tier_roots, extensions)
+        ttk.Label(frame,text='此层额外排除目录：').pack(anchor='w')
+        tier_exclusions = folder_list(frame,current['indexing'].get(tier+'_exclude_paths',[]),height=2)
+        tier_widgets[tier] = (mode, tier_roots, extensions,tier_exclusions)
+    sensitive_excluded = tk.BooleanVar(value=current['indexing'].get('sensitive_content_excluded',False))
+    ttk.Checkbutton(scope_tab,text='敏感模板：.env、常见凭据文件与 .ssh/.aws 等目录只索引文件名',variable=sensitive_excluded).pack(anchor='w',pady=5)
+    ttk.Label(scope_tab,text='索引保存在本机；检索片段会提供给调用它的 Agent。撤销范围会清除本地对应缓存，宿主已有对话需在宿主中管理。',wraplength=780).pack(anchor='w')
     semantic_enabled = tk.BooleanVar(value=current["semantic"]["enabled"])
     ttk.Checkbutton(scope_tab, text="启用本地语义模型（首次使用需下载模型）", variable=semantic_enabled).pack(anchor="w", pady=5)
     ttk.Label(scope_tab, text="大资料库可优先建立文件名，再为常用目录开启正文和语义。", wraplength=780).pack(anchor="w")
@@ -212,11 +227,59 @@ def main(argv=None):
         resource_widgets[key] = variable
         ttk.Entry(resource_tab, textvariable=variable, width=16).grid(row=row, column=1, padx=16, sticky="w")
     ttk.Label(resource_tab, text="Windows 工作进程上限约束 committed memory，与 RSS 口径不同。实际限制与平台回退可在状态详情查看。\n达到预算时会限制后台建库；这些设置不是整机总资源限制。", wraplength=750).grid(row=8, column=0, columnspan=2, sticky="w", pady=16)
+    preset_name = tk.StringVar(value=current.get('runtime_policy',{}).get('preset','balanced'))
+    ttk.Label(resource_tab,text='资源档位（仍保留当前检索范围与磁盘配额）').grid(row=9,column=0,sticky='w')
+    preset_box = ttk.Combobox(resource_tab,textvariable=preset_name,values=['low','balanced','fast'],state='readonly',width=16)
+    preset_box.grid(row=9,column=1,sticky='w',padx=16)
+    def choose_preset(event=None):
+        from .runtime_policy import apply_preset
+        chosen = apply_preset(current,preset_name.get())
+        for key,variable in resource_widgets.items():
+            variable.set(str(chosen['resource'][key]))
+    preset_box.bind('<<ComboboxSelected>>',choose_preset)
+    idle_only = tk.BooleanVar(value=current.get('runtime_policy',{}).get('idle_only',False))
+    on_ac_only = tk.BooleanVar(value=current.get('runtime_policy',{}).get('on_ac_only',False))
+    ttk.Checkbutton(resource_tab,text='仅空闲时建库',variable=idle_only).grid(row=10,column=0,sticky='w',pady=5)
+    ttk.Checkbutton(resource_tab,text='仅接通电源时建库',variable=on_ac_only).grid(row=10,column=1,sticky='w')
 
-    ttk.Label(database_tab, text="只读账号；密码填写环境变量名，不填写密码本身。环境变量需在服务启动前可用。", wraplength=780).pack(anchor="w")
+    ttk.Label(database_tab, text="先连接，再选择允许检索的表与字段。凭据可保存到当前用户的系统凭据库。", wraplength=780).pack(anchor="w")
+    database_list = ttk.Treeview(database_tab,columns=('id','kind','tables'),show='headings',height=6)
+    for key,label in [('id','来源'),('kind','数据库'),('tables','授权表')]:
+        database_list.heading(key,text=label)
+    database_list.pack(fill='both',expand=True,pady=5)
     db_text = tk.Text(database_tab, height=24, wrap="none", undo=True, font=("Consolas", 10))
-    db_text.pack(fill="both", expand=True, pady=8)
     db_text.insert("1.0", json.dumps(current.get("databases", []), ensure_ascii=False, indent=2))
+    def update_database_list():
+        database_list.delete(*database_list.get_children())
+        for source in json.loads(db_text.get('1.0','end')):
+            database_list.insert('','end',iid=source['id'],values=(source['id'],source['kind'],', '.join(source.get('allowed_tables',[]))))
+    update_database_list()
+    def configure_database(edit=False):
+        from .database_ui import open_database_editor
+        sources = json.loads(db_text.get('1.0','end'))
+        selected = database_list.selection()
+        original = next((s for s in sources if selected and s['id']==selected[0]),{}) if edit else {}
+        def save(source):
+            values = [s for s in sources if s['id']!=original.get('id')]
+            if any(s['id']==source['id'] for s in values):
+                raise ValueError('来源名称已存在')
+            values.append(source)
+            db_text.delete('1.0','end')
+            db_text.insert('1.0',json.dumps(values,ensure_ascii=False,indent=2))
+            update_database_list()
+        open_database_editor(window,original,save)
+    def remove_database():
+        selected = database_list.selection()
+        values = [s for s in json.loads(db_text.get('1.0','end')) if s['id'] not in selected]
+        db_text.delete('1.0','end')
+        db_text.insert('1.0',json.dumps(values,ensure_ascii=False,indent=2))
+        update_database_list()
+    database_actions = ttk.Frame(database_tab)
+    database_actions.pack(fill='x')
+    for label,command in [('连接并选择表…',lambda:configure_database(False)),('编辑所选来源…',lambda:configure_database(True)),('移除所选来源',remove_database)]:
+        ttk.Button(database_actions,text=label,command=command).pack(side='left',padx=4)
+    advanced = tk.BooleanVar(value=False)
+    ttk.Checkbutton(database_tab,text='高级 JSON 配置',variable=advanced,command=lambda:db_text.pack(fill='both',expand=True,pady=6) if advanced.get() else (db_text.pack_forget(),update_database_list())).pack(anchor='w')
 
     def add_database():
         dialog = tk.Toplevel(window)
@@ -283,8 +346,7 @@ def main(argv=None):
             except (ValueError, KeyError, TypeError) as error:
                 messagebox.showerror("配置错误", str(error), parent=dialog)
         ttk.Button(form, text="加入配置", command=accept).grid(row=len(specifications), column=1, sticky="e", pady=10)
-    ttk.Button(database_tab, text="添加数据库…", command=add_database).pack(anchor="w")
-    ttk.Label(database_tab, text="高级 TLS、多个表和字段可在上方 JSON 编辑。变更数据库后须点击“测试数据库”并通过，才能保存。", wraplength=780).pack(anchor="w", pady=5)
+    ttk.Label(database_tab, text="连接窗口支持多表、字段及 TLS 设置；高级配置仍可使用 JSON。变更后点击“测试数据库”，通过后保存。", wraplength=780).pack(anchor="w", pady=5)
     status_summary = tk.StringVar(value="刷新状态，查看后台服务与索引进度。")
     ttk.Label(status_tab, textvariable=status_summary, font=("Microsoft YaHei UI", 12, "bold"), wraplength=780).pack(anchor="w", pady=(0, 12))
     status_table = ttk.Treeview(status_tab, columns=("item", "value"), show="headings", height=9)
@@ -298,6 +360,7 @@ def main(argv=None):
     status_text.pack(fill="both", expand=True)
     messages = queue.Queue()
     busy = False
+    tabs.one_search_main_busy = lambda: busy
     tested_fingerprint = None
     closed = False
     controls = ttk.Frame(container)
@@ -307,7 +370,9 @@ def main(argv=None):
 
     def run_task(operation):
         nonlocal busy
-        if busy:
+        product_controller = getattr(tabs,'one_search_product_controller',None)
+        if busy or (product_controller and product_controller.busy):
+            activity.set('另一项操作执行中，请等待完成。')
             return
         busy = True
         activity.set("处理中…")
@@ -326,19 +391,41 @@ def main(argv=None):
         config = configuration()
         return {"service": service_status(config), "index": rpc(config, "index_status")}
 
+    def selected_settings():
+        if getattr(tabs,'one_search_config_changed',False):
+            raise ValueError('配置已被恢复或迁移操作更新，请关闭并重新打开设置窗口后再保存。')
+        indexing = {}
+        for tier, (mode, paths, extensions,exclusions) in tier_widgets.items():
+            indexing[f"{tier}_scope"] = mode.get()
+            indexing[f"{tier}_roots"] = [p.strip() for p in paths.get("1.0", "end").splitlines() if p.strip()]
+            indexing[f"{tier}_extensions"] = [p.strip() for p in extensions.get().split(",") if p.strip()]
+            indexing[f"{tier}_exclude_paths"] = [p.strip() for p in exclusions.get('1.0','end').splitlines() if p.strip()]
+        indexing['sensitive_content_excluded'] = sensitive_excluded.get()
+        from .runtime_policy import apply_preset
+        base = apply_preset(current,preset_name.get()) if preset_name.get()!=current.get('runtime_policy',{}).get('preset','balanced') else deepcopy(current)
+        policy = {**base.get('runtime_policy',{}),'preset':preset_name.get(),'idle_only':idle_only.get(),'on_ac_only':on_ac_only.get()}
+        resource = {key: int(variable.get()) if key in {"worker_memory_mb", "worker_cpu_percent"} else float(variable.get()) for key, variable in resource_widgets.items()}
+        return settings_config(base, {"scope": scope.get(), "roots": [p.strip() for p in roots.get("1.0", "end").splitlines() if p.strip()],
+            'exclude_paths':[p.strip() for p in excluded_paths.get('1.0','end').splitlines() if p.strip()],
+            "databases": json.loads(db_text.get("1.0", "end")), "semantic_enabled": semantic_enabled.get(), "indexing": indexing, "resource": resource,'runtime_policy':policy})
+
+    def preview_scope():
+        try:
+            candidate = selected_settings()
+        except Exception as error:
+            messagebox.showerror('配置错误',str(error),parent=window)
+            return
+        from .service import rpc
+        changes = {k:candidate[k] for k in ('scope','roots','exclude_paths','exclude_names','indexing')}
+        run_task(lambda:rpc(configuration(),'scope_preview',{'changes':changes}))
+    ttk.Button(scope_tab,text='预览范围变更影响',command=preview_scope).pack(anchor='w',pady=6)
+
     def save_start():
         nonlocal current
         if busy:
             return
         try:
-            indexing = {}
-            for tier, (mode, paths, extensions) in tier_widgets.items():
-                indexing[f"{tier}_scope"] = mode.get()
-                indexing[f"{tier}_roots"] = [p.strip() for p in paths.get("1.0", "end").splitlines() if p.strip()]
-                indexing[f"{tier}_extensions"] = [p.strip() for p in extensions.get().split(",") if p.strip()]
-            resource = {key: int(variable.get()) if key in {"worker_memory_mb", "worker_cpu_percent"} else float(variable.get()) for key, variable in resource_widgets.items()}
-            candidate = settings_config(current, {"scope": scope.get(), "roots": [p.strip() for p in roots.get("1.0", "end").splitlines() if p.strip()],
-                "databases": json.loads(db_text.get("1.0", "end")), "semantic_enabled": semantic_enabled.get(), "indexing": indexing, "resource": resource})
+            candidate = selected_settings()
             from .preflight import require_preflight
             require_preflight(current, candidate, tested_fingerprint)
         except (ValueError, KeyError, TypeError, OSError) as error:
@@ -377,9 +464,26 @@ def main(argv=None):
 
     def download():
         def operation():
-            from .model import download_model
-            return download_model(current["semantic"]["model_dir"])
+            from .model_manager import start_model_job
+            return start_model_job(configuration())
         run_task(operation)
+
+    def import_model():
+        directory = filedialog.askdirectory(parent=window,title='选择包含已校验模型文件的目录')
+        if directory:
+            from .model_manager import start_model_job
+            run_task(lambda:start_model_job(configuration(),directory))
+    model_actions = ttk.Frame(status_tab)
+    model_actions.pack(fill='x')
+    ttk.Button(model_actions,text='离线导入模型',command=import_model).pack(side='left')
+    def cancel_model():
+        from .model_manager import cancel_model_job
+        run_task(lambda:cancel_model_job(configuration()))
+    ttk.Button(model_actions,text='取消模型准备',command=cancel_model).pack(side='left',padx=5)
+    def timed_pause():
+        from .service import rpc
+        run_task(lambda:rpc(configuration(),'pause',{'seconds':1800}))
+    ttk.Button(resource_tab,text='暂停 30 分钟后自动恢复',command=timed_pause).grid(row=11,column=0,columnspan=2,sticky='w',pady=7)
 
     for label, command in (("保存并启动", save_start), ("刷新状态", lambda: run_task(show_status)),
         ("暂停索引", lambda: control("pause")), ("恢复索引", lambda: control("resume")),
@@ -419,15 +523,25 @@ def main(argv=None):
             status_text.configure(state="disabled")
             tabs.select(status_tab)
         window.after(200, poll)
+    def refresh_visible_status():
+        if closed:
+            return
+        if not busy and tabs.select()==str(status_tab) and config_path.exists():
+            run_task(show_status)
+        window.after(10000,refresh_visible_status)
     def close():
         nonlocal closed
-        if busy:
+        product_controller = getattr(tabs,'one_search_product_controller',None)
+        if busy or (product_controller and product_controller.busy):
             activity.set("操作执行中，完成后可关闭窗口。")
             return
         closed = True
+        if product_controller:
+            product_controller.request_close()
         window.destroy()
     window.protocol("WM_DELETE_WINDOW", close)
     poll()
+    window.after(10000,refresh_visible_status)
     window.mainloop()
     return 0
 

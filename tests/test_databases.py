@@ -260,6 +260,43 @@ def test_service_database_integration(engine):
         assert page['complete'] and identities == [1, 2, 3, 4]
 
 
+@pytest.mark.parametrize("engine", ["mysql", "postgres"])
+def test_service_database_onboarding_and_os_credential_rotation(engine):
+    from data_search import credentials, preflight, source_setup
+    config_path = os.environ.get("DATA_SEARCH_TEST_" + engine.upper() + "_CONFIG")
+    if not config_path:
+        pytest.skip("Set explicit isolated test database config to run service onboarding")
+    config = json.loads(Path(config_path).read_text(encoding="utf-8"))
+    table = "public.orders" if engine == "postgres" else "orders"
+    report = source_setup.discover_source(config)
+    assert report["ok"] and report["metadata_only"] and "hidden" not in json.dumps(report)
+    entry = next(item for item in report["tables"] if item["table"] == table)
+    assert entry["index_recommendation"]["id_column"] == "id"
+    assert "updated_at" in entry["index_recommendation"]["watermark_candidates"]
+    proposal = source_setup.propose_source(config, [{"table": table,
+        "columns": ["id", "description", "amount", "updated_at"], "index_text_columns": ["description"],
+        "updated_column": "updated_at"}], {"alias": "订单库", "tables": {table: {"alias": "订单"}}})
+    assert proposal["ok"] and preflight.check_database(proposal["source"])["ok"]
+    assert proposal["source"]["allowed_columns"][table] == ["id", "description", "amount", "updated_at"]
+    assert DatabaseSource(proposal["source"]).inspect()["tables"][0]["business_metadata"]["alias"] == "订单"
+    if os.name == "nt":
+        password = os.environ[config["password_env"]]
+        reference = credentials.store_credential(password)
+        try:
+            candidate = {**proposal["source"], "credential_ref": reference}
+            candidate.pop("password_env", None)
+            assert preflight.check_database(candidate)["ok"]
+            assert len(DatabaseSource(candidate).query({"table": table, "columns": ["id"]})["rows"]) == 4
+            credentials.store_credential("known-invalid-synthetic-password", reference)
+            failed = preflight.check_database(candidate)
+            assert not failed["ok"] and failed["checks"][-1]["code"] == "authentication_failed"
+            credentials.store_credential(password, reference)
+            assert preflight.check_database(candidate)["ok"]
+            assert password not in json.dumps(failed)
+        finally:
+            credentials.delete_credential(reference)
+
+
 
 def test_keyset_pages_cover_ties_without_offset(config, database):
     with sqlite3.connect(database) as connection:

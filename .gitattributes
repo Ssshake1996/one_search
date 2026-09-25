@@ -1,0 +1,5 @@
+# Release manifests hash these files byte for byte; checkouts must preserve them.
+src/**/*.py -text
+pyproject.toml -text
+# Shell installers must also run in Linux checkouts made from Windows.
+*.sh text eol=lf

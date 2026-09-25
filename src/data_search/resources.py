@@ -64,16 +64,15 @@ class Budget:
                 memory += child.memory_info().rss
             except psutil.Error:
                 pass
-        return memory, psutil.virtual_memory().available, shutil.disk_usage(self.path).free
+        paths = {self.path,Path(self.config.get('index_dir',self.path))}
+        free = min(shutil.disk_usage(path).free for path in paths if path.exists())
+        return memory, psutil.virtual_memory().available, free
 
     def _calibrate_disk(self):
         size = 0
-        paths = [self.path.resolve()]
-        model = Path(self.config['semantic']['model_dir']).resolve()
-        if self.path.resolve().is_relative_to(model):
-            paths = [model]
-        elif not model.is_relative_to(self.path.resolve()):
-            paths.append(model)
+        candidates = {self.path.resolve(), Path(self.config['semantic']['model_dir']).resolve(),
+                      Path(self.config.get('index_dir',self.path)).resolve()}
+        paths = [p for p in candidates if not any(p!=other and p.is_relative_to(other) for other in candidates)]
         for directory in paths:
             for base, dirs, files in os.walk(directory, followlinks=False):
                 dirs[:] = [d for d in dirs if not link_directory(Path(base, d))]

@@ -1,4 +1,6 @@
-# one_search v0.3 安装、设置与接入
+# one_search 安装、设置与接入
+
+用户和 Agent 的主安装合同在 [README 的安装与接入](../README.md#安装与接入给用户和-agent-的执行入口)，包括同版本包选择、校验、参数、状态含义和失败恢复。本文补充各平台维护细节。v0.4 的模型准备已经独立于基础服务启动；下文 v0.3 包名用于已有发行形式说明，下载时以目标 Release 的实际版本为准。
 
 本版先交付单机服务。每台机器使用独立 `node_id`，协议保留节点标识；远程认证、传输与跨机汇总尚未实现。新安装默认发现本机文件范围，传入目录参数可限制范围；重装保留现有设置。
 
@@ -15,7 +17,7 @@
 
 最终发行目录为 `dist/release-v0.3.0`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
 
-模型不在默认 ZIP 内。首次安装默认下载固定版本本地 embedding 模型；可以指定已校验的离线模型目录，或先关闭语义功能。推理始终在本机。
+模型不在默认 ZIP 内。首次安装先启动基础检索，再启动后台任务准备固定版本本地 embedding 模型；可以指定离线模型目录，在后台校验，或先关闭语义功能。推理始终在本机。网络失败只改变模型任务状态，安装不等待下载完成。
 
 ## Windows 安装
 
@@ -25,7 +27,7 @@
 .\scripts\install.ps1
 ```
 
-原生包还可双击 `Install.cmd`。安装器识别包类型，原生包校验并暂存随附运行时；bootstrap 包建立隔离 venv 并使用随包 wheelhouse。随后初始化配置、准备模型、注册当前用户登录启动项、隐藏启动服务，并生成 MCP 配置。原生分支不调用系统 Python。
+原生包还可双击 `Install.cmd`。安装器识别包类型，原生包校验并暂存随附运行时；bootstrap 包建立隔离 venv 并使用随包 wheelhouse。随后初始化配置、注册当前用户登录启动项、隐藏启动服务、生成 MCP 配置，再启动独立模型任务。最后用真实文件名查询验证基础服务，把结构化结果保存到 `<DataDir>/install-result.json`。原生分支不调用系统 Python。
 
 默认目录：
 
@@ -124,6 +126,19 @@ bash scripts/install.sh --root /srv/docs --skip-model --no-autostart
 
 ## 离线模型与构建
 
+模型后台任务：
+
+```powershell
+data-search model-status --config CONFIG
+data-search model-start --config CONFIG
+data-search model-import --source 'D:\verified-offline-model' --config CONFIG
+data-search model-cancel --config CONFIG
+```
+
+`model-start` 下载到配置中的模型目录；`model-import` 将来源目录按固定 SHA-256 验证并复制到配置中的模型目录。安装器 `-ModelDir` 保留原有外部目录语义，不擅自搬动它。任务状态在数据目录 `model-job/status.json`，包含状态、资产、字节进度、错误代码和恢复建议，不保存下载凭据。完成的资产可在重试时复用；未完成资产重新传输。取消为协作式，正在等待网络时通常需等当前最多 15 秒的网络操作结束。旧同步 `model-download` 保持可用，但安装器不再使用它。
+
+基础就绪不意味着正文或语义就绪。`installation-status --config CONFIG --install-dir APP` 返回运行时、服务、基础查询探测和模型状态；`dsh_connection=not_checked` 需要继续在 DSH 内验证。模型状态 `failed/interrupted` 时先检查错误代码，重新运行 `model-start` 或 `model-import`，无需重装服务或删除索引。
+
 离线模型应由同版本 `data-search model-download --config CONFIG` 准备，包含 `model.onnx`、`tokenizer.json`、`config.json`、`manifest.json`，并通过固定版本校验。不要使用任意聊天模型目录。
 
 ```powershell
@@ -155,15 +170,15 @@ python scripts/build_release.py --output dist/release-v0.3.0 --native
 
 ## MCP 与 DSH 接入
 
-DeepSeek Harness 使用随包的 `plugins/deepseek-harness` Cordis bundle。在完整解压的发行目录执行：
+DeepSeek Harness 使用随包的 `plugins/deepseek-harness` Cordis bundle。按 [README 注册步骤](../README.md#安装与接入给用户和-agent-的执行入口) 准备 `dsh-register.json`，在完整解压的发行目录执行：
 
 ```powershell
 $env:ONE_SEARCH_RELEASE_DIR = (Get-Location).Path
-dsh plugin --profile web add ./plugins/deepseek-harness
+node ./plugins/deepseek-harness/register.mjs ./dsh-register.json
 dsh --profile web
 ```
 
-`plugin add` 安装并注册 bundle；首次启动该 profile 才安装缺失的后台服务、连接官方 MCP 客户端。已有后台会复用，退出 DSH 不会停止后台。插件包注册不依赖 `postinstall`；依赖安装需要 npm 网络或已有 pnpm 缓存。自定义安装目录、只检索指定目录、复用已有服务和版本条件见 [DSH bundle 说明](../plugins/deepseek-harness/README.md)。更新 DSH 插件包本身不会升级后台，应另运行新发行包安装器。
+注册脚本先把插件按内容校验复制到 DSH 用户目录所在卷，解决 DSH/pnpm 的跨盘 file 依赖问题，再调用官方 `plugin add`；首次启动 profile 才安装缺失的后台服务、连接 MCP。缺少后台版本或版本旧于 0.4 时，需要匹配发行目录来升级；显式配置的外部运行时只报告升级要求。退出 DSH 不会停止后台。插件包注册不依赖 `postinstall`；依赖安装需要 npm 网络或已有 pnpm 缓存。自定义范围、资源档位、离线模型和连接诊断见 [DSH bundle 说明](../plugins/deepseek-harness/README.md)。
 
 其他支持标准 `mcpServers` JSON 的宿主可读取 `<InstallDir>/mcp.json`，把其中 `data-search` 条目加入自己的配置。DSH 的 Cordis 配置不是这种 JSON 容器。安装器生成绝对路径，但不会自行改写未知宿主或 Codex 的全局配置。
 

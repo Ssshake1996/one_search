@@ -7,10 +7,13 @@ import sys
 def main():
     args = sys.argv[1:]
     if args[:1] == ["--internal-module"]:
-        if len(args) < 2 or args[1] not in {"data_search", "data_search.worker", "data_search.preflight", "data_search.upgrade", "data_search.host_integration"}:
+        if len(args) < 2 or args[1] not in {"data_search", "data_search.worker", "data_search.preflight", "data_search.upgrade", "data_search.host_integration", "data_search.model_manager", "data_search.installation"}:
             raise SystemExit("Unknown internal module")
         module, args = args[1], args[2:]
         sys.argv = [module, *args]
+        if module in {"data_search.model_manager", "data_search.installation"}:
+            import importlib
+            return importlib.import_module(module).main(args)
         if module == "data_search.worker":
             from data_search.worker import main as worker_main
             return worker_main()

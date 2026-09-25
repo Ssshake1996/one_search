@@ -165,7 +165,8 @@ def run_daemon(config: dict, *, engine_factory=None):
         shutdown_lock = threading.Lock()
         requests_condition = threading.Condition()
         active_requests = 0
-        allowed_methods = {"search", "fetch", "inspect_source", "query_database", "index_status", "scan", "pause", "resume"}
+        allowed_methods = {"search", "fetch", "inspect_source", "query_database", "index_status", "scan", "pause", "resume",
+                           'diagnose_path','read_context','refresh_path','prioritize_path','open_source','scope_preview'}
 
         def begin_shutdown():
             with shutdown_lock:

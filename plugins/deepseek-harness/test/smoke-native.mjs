@@ -74,7 +74,10 @@ try {
   report.scope_preserved = true;
   report.tools = application.ctx.tools.wireSchemas().schemas.map((s) => s.name)
     .filter((name) => name.startsWith('mcp__one_search__')).sort();
-  assert.equal(report.tools.length, 5);
+  for (const name of ['search', 'fetch', 'inspect_source', 'query_database', 'index_status',
+    'diagnose_path', 'read_context', 'refresh_path', 'prioritize_path', 'pause_indexing', 'resume_indexing']) {
+    assert.ok(report.tools.includes('mcp__one_search__' + name), 'Missing MCP tool: ' + name);
+  }
   async function call(name, args) {
     const result = await application.ctx.tools.execute({
       name: 'mcp__one_search__' + name, arguments: args, callId: 'native-smoke-' + name,

@@ -6,6 +6,8 @@ $parameters = @{
     InstallDir = [string]$request.installDir
     DataDir = [string]$request.dataDir
     Root = [string[]]@($request.roots)
+    Exclude = [string[]]@($request.excludePaths)
+    Preset = [string]$request.preset
     SkipModel = [bool]$request.skipModel
     NoAutostart = [bool]$request.noAutostart
 }

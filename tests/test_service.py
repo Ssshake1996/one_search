@@ -293,7 +293,7 @@ def test_cli_status_requires_running_daemon(tmp_path, capsys):
     path.write_text(json.dumps(config))
     assert cli.main(["status", "--config", str(path)]) == 1
     output = capsys.readouterr()
-    assert output.out == "" and "not running" in output.err
+    assert json.loads(output.out)['error']['code']=='ServiceError' and "not running" in output.err
 
 
 def test_mcp_official_sdk_tools_and_proxy(daemon):
@@ -302,8 +302,9 @@ def test_mcp_official_sdk_tools_and_proxy(daemon):
     mcp = create_mcp(config)
     async def check():
         tools = await mcp.list_tools()
-        assert {tool.name for tool in tools} == {"search", "fetch", "inspect_source", "query_database", "index_status"}
-        assert all(tool.annotations.readOnlyHint for tool in tools)
+        readonly = {"search", "fetch", "inspect_source", "query_database", "index_status",'diagnose_path','read_context'}
+        assert {tool.name for tool in tools} == readonly|{'refresh_path','prioritize_path','pause_indexing','resume_indexing'}
+        assert all(tool.annotations.readOnlyHint==(tool.name in readonly) for tool in tools)
         result = await mcp.call_tool("search", {"query": "材料", "mode": "keyword"})
         # Official SDK returns content + structured output for a dict-returning tool.
         structured = result[1] if isinstance(result, tuple) else result

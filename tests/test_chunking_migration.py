@@ -1,4 +1,8 @@
-"""Old, unchanged documents must adopt v0.3 chunks without losing coverage."""
+"""Known-identity documents can migrate chunking without losing coverage.
+
+Legacy records without file identity are separately tested for rejection/reparse
+in test_product_journeys; an unknown historical file cannot retain trusted text.
+"""
 import json
 from pathlib import Path
 import sqlite3
@@ -39,6 +43,8 @@ def legacy_files(tmp_path, count=5):
                     ("file:" + str(path), str(path), path.name, stat.st_size, stat.st_mtime_ns,
                      "partial" if number == count - 1 else "ready"),
                 ).lastrowid
+                from data_search.product import file_identity
+                store.db.execute('UPDATE documents SET file_identity=? WHERE id=?',(file_identity(stat),doc_id))
                 store.db.execute("INSERT INTO chunks(doc_id,text,hash,locator) VALUES(?,?,?,?)",
                                  (doc_id, body, text_hash(body), json.dumps({"line_start": 1})))
                 originals[doc_id] = (path, stat.st_size, stat.st_mtime_ns)

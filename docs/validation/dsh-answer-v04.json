@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "recorded_at_utc": "2026-09-25T17:28:51.461117+00:00",
+  "product_version": "0.4.0",
+  "artifact_stage": "working tree before final release build",
+  "host_cli_version": "0.1.5-rc.1",
+  "model": "gpt-6-sol",
+  "provider": "existing user-configured provider",
+  "default_user_profiles_modified": false,
+  "credentials_used_by_existing_provider_path": true,
+  "credential_values_exported": false,
+  "synthetic_only": true,
+  "single_model_session": true,
+  "exit_code": 0,
+  "actual_session_tool_call_order": [
+    "index_status",
+    "search",
+    "fetch",
+    "fetch",
+    "search",
+    "search"
+  ],
+  "tool_call_records": 6,
+  "fixtures": [
+    {
+      "name": "海棠-批准版本.md",
+      "sha256": "1b14618a223786e3d96fc9bd4912d1a9c2b2c222a23550df40df7ccbbc1d0d9c",
+      "evidence_line": 2
+    },
+    {
+      "name": "海棠-更新草案.md",
+      "sha256": "aed110bfa74a32111fa30e546ed6b40787d162c0251b94f8207c05f1716048ec",
+      "evidence_line": 2
+    }
+  ],
+  "approved_budget_correct": true,
+  "draft_budget_correct": true,
+  "draft_not_treated_as_approved": true,
+  "both_full_path_line_citations_verified": true,
+  "no_answer_limited_to_indexed_scope": true,
+  "answer_with_local_path_redacted": "海棠项目当前已批准预算为人民币18000元，原文标明“已批准”：[批准版本第2行](<<synthetic_corpus>\\海棠-批准版本.md:2>)。最新草案计划预算为人民币23000元，原文标明“草案，未批准”，不能替代已批准版本：[更新草案第2行](<<synthetic_corpus>\\海棠-更新草案.md:2>)。\n\n月球凤凰项目采购编号在当前已索引范围内未找到，不能据此断言整个电脑都没有。\n",
+  "limits": [
+    "Single prompted synthetic scenario; not a retrieval-quality benchmark",
+    "No stale-permission or adversarial prompt corpus evaluated in this model session",
+    "Final native release tested separately; this answer run used the source backend"
+  ]
+}

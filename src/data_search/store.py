@@ -92,6 +92,9 @@ class Store:
           CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
         """)
         self.db.commit()
+        if not any(r[1] == 'file_identity' for r in self.db.execute('PRAGMA table_info(documents)')):
+            self.db.execute('ALTER TABLE documents ADD COLUMN file_identity TEXT')
+            self.db.commit()
         if not any(r[1] == 'chunking_version' for r in self.db.execute('PRAGMA table_info(documents)')):
             self.db.execute('ALTER TABLE documents ADD COLUMN chunking_version INTEGER NOT NULL DEFAULT 0')
             self.db.commit()

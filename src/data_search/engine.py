@@ -18,6 +18,8 @@ from .store import Store, pack_vector, query_terms, text_hash
 from .vectors import Vectors
 from .workers import Worker
 from .catalog import FileCatalog
+from .product import file_identity
+from .search_filters import build_filters
 
 
 def now():
@@ -27,14 +29,26 @@ def now():
 class Engine:
     def __init__(self, config: dict):
         self.config = config
+        from .maintenance import IndexDirectoryLease
+        import weakref
+        self.index_lease = IndexDirectoryLease(config)
+        self.index_lease.__enter__()
+        self._release_index = weakref.finalize(self,self.index_lease.__exit__,None,None,None)
         self.budget = Budget(config)
-        self.store = Store(config['data_dir'], self.budget)
+        self.store = Store(config.get('index_dir', config['data_dir']), self.budget)
+        self.instance_id = self.store.setting('instance_id') or str(uuid.uuid4())
+        self.store.set_setting('instance_id', self.instance_id)
         self.parser, self.model, self.database = [Worker(self.budget) for _ in range(3)]
         self.vectors = Vectors(self.store, self.budget)
         self.vector_lock = threading.RLock()
         self.scan_lock = threading.Lock()
         self.stop_event, self.scan_event = threading.Event(), threading.Event()
         self.paused = self.store.setting('paused') == 'true'
+        from .runtime_policy import RuntimePolicy
+        self.policy = RuntimePolicy(config)
+        if self.paused and not self.policy.path.exists():
+            self.policy.pause()
+        self.paused = self.policy.status()['user_paused']
         self.scanning = False
         self.last_error = None
         self.last_scan = self.store.setting('last_scan') or None
@@ -80,7 +94,7 @@ class Engine:
         self._apply_indexing_scope()
         self.catalog = FileCatalog(self)
 
-    def _metadata_batch(self, records, seen=None):
+    def _metadata_batch(self, records, seen=None, priority=False):
         if not records:
             return
         self.budget.check(disk=True, reserve_mb=max(1,len(records)*.004))
@@ -89,10 +103,18 @@ class Engine:
         existing = {row['key']:row for row in self.store.rows('SELECT * FROM documents WHERE key IN ('+
                     ','.join('?' for _ in keys)+')',keys)}
         with self.vector_lock, self.store.lock, self.store.db:
-            for path, size, mtime_ns in records:
+            for record in records:
+                path, size, mtime_ns = record[:3]
+                identity = record[3] if len(record)>3 else file_identity(Path(path).stat())
                 key, p = 'file:'+path, Path(path)
                 old = existing.get(key)
+                if old and (old.get('file_identity') is None or old['file_identity'] != identity):
+                    self.store.db.execute('DELETE FROM documents WHERE id=?',(old['id'],))
+                    old = None
+                    changed = True
                 if old:
+                    if not old.get('file_identity'):
+                        self.store.db.execute('UPDATE documents SET file_identity=? WHERE id=?',(identity,old['id']))
                     if seen is not None:
                         self.store.db.execute('UPDATE documents SET seen=? WHERE id=?',(seen,old['id']))
                     if old['size']==size and old['mtime_ns']==mtime_ns:
@@ -106,12 +128,13 @@ class Engine:
                     row = self.store.db.execute('INSERT INTO documents(key,source_id,path,name,extension,size,mtime_ns,status,seen) '
                         "VALUES(?,'files',?,?,?,?,?,'pending',?)",(key,path,p.name,p.suffix.lower(),size,mtime_ns,seen or 'event'))
                     doc_id = row.lastrowid
+                    self.store.db.execute('UPDATE documents SET file_identity=? WHERE id=?',(identity,doc_id))
                 if not self._tier_allowed(p,'content'):
                     self.store.db.execute("UPDATE documents SET status='metadata',reason='content_scope_excluded' WHERE id=?",(doc_id,))
                     self.store.db.execute('DELETE FROM file_work WHERE doc_id=?',(doc_id,))
                     continue
-                self.store.db.execute('INSERT INTO file_work(doc_id) VALUES(?) '
-                    'ON CONFLICT(doc_id) DO UPDATE SET available_at=0,attempts=0',(doc_id,))
+                self.store.db.execute('INSERT INTO file_work(doc_id,priority) VALUES(?,?) '
+                    'ON CONFLICT(doc_id) DO UPDATE SET available_at=0,attempts=0,priority=max(priority,excluded.priority)',(doc_id,int(priority)))
         self.budget.note_write(len(records)*4096)
         self._coverage_cache = None
         if changed:
@@ -125,6 +148,11 @@ class Engine:
         if path is None:  # Database text is explicitly selected in its own config.
             return True
         path = Path(path)
+        from .product import sensitive_path
+        if any(contained(path,Path(root)) for root in settings.get(tier+'_exclude_paths', [])):
+            return False
+        if settings.get('sensitive_content_excluded',False) and sensitive_path(path):
+            return False
         extensions = settings.get(tier+'_extensions', [])
         if extensions and path.suffix.lower() not in extensions:
             return False
@@ -228,8 +256,8 @@ class Engine:
             self.store.db.execute('UPDATE documents SET chunking_version=3 WHERE id=?',(doc_id,))
             self._changed()
 
-    def _file(self, path: Path, seen: str, metadata_only=False):
-        if self.stop_event.is_set() or self.paused:
+    def _file(self, path: Path, seen: str, metadata_only=False, *, explicit=False):
+        if self.stop_event.is_set() or (self.paused and not explicit):
             raise ResourceLimit('paused')
         if not self.allowed(path) or link_directory(path):
             return
@@ -243,6 +271,11 @@ class Engine:
         if not path.is_file():
             return
         stat = path.stat()
+        identity = file_identity(stat)
+        if existing and (existing[0].get('file_identity') is None or existing[0]['file_identity'] != identity):
+            self.store.remove([existing[0]['id']])
+            self._changed()
+            existing = []
         self.budget.check(disk=True, reserve_mb=8)
         preserve_old = False
         with self.vector_lock, self.store.lock, self.store.db:
@@ -263,6 +296,7 @@ class Engine:
                 cursor = self.store.db.execute('INSERT INTO documents(key,source_id,path,name,extension,size,mtime_ns,status,seen) VALUES(?,?,?,?,?,?,?,?,?)',
                     ('file:'+key, 'files', key, path.name, path.suffix.lower(), stat.st_size, stat.st_mtime_ns, 'pending', seen))
                 doc_id = cursor.lastrowid
+            self.store.db.execute('UPDATE documents SET file_identity=? WHERE id=?',(identity,doc_id))
         if metadata_only:
             return
         if not self._tier_allowed(path, 'content'):
@@ -656,17 +690,19 @@ class Engine:
             last_tick = last_full = 0
             while not self.stop_event.wait(.2):
                 moment = time.monotonic()
+                self.paused = self.policy.status()['user_paused']
                 full = self.scan_event.is_set() or moment-last_full >= self.config['reconcile_interval_seconds']
                 if self.observer is None and self.monitoring!='journal_and_reconciliation' and moment-last_full >= self.config['scan_interval_seconds']:
                     full = True
                 active = self._has_work() or any(row.get('has_more') for row in self.journal_reports.values())
                 interval = self.config['scheduler']['tick_seconds'] if active else self.config['scan_interval_seconds']
                 if not self.paused and (full or moment-last_tick >= interval):
-                    self.scan_event.clear()
-                    self.scan_once(full=full)
-                    last_tick = time.monotonic()
-                    if full:
-                        last_full = last_tick
+                    if self.policy.decision()['background_allowed']:
+                        self.scan_event.clear()
+                        self.scan_once(full=full)
+                        last_tick = time.monotonic()
+                        if full:
+                            last_full = last_tick
                 self.model.idle_close(self.config['semantic']['idle_seconds'])
                 self.database.idle_close(5)
                 self.parser.idle_close(5)
@@ -675,13 +711,17 @@ class Engine:
 
     def _result(self, row: dict, match: str, score: float) -> dict | None:
         if row['source_id'] == 'files':
+            if row.get('file_identity') is None:
+                return None  # Legacy cached text has no provable association with the current file.
             p = Path(row['path'])
             if not self.allowed(p) or not p.is_file() or p.is_symlink():
                 return None
             try:
                 with p.open('rb'):
                     stat = p.stat()
-                stale = stat.st_mtime_ns != row['mtime_ns'] or stat.st_size != row['size']
+                if row.get('file_identity') and row['file_identity'] != file_identity(stat):
+                    return None
+                stale = row['file_identity']=='unavailable' or stat.st_mtime_ns != row['mtime_ns'] or stat.st_size != row['size']
             except OSError:
                 return None
         else:
@@ -694,6 +734,9 @@ class Engine:
                 'name': row['name'], 'snippet': row.get('text',''),
                 'locator': json.loads(row.get('chunk_locator') or row['locator']),
                 'indexed_at': row['indexed_at'], 'stale': stale, 'status': row['status'],
+                'size':row['size'], 'modified_ns':row['mtime_ns'],
+                'identity_verification':'unavailable' if row.get('file_identity')=='unavailable' else 'file_id' if row['source_id']=='files' else 'database_key',
+                'revision':row.get('version') or str(row['mtime_ns'])+':'+str(row['size']),
                 'reason': row['reason'], 'match': match, 'score': score}
 
     def _candidate_results(self, candidates, doc_filter, args, limit):
@@ -721,19 +764,18 @@ class Engine:
                     return results
         return results
 
-    def search(self, query: str, mode='hybrid', limit=20, source_id=None, extension=None, **kwargs):
+    def search(self, query: str, mode='hybrid', limit=20, source_id=None, extension=None,
+               extensions=None,directory=None,modified_after=None,modified_before=None,min_size=None,max_size=None,
+               category=None,sort='relevance',fold_duplicates=False,**kwargs):
         start = time.perf_counter()
+        self.policy.foreground()
         if mode not in {'files','keyword','semantic','hybrid'} or not isinstance(query,str) or not query.strip() or len(query)>1000:
             raise ValueError('invalid mode or query (1..1000 characters)')
         limit = max(1,min(int(limit),100))
         warnings, results = [], []
-        doc_filter, args = '', []
-        if source_id:
-            doc_filter += ' AND d.source_id=?'
-            args.append(source_id)
-        if extension:
-            doc_filter += ' AND d.extension=?'
-            args.append(extension.lower())
+        doc_filter,args,applied = build_filters(source_id=source_id,extension=extension,extensions=extensions,
+            directory=directory,modified_after=modified_after,modified_before=modified_before,min_size=min_size,max_size=max_size,
+            category=category,sort=sort)
         candidate_limit, maximum = max(128,limit*5), 8192
         if mode == 'files':
             doc_filter += " AND d.source_id='files'"
@@ -751,8 +793,10 @@ class Engine:
                 expression = 'paths_short_fts MATCH ? AND ' + expression
                 path_args.insert(0, '"'+query+'"')
             while True:
-                rows = self.store.rows('SELECT d.* FROM '+source+' WHERE '+expression+doc_filter+' ORDER BY d.id LIMIT ?',
-                                       path_args+args+[candidate_limit])
+                ordering = {'relevance':'CASE WHEN d.name=? COLLATE NOCASE THEN 0 ELSE 1 END,d.id',
+                            'modified_desc':'d.mtime_ns DESC,d.id', 'modified_asc':'d.mtime_ns,d.id','name':'d.name COLLATE NOCASE,d.id'}[sort]
+                rows = self.store.rows('SELECT d.* FROM '+source+' WHERE '+expression+doc_filter+' ORDER BY '+ordering+' LIMIT ?',
+                                       path_args+args+([query] if sort=='relevance' else [])+[candidate_limit])
                 results = [hit for row in rows if (hit := self._result(row, 'filename', 1.0))][:limit]
                 if len(results)>=limit or len(rows)<candidate_limit or candidate_limit>=maximum:
                     break
@@ -768,16 +812,20 @@ class Engine:
             while True:
                 candidates, saturated = {}, False
                 if expression:
+                    keyword_order = {'relevance':'rank','modified_desc':'d.mtime_ns DESC,rank','modified_asc':'d.mtime_ns,rank','name':'d.name COLLATE NOCASE,rank'}[sort]
                     rows = self.store.rows('SELECT c.id chunk_id,bm25(chunks_fts) rank FROM chunks_fts '
                         'JOIN chunks c ON c.id=chunks_fts.rowid JOIN documents d ON d.id=c.doc_id '
-                        'WHERE chunks_fts MATCH ?'+doc_filter+' ORDER BY rank LIMIT ?', [expression]+args+[candidate_limit])
+                        'WHERE chunks_fts MATCH ?'+doc_filter+' ORDER BY '+keyword_order+' LIMIT ?', [expression]+args+[candidate_limit])
                     saturated = len(rows) == candidate_limit
                     for rank,row in enumerate(rows):
                         candidates[row['chunk_id']] = {'score':1/(61+rank), 'matches':['keyword']}
                 if vector is not None:
                     try:
-                        hits = self.vectors.search(vector,candidate_limit,source_id=source_id,extension=extension)
-                        if source_id or extension:
+                        filters = {'source_id':source_id,'extension':extension}
+                        if any(v is not None for v in (extensions,directory,modified_after,modified_before,min_size,max_size,category)):
+                            filters.update(filter_sql=doc_filter,filter_args=args)
+                        hits = self.vectors.search(vector,candidate_limit,**filters)
+                        if doc_filter:
                             warnings.append('filtered_semantic_exact: scores current matching vectors in bounded batches; cost grows with the filtered vector count')
                         saturated = saturated or len(hits) == candidate_limit
                         eligible = set()
@@ -805,12 +853,28 @@ class Engine:
                 candidate_limit = min(maximum,candidate_limit*2)
             if vector is not None and self.vectors.status()['pending']:
                 warnings.append('semantic_index_updating: results use the previous published snapshot')
+            if sort!='relevance':
+                if mode!='keyword':
+                    warnings.append('sort_applies_to_retrieved_candidates: use files or keyword mode for exhaustive matching ordering')
+                results.sort(key=(lambda r:(r['name'].casefold(),r['id'])) if sort=='name' else (lambda r:(r.get('modified_ns') or 0,r['id'])), reverse=sort=='modified_desc')
+        if mode=='hybrid' and sort=='relevance':
+            exact_rows = self.store.rows("SELECT d.* FROM documents d WHERE d.source_id='files' AND d.name=? COLLATE NOCASE"+doc_filter+' ORDER BY d.id LIMIT ?', [query]+args+[limit])
+            exact = [hit for row in exact_rows if (hit:=self._result(row,'exact_filename',1.0))]
+            ids = {r['document_id'] for r in exact}
+            results = (exact+[r for r in results if r['document_id'] not in ids])[:limit]
+        from .product import cite, group_evidence
+        for result in results:
+            result['citation'] = cite(result)
+        if fold_duplicates:
+            results = group_evidence(self,results,True)
         return {'results':results,'elapsed_ms':round((time.perf_counter()-start)*1000,2),
                 'warnings':list(dict.fromkeys(warnings)),'coverage':self.coverage(),
+                'applied_filters':applied,'date_semantics':'UTC when timezone absent; after inclusive, before exclusive',
                 'candidate_limit':candidate_limit, 'evidence_only':True,
                 'note':'Similarity is not proof that a question is answerable; use the quoted evidence.'}
 
     def fetch(self,id:str,offset=0,limit=10,**kwargs):
+        self.policy.foreground()
         prefix, raw = id.split(':',1)
         number = int(raw)
         if prefix == 'c':
@@ -838,6 +902,7 @@ class Engine:
                 'snapshot':True, 'offset':offset, 'next_offset':offset+len(chunks)}
 
     def query_database(self,source_id,request):
+        self.policy.foreground()
         conf=self.db_configs.get(source_id)
         if conf is None:
             raise ValueError('unknown source')
@@ -868,7 +933,12 @@ class Engine:
                 'source_errors':dict(self.source_errors),'scanning':self.scanning,'last_scan':self.last_scan}
 
     def status(self):
-        return {'node_id':self.config['node_id'],'paused':self.paused,'last_error':self.last_error,
+        from . import __version__
+        from .product import capabilities
+        from .model_manager import model_status
+        return {'schema_version':1,'version':__version__,'instance_id':self.instance_id,
+                'node_id':self.config['node_id'],'paused':self.policy.status()['user_paused'],'last_error':self.last_error,
+                'runtime_policy':self.policy.status(),'capabilities':capabilities(self),
                 'file_scope':self._scope_report(),
                 'coverage':self.coverage(),'resources':self.budget.snapshot(),
                 'indexing':self.config.get('indexing', {}),
@@ -878,7 +948,7 @@ class Engine:
                 'scheduler':self.catalog.progress(),
                 'journal':dict(self.journal_reports), 'vector_error':self.vector_error,
                 'semantic':{'enabled':self.config['semantic']['enabled'],'model_ready':model_ready(self.config['semantic']['model_dir']),
-                            'model_loaded':self.model.proc is not None,'model_id':MODEL_ID},
+                            'model_loaded':self.model.proc is not None,'model_id':MODEL_ID,'lifecycle':model_status(self.config)},
                 'remote_nodes':'not_implemented'}
 
     def dispatch(self,method:str,params:dict):
@@ -891,14 +961,21 @@ class Engine:
         if method=='fetch': return self.fetch(**params)
         if method=='inspect_source': return self.inspect_source(**params)
         if method=='query_database': return self.query_database(**params)
+        if method=='scope_preview':
+            from .product import scope_impact
+            return scope_impact(self,**params)
+        if method in {'diagnose_path','prioritize_path','refresh_path','read_context','open_source'}:
+            from .product import diagnose,prioritize,refresh,context,open_source
+            return {'diagnose_path':diagnose,'prioritize_path':prioritize,'refresh_path':refresh,'read_context':context,'open_source':open_source}[method](self,**params)
         if method=='scan':
             self.scan_event.set()
             return {'accepted':True,'paused':self.paused}
         if method in {'pause','resume'}:
-            self.paused=method=='pause'
+            state = self.policy.pause(params.get('seconds')) if method=='pause' else self.policy.resume()
+            self.paused=state['user_paused']
             self.store.set_setting('paused',str(self.paused).lower())
             if not self.paused: self.scan_event.set()
-            return {'paused':self.paused}
+            return {'paused':self.paused,**state}
         raise ValueError('unknown operation')
 
     def begin_shutdown(self):
@@ -924,3 +1001,4 @@ class Engine:
             worker.close()
         self.vectors.close()
         self.store.close()
+        self._release_index()

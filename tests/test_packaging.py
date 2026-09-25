@@ -116,7 +116,7 @@ def test_settings_window_save_restarts_with_selected_scope(tmp_path, monkeypatch
             pending.extend(widget.winfo_children())
             if "text" in widget.keys():
                 buttons[widget.cget("text")] = widget
-        assert "保存并启动" in buttons and "暂停索引" in buttons and "添加数据库…" in buttons
+        assert "保存并启动" in buttons and "暂停索引" in buttons and "连接并选择表…" in buttons
         machine = next(widget for label, widget in buttons.items() if label.startswith("整个电脑"))
         machine.invoke()
         buttons["保存并启动"].invoke()

@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0
+
+### Installation and first usable search
+
+- README is the Agent installation contract, with platform prerequisites, release verification, exact parameters, exit/status interpretation and recovery steps. New installs default to the whole accessible local machine; optional exclusions and low/balanced/fast presets are applied only on first configuration, and repeated installation preserves saved settings.
+- Basic daemon search starts before detached model preparation. Download/import jobs expose progress, verification, cancellation, interruption and retry; completed pinned assets are reused, failures do not block filename/keyword search, and model changes after verification can be repaired. Installation reports distinguish runtime, service, basic search, semantic readiness and DSH connection checks.
+- DSH registration stages the bundle on the DSH-home volume to fix the observed Windows cross-drive dependency failure. Activation checks backend compatibility, upgrades older managed backends only through a supplied compatible release installer, and clearly identifies explicit backends requiring manual update. Shared-client registrations and an isolated 11-tool connection check are included.
+
+### Search, evidence and recovery
+
+- Directory/date/size/category/multiple-extension filters, effective-filter output, exact-filename preference and lexical sorting help users narrow results. Optional duplicate folding compares complete extracted text among returned candidates and does not infer an approved version.
+- The MCP surface expands from five to 11 tools with path diagnosis, bounded context/citations, explicit refresh/priority and persistent timed pause/resume. Source opening is an explicit settings/CLI action; source text remains untrusted evidence.
+- Filesystem identity checks reject replaced or unverified legacy files. v0.3 files are re-associated and parsed under existing budgets; old IDs cannot silently redirect to replacement content. Miss diagnostics distinguish unseen, excluded, stale, pending, unsupported, encrypted, partial and resource-limited cases.
+- Settings expose search/preview, exclusion impact, model jobs, resource presets, database table/column selection and operational status. CPU/battery/idle/AC policies defer background work, while user pause and automatic waits remain separate and retrieval stays available.
+
+### Databases and maintenance
+
+- Bounded metadata discovery proposes explicit table/column selections, stable key/watermark candidates, realtime-only versus indexed text and business metadata. Read-only preflight still validates the exact pending configuration before activation.
+- Windows Credential Manager and optional Linux Secret Service store database passwords outside configuration. Rotation and unavailable credentials produce structured diagnostics; no plaintext fallback or credential export is introduced.
+- Index relocation uses ownership markers, held leases, copy verification, atomic configuration switch and retained originals. Native upgrade snapshots include external indexes and reacquire locks before rollback. Install/upgrade/uninstall coordination includes detached model jobs.
+- Space breakdown, recognized backup cleanup, configuration export/restore without credentials, shared-client impact, autostart control and explicit preserve/delete-data removal complete the local maintenance workflow. Source files are outside generated-index cleanup.
+
+### Verification boundaries
+
+The release remains a preview. A real installed DSH headless model session executed status/search/fetch calls on synthetic files, cited approved versus draft values and limited its no-answer claim to indexed scope; see [answer evidence](docs/validation/dsh-answer-v04.json). This is one prompted scenario, not broad answer-quality acceptance. Final test/build/install evidence, actual hardware/corpus sizes and remaining Linux/physical low-memory/large-real-corpus limits are recorded in [validation](docs/VALIDATION.md). Multi-machine transport and conditional OCR/legacy Office/archive-body expansion remain outside this release.
+
 ## 0.3.0
 
 ### Durable indexing and retrieval

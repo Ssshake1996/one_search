@@ -1,44 +1,100 @@
 # one_search
 
-面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.3 提供共享后台服务、MCP stdio 接口、Windows 自带运行时的安装包和本地设置窗口；文件解析、正文索引与语义计算在本机进行。
+面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.4 提供 README 驱动安装、共享后台服务、11 个 MCP 工具、Windows 自带运行时的安装包和本地设置窗口；文件解析、正文索引与语义计算在本机进行。
 
 新安装默认发现当前账号可访问的本地磁盘；可以改为指定目录。当前交付单机，接口已保留 `node_id`；多机传输、认证与跨机结果合并尚未实现。项目名是 `one_search`，Python 包 `data_search`、命令及 MCP 条目 `data-search` 保持兼容。
 
-## 安装与接入
+## 安装与接入：给用户和 Agent 的执行入口
 
-下载：[GitHub Releases](https://github.com/Ssshake1996/one_search/releases)。版本对应的执行证据见 [验证报告](docs/VALIDATION.md)。
+请让 Agent 读取本 README，再按下面顺序执行。安装由可重复运行的脚本完成，不需要图形安装向导。**先安装并启动基础检索，模型在后台单独准备；模型下载失败不会阻止文件名、关键词检索。**
 
-Windows x64 原生包名为 `one-search-0.3.0-windows-amd64-native.zip`，不要求另装 Python。完整解压后双击 `Install.cmd`，或在解压目录执行：
+1. 查看 [GitHub Releases](https://github.com/Ssshake1996/one_search/releases)，选择目标平台的同一版本资源。Windows x64 优先 `windows-amd64-native.zip`，自带 Python 和依赖。`py311-bootstrap.zip` 需要 CPython **3.11 x64**、venv/pip；项目 wheel 单独使用仍需依赖。Linux 当前使用 Python 3.11+ 源码安装，真实主机验收状态见 [验证报告](docs/VALIDATION.md)。不要将 Windows wheelhouse 用于 Linux。
+2. 同时下载 `SHA256SUMS.txt`，核对 ZIP 的 SHA-256 后完整解压。原生安装器进一步验证包内逐文件清单。校验失败应重新获取同一发行资源，不能跳过校验。
+3. 检查已有 `%LOCALAPPDATA%\data-search\app\install-manifest.json` 和对应 `config.json`。首次安装默认检索当前账号可访问的整机本地磁盘；仅在用户要求目录范围时传 `-Root`。现有配置会保留，重装参数不会静默改写旧范围、数据库或模型设置。
+4. 在完整解压目录执行安装；检查退出码，再读取数据目录的 `install-result.json`。随后接入 DSH，并通过宿主工具实际验证连接。后台全机发现和语义索引可继续进行，不必等待它们全部完成才使用搜索。
+
+Windows 默认安装（不需要管理员权限）：
 
 ```powershell
+# 替换为实际下载的 ZIP；与 SHA256SUMS.txt 中同名条目比较完整值。
+Get-FileHash '.\one-search-VERSION-windows-amd64-native.zip' -Algorithm SHA256
+# 完整解压后进入解压目录，再运行：
 .\scripts\install.ps1
+if ($LASTEXITCODE -ne 0) { throw 'one_search installation failed' }
+$searchApp = Join-Path $env:LOCALAPPDATA 'data-search\app'
+$searchConfig = Join-Path $env:LOCALAPPDATA 'data-search\data\config.json'
+$searchCli = Join-Path $searchApp 'runtime\data-search.exe'
+Get-Content (Join-Path (Split-Path $searchConfig) 'install-result.json') -Raw
+& $searchCli installation-status --config $searchConfig --install-dir $searchApp
+& $searchCli search '合同' --mode files --config $searchConfig
 ```
 
-安装器准备本地模型、安装并启动后台服务、设置当前用户登录自启动，生成 `%LOCALAPPDATA%\data-search\app\mcp.json`。支持 `mcpServers` JSON 的宿主可使用此文件。DeepSeek Harness 使用专用 Cordis bundle，接入方式见下文。
+bootstrap 的 `$searchCli` 是 `<InstallDir>\venv\Scripts\data-search.exe`。默认程序目录为 `%LOCALAPPDATA%\data-search\app`，配置/模型/索引为同级 `data`。自定义程序目录与数据目录必须独立、不嵌套；原始资料放在两者之外。Agent 不应删除未通过管理清单识别的目录来“修复”安装。
 
-仅检索选定目录：
+| 安装参数 | 用途与默认行为 |
+|---|---|
+| `-InstallDir DIR` / `-DataDir DIR` | 明确程序和数据位置；现有安装必须与清单一致 |
+| `-Root @('D:\资料','D:\项目')` | 首次仅检索这些目录；省略时为整机范围 |
+| `-Exclude @('D:\私人资料')` | 首次排除指定路径，可多项；不改变整机默认发现方式 |
+| `-Preset low` | 首次资源档位 `low/balanced/fast`，默认 `balanced`；档位只改预算，不缩小范围 |
+| `-ModelDir 'D:\models\bge-small-zh-v1.5'` | 首次使用离线模型目录，后台按固定模型指纹与 SHA-256 校验 |
+| `-SkipModel` | 首次关闭语义索引；文件名和关键词可用；不更改旧配置开关 |
+| `-NoAutostart` | 不注册当前用户登录启动项，安装末尾仍启动一次服务 |
+| `-Python PATH` / `-PackagePath WHEEL` / `-Wheelhouse DIR` | 源码/bootstrap 高级入口；离线源码构建还需匹配的构建依赖，使用项目 wheel 可避免现场构建 |
+
+例如用户明确限定范围并提供独立位置：
 
 ```powershell
-.\scripts\install.ps1 -Root @('D:\资料', 'D:\项目')
+.\scripts\install.ps1 -Root @('D:\资料','D:\项目') `
+  -InstallDir 'D:\apps\one-search' -DataDir 'D:\app-data\one-search'
 ```
 
-安装后双击程序目录的 `Settings.vbs`，可切换整机/目录范围、设置正文与语义范围、编辑内存/CPU/磁盘预算、添加数据库并控制服务。更改数据库配置后，先点击“测试数据库”，通过有时限的只读连接、授权字段和持续索引唯一键检查，再“保存并启动”；检查失败保留运行中的配置。密码填写环境变量名，数据库高级参数仍可用 JSON 编辑。
+安装脚本退出 `0` 表示运行时和基础检索探测成功，`1` 表示安装/启动/验收失败；Linux 参数或平台前提错误可返回 `2`。PowerShell 参数绑定错误发生在脚本执行前，也可能没有结构化结果。正常日志可有多条 JSON/提示，**`<DataDir>/install-result.json` 是本次成功安装的完整验收结果**；失败时输出 `event=installation_result, ok=false, stage, error.code`，不要把旧的成功文件当作本次结果。
 
-也提供 `one-search-0.3.0-windows-amd64-py311-bootstrap.zip`，要求匹配的 **CPython 3.11 x64**、venv/pip。源码安装要求 Python 3.11+；Linux 当前只有源码/bootstrap 脚本，尚未完成目标系统验证。默认包不包含模型，首次安装需联网下载，也可用 `-ModelDir` 指定离线模型，或 `-SkipModel` 仅使用文件名和关键词。
+安装结果分别显示 `runtime_installed`、`daemon_running`、`basic_search_ready`、`semantic.state` 和 `dsh_connection`。`dsh_connection=not_checked` 只表示尚未由宿主验证。`indexing_complete=null` 表示该安装探测没有认证全机索引完成；检索不到结果时继续检查覆盖、排除项和积压，不应声称电脑没有这份资料。
 
-DeepSeek Harness 可在完整解压的发行目录注册插件，再启动对应 profile：
+模型状态与恢复（不阻塞当前基础检索）：
+
+```powershell
+& $searchCli model-status --config $searchConfig
+& $searchCli model-start --config $searchConfig
+& $searchCli model-import --source 'D:\offline-model' --config $searchConfig
+& $searchCli model-cancel --config $searchConfig
+```
+
+`model-start`/`model-import` 返回任务后立即退出；重复启动复用正在运行的任务。`model-status` 显示 `queued/running/ready/failed/cancelled/interrupted`、当前资产、字节进度和恢复建议。校验成功的资产会在重试时复用，未完成资产重新下载/复制；离线导入只接受固定 BGE embedding 模型，不接受 DSH 聊天模型。更改 `semantic.enabled` 请通过设置/配置完成，下载模型本身不会擅自开启用户关闭的语义索引。
+
+DeepSeek Harness 需要 Node.js 22+ 和已安装的 DSH。为兼容“发行包在 D:、DSH 用户目录在 C:”的情况，使用随包的注册脚本：它先把插件复制到 DSH 用户目录所在磁盘，再调用 DSH 官方 CLI。后台安装成功后，在完整解压目录执行：
 
 ```powershell
 $env:ONE_SEARCH_RELEASE_DIR = (Get-Location).Path
-dsh plugin --profile web add ./plugins/deepseek-harness
+$dshPackage = Join-Path ((npm root -g).Trim()) '@deepseek-ai\dsh'
+if (-not (Test-Path (Join-Path $dshPackage 'package.json'))) { throw 'Locate the actual installed DSH package and set $dshPackage' }
+$registration = @{dshPackage=$dshPackage; profile='web'} | ConvertTo-Json
+[IO.File]::WriteAllText((Join-Path (Get-Location) 'dsh-register.json'), $registration, [Text.UTF8Encoding]::new($false))
+node ./plugins/deepseek-harness/register.mjs ./dsh-register.json
+if ($LASTEXITCODE -ne 0) { throw 'DSH registration failed' }
 dsh --profile web
 ```
 
-`plugin add` 完成注册；首次启动该 profile 时，插件安装缺失的后台服务，再连接官方 MCP 客户端。已有安装会复用，DSH 退出后后台服务继续运行。安装范围、自定义路径、离线模型及宿主版本条件见 [DSH 接入说明](plugins/deepseek-harness/README.md)。
+注册脚本返回 `registered=true, connected=false`；启动 profile 后才连接 MCP。首次激活也可安装缺失的后台服务；已有 v0.3 后台需提供匹配 Release 进行保留配置升级，不能只更新 npm 插件。请让 DSH 实际调用 `index_status` 和一次 `search`：发现工具和调用成功才算该 profile 已接入。可执行的独立 DSH 连接诊断、profile 配置、自定义路径、Linux 注册和版本要求见 [DSH 接入说明](plugins/deepseek-harness/README.md)。本地安装成功与 DSH 聊天回答质量是不同验收项。
 
-Windows 原生升级仍运行新包的安装器。升级会校验并暂存新运行时，在停止服务后保存迁移前索引/配置快照，启动失败时尝试恢复；旧运行时与快照保留在程序目录的 `.upgrade-*` 中。需要额外磁盘空间，详细回滚边界和清理方式见 [升级说明](docs/INSTALL.md#服务控制维护与升级)。
+Linux 无桌面安装：
 
-完整命令、平台条件、升级及卸载见 [安装说明](docs/INSTALL.md)。当前 Windows 实测环境与具体发行验证见 [验证报告](docs/VALIDATION.md)，不把未测试系统当作已经支持。
+```bash
+# 源码根目录，Python 3.11+、venv/pip；无需 Tk。
+bash scripts/install.sh
+# 没有 systemd 用户会话时显式手动启动模式：
+bash scripts/install.sh --no-autostart
+# 自定义范围/路径示例：
+bash scripts/install.sh --root /srv/docs --install-dir "$HOME/.local/share/data-search/app" \
+  --data-dir "$HOME/.local/share/data-search/data" --no-autostart
+```
+
+默认注册 systemd 用户服务；不可用时明确失败，不自动申请 root 或启用 linger。`--no-autostart` 安装后启动一次，重启机器后需要执行 `<InstallDir>/venv/bin/data-search start --config <DataDir>/config.json`。Linux 对应参数为 `--model-dir/--skip-model/--python/--package-path/--wheelhouse`，验收文件与 Windows 相同。
+
+原生升级继续运行新包安装器：校验、暂存、保留迁移前快照、启动失败回滚。v0.3 文件索引升级后需要按预算重新核对文件身份并处理正文，期间旧文件 ID 会被拒绝，不会悄悄指向新文件。遇到中断，先用同一配置执行 `status`、`model-status`、`installation-status`；按错误阶段修复下载/依赖/空间/路径后重试同一命令。不要用重新初始化配置替代修复。具体服务维护、回滚边界、卸载保留数据及平台限制见 [安装说明](docs/INSTALL.md)。
+
 
 ## 能检索什么
 
@@ -109,15 +165,22 @@ Windows Job 限制若因宿主策略无法应用，会在 `worker_controls.fallb
 
 ## MCP 与结果语义
 
+常见任务与命令见 [使用与排错](docs/USAGE.md)，资源、迁移、配置备份和退出见 [运维说明](docs/OPERATIONS.md)。设置窗口新增“查找与核实”“维护与退出”；数据库按连接→发现→选字段→预检完成，典型接入不需要编辑 JSON。
+
 | 工具 | 用途 |
 |---|---|
-| `search` | 文件名、关键词、语义或混合检索，可指定数据源和扩展名 |
+| `search` | 文件名、关键词、语义或混合检索；目录、日期、大小、类别、多扩展名筛选；精确文件名优先及重复正文折叠 |
 | `fetch` | 文件返回带过期标记的索引片段；数据库按标识实时读取 |
 | `inspect_source` | 有效文件范围、来源、授权结构和数据库同步进度 |
 | `query_database` | 结构化筛选、排序、分页、有限关联/聚合，不接收任意 SQL |
 | `index_status` | 索引覆盖、扫描错误、数据库进度、ANN 发布状态及资源控制状态 |
+| `diagnose_path` | 具体文件/目录为何未找到、是否过期，以及可采取的动作 |
+| `read_context` | 命中附近上下文与结构化来源引用 |
+| `refresh_path` | 用户显式请求的单文件刷新；目录进入有界队列 |
+| `prioritize_path` | 用户显式请求优先处理已有授权范围内的路径 |
+| `pause_indexing` / `resume_indexing` | 持久化暂停、定时恢复及手动恢复，检索继续可用 |
 
-`c:...` 从命中片段开始取上下文，`d:...` 从文档开头取。语义检索指定来源/扩展名时，对符合条件的已发布向量分批精确评分，并提示 `filtered_semantic_exact`；匹配向量越多，耗时越长。不带过滤的 ANN 仍是近似检索，按文档去重时的候选上限会明确提示。ANN 更新期间可使用已发布版本并返回 `semantic_index_updating`；尚无可用版本时返回 pending 提示，不在查询请求中同步建索引。升级后已有正文会分批重新切分，旧片段在替换成功前继续可用。
+`c:...` 从命中片段开始取上下文，`d:...` 从文档开头取。语义检索指定条件时，对符合条件的已发布向量分批精确评分，并提示 `filtered_semantic_exact`；匹配向量越多，耗时越长。不带过滤的 ANN 仍是近似检索，按文档去重时的候选上限会明确提示。ANN 更新期间可使用已发布版本并返回 `semantic_index_updating`；尚无可用版本时返回 pending 提示，不在查询请求中同步建索引。旧版缺少文件身份的记录需要一次分批关联和解析，旧引用不会绑定到可能已经替换的同名文件；详见使用说明。
 
 DSH 聊天模型负责理解问题、调用工具并引用证据；本地 embedding 模型负责把正文和问题转成向量，二者不同。向量分数仅用于排序，不是回答可信度。本地计算不把正文上传给模型服务；MCP 返回内容进入宿主后，后续处理由宿主自身配置决定。
 

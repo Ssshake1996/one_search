@@ -1,0 +1,60 @@
+{
+  "version": "0.4.0",
+  "scope": "single-node database product workflows; isolated synthetic data only",
+  "focused_tests": {
+    "command": ".venv/Scripts/python.exe -m pytest tests/test_database_ui.py tests/test_credentials.py tests/test_source_setup.py tests/test_databases.py -q",
+    "passed": 95,
+    "skipped": 4,
+    "seconds": 4.30,
+    "skip_reason": "Two existing adapter cases and two new onboarding cases require the separately configured live engine fixtures. All four ran in the separate real-engine run."
+  },
+  "real_engines": {
+    "command": ".venv/Scripts/python.exe .test-databases/run_sync_integration.py",
+    "versions": {"mysql": "8.4.11", "postgres": "17.11"},
+    "adapter_tests_passed": 63,
+    "adapter_tests_seconds": 5.25,
+    "read_only_accounts": true,
+    "source_rows_are_synthetic": true,
+    "catalog_discovery": true,
+    "key_and_watermark_recommendations": true,
+    "explicit_column_allowlist_proposal": true,
+    "business_alias_inspection": true,
+    "zero_body_preflight": true,
+    "windows_credential_valid_invalid_restored_password": true,
+    "authentication_failure_is_actionable_and_sanitized": true,
+    "sync_checks_each_engine": {
+      "keyset_page_size": 2,
+      "full_rows": 4,
+      "timestamp_microseconds_preserved": true,
+      "equal_watermark_tie_breaker": true,
+      "worker_restart_checkpoint": true,
+      "incremental_update_insert": true,
+      "same_timestamp_update": true,
+      "delete_retained_until_full_reconcile": true
+    },
+    "servers_stopped_after_test": true
+  },
+  "windows_vault": {
+    "backend": "Windows Credential Manager",
+    "unique_synthetic_entries_only": true,
+    "unicode_and_newline_roundtrip": true,
+    "cross_process_lookup": true,
+    "same_reference_rotation": true,
+    "delete_and_missing_status": true,
+    "entries_removed_after_test": true,
+    "existing_user_entries_accessed": false
+  },
+  "tk": {
+    "real_windows_tk_hidden_window": true,
+    "sqlite_discovery_explicit_fields_index_preflight_callback": true,
+    "changed_connection_cannot_save_old_discovery": true,
+    "full_manual_visual_acceptance": false
+  },
+  "limitations": [
+    "Linux Secret Service was unit tested with a fake secret-tool; no real Linux vault/session acceptance.",
+    "Discovery is bounded to 64 tables and 256 columns per table and explicitly reports truncation.",
+    "Key recommendations use catalogs; selected key nullability is checked during preflight. Watermark maintenance is a user assertion, not inferred from metadata.",
+    "Real production credentials, business databases, TLS certificates, long-term database load and physical low-memory targets were not tested.",
+    "The final application integration and release artifact validation are tracked in the main validation report."
+  ]
+}

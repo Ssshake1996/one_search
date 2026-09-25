@@ -1,0 +1,41 @@
+{
+  "scope": "Single-machine resource policy, explicit maintenance, external index relocation, upgrade rollback and Windows uninstall",
+  "platform": "Windows x64, Python 3.11 development runtime",
+  "test_command": ".venv/Scripts/python.exe -m pytest tests/test_runtime_policy.py tests/test_maintenance.py tests/test_upgrade_lifecycle.py tests/test_resources.py tests/test_packaging.py -q",
+  "test_result": {"passed": 47, "elapsed_seconds": 1.85},
+  "new_focused_tests": 28,
+  "verified_scenarios": [
+    "Resource presets preserve search scope, exclusions, database configuration and disk quota",
+    "Timed pause survives service restart and expires after offline time",
+    "Continuous foreground result polling allows a background tick at least every three seconds when other policy constraints allow it",
+    "CPU hysteresis, battery retreat, AC-only and idle-only recovery; unavailable idle detection explicitly reported",
+    "Concurrent index leases and a different instance owner are rejected",
+    "Index relocation keeps stable data/config/model paths and retains the old index",
+    "Partial copy failure restores exact configuration and can retry the same owned destination",
+    "Interrupted copy and crash after verified configuration switch recover from durable transaction records",
+    "Active daemon blocks relocation, restore and backup cleanup",
+    "Modified old-index backup refuses cleanup; unrelated source content remains intact",
+    "Configuration export removes credentials and instance identity; restore validates missing local paths and explicit mappings",
+    "Client registration is idempotent and reports shared-instance impact",
+    "Native upgrade failed activation restores external SQLite schema, exact previous configuration and old runtime",
+    "Upgrade snapshot holds model admission/worker/service and index locks",
+    "Completed upgrade backup cleanup preserves active external index and runtime"
+  ],
+  "windows_uninstall_smoke": {
+    "report_artifact": ".runtime/maintenance-smoke-9df043f5ee/result.json",
+    "method": "Real daemon and actual PowerShell uninstall script; temporary installed CLI wrapper dispatches current development Python modules",
+    "exit_code": 0,
+    "install_removed": true,
+    "data_removed": true,
+    "external_generated_index_removed": true,
+    "unrelated_file_next_to_external_index_preserved": true,
+    "held_byte_range_locks_with_delete_sharing_verified": true
+  },
+  "not_claimed": [
+    "Frozen v0.4 release end-to-end install/upgrade/uninstall validation is a separate release acceptance run",
+    "Linux systemd and uninstall behavior has not been validated on a real Linux host in this report",
+    "Physical 8GB/16GB memory and battery hardware behavior has not been measured",
+    "Hundreds-of-gigabytes production corpus performance and long-running soak stability are not measured by these synthetic functional tests",
+    "Resource limits are scheduling/enforcement settings, not measured consumption or latency guarantees"
+  ]
+}

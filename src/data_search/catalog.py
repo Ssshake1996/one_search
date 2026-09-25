@@ -41,6 +41,12 @@ class FileCatalog:
             if not any(row[1]=='version' for row in self.store.db.execute('PRAGMA table_info(file_events)')):
                 self.store.db.execute('ALTER TABLE file_events ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
                 self.store.db.commit()
+            for table, column, declaration in [('file_work','priority','INTEGER NOT NULL DEFAULT 0'),
+                    ('file_scan_dirs','priority','INTEGER NOT NULL DEFAULT 0'),
+                    ('file_scan_roots','scan_kind',"TEXT NOT NULL DEFAULT 'full'")]:
+                if not any(row[1]==column for row in self.store.db.execute('PRAGMA table_info('+table+')')):
+                    self.store.db.execute('ALTER TABLE '+table+' ADD COLUMN '+column+' '+declaration)
+            self.store.db.commit()
             # Existing v0.2 unfinished documents enter the durable queue once.
             with self.store.db:
                 self.store.db.execute("INSERT OR IGNORE INTO file_work(doc_id) SELECT id FROM documents "
@@ -72,7 +78,7 @@ class FileCatalog:
         roots = {str(p) for p in self.engine.file_scope.roots}
         with self.store.lock, self.store.db:
             for row in self.store.db.execute('SELECT path FROM file_scan_roots').fetchall():
-                if row['path'] not in roots:
+                if row['path'] not in roots and not self.engine.allowed(Path(row['path'])):
                     self.store.db.execute('DELETE FROM file_scan_dirs WHERE root=?', (row['path'],))
                     self.store.db.execute('DELETE FROM file_scan_roots WHERE path=?', (row['path'],))
                     if self.current and self.current['root'] == row['path']:
@@ -90,6 +96,14 @@ class FileCatalog:
                 self.store.db.execute('INSERT OR REPLACE INTO file_scan_dirs(path,root) VALUES(?,?)', (path,path))
             self.store.db.execute("DELETE FROM settings WHERE key='file_reconcile_requested'")
         return True
+
+    def prioritize_directory(self, path):
+        path = str(Path(path).resolve())
+        with self.store.lock, self.store.db:
+            current = self.store.db.execute('SELECT * FROM file_scan_roots WHERE path=?',(path,)).fetchone()
+            if not current or current['phase']=='done':
+                self.store.db.execute("INSERT OR REPLACE INTO file_scan_roots(path,generation,phase,scan_kind) VALUES(?,?,'discover','targeted')",(path,str(uuid.uuid4())))
+            self.store.db.execute('INSERT INTO file_scan_dirs(path,root,priority) VALUES(?,?,1) ON CONFLICT(path) DO UPDATE SET priority=1',(path,path))
 
     @property
     def active(self):
@@ -123,10 +137,12 @@ class FileCatalog:
         if directories:
             self.engine.budget.check(disk=True,reserve_mb=len(directories)*.004)
         if records:
-            self.engine._metadata_batch(records, self.current['generation'])
+            self.engine._metadata_batch(records, self.current['generation'], priority=self.current.get('priority',0))
         with self.store.lock, self.store.db:
             if directories:
                 self.store.db.executemany('INSERT OR IGNORE INTO file_scan_dirs(path,root) VALUES(?,?)', directories)
+                if self.current.get('priority'):
+                    self.store.db.executemany('UPDATE file_scan_dirs SET priority=1 WHERE path=?',[(path,) for path,_ in directories])
             self.store.db.execute('UPDATE file_scan_roots SET discovered=discovered+? WHERE path=?',
                                   (len(records), self.current['root']))
         if directories:
@@ -143,8 +159,8 @@ class FileCatalog:
                 break
             self.engine.budget.check()
             if self.iterator is None:
-                rows = self.store.rows("SELECT d.path,d.root,r.generation FROM file_scan_dirs d "
-                    "JOIN file_scan_roots r ON r.path=d.root WHERE r.phase='discover' ORDER BY d.rowid LIMIT 1")
+                rows = self.store.rows("SELECT d.path,d.root,d.priority,r.generation FROM file_scan_dirs d "
+                    "JOIN file_scan_roots r ON r.path=d.root WHERE r.phase='discover' ORDER BY d.priority DESC,d.rowid LIMIT 1")
                 if not rows:
                     break
                 self.current = rows[0]
@@ -179,8 +195,11 @@ class FileCatalog:
                         if entry.is_dir(follow_symlinks=False):
                             directories.append((str(path), self.current['root']))
                         elif entry.is_file(follow_symlinks=False):
-                            stat = entry.stat(follow_symlinks=False)
-                            records.append((str(path),stat.st_size,stat.st_mtime_ns))
+                            # Python 3.11 DirEntry.stat on Windows can expose zero
+                            # st_ino/st_dev. Path.stat obtains the actual file ID.
+                            stat = path.stat() if os.name=='nt' else entry.stat(follow_symlinks=False)
+                            from .product import file_identity
+                            records.append((str(path),stat.st_size,stat.st_mtime_ns,file_identity(stat)))
                     except OSError as error:
                         self._failure(path,error,self.current['root'])
             except OSError as error:
@@ -204,10 +223,12 @@ class FileCatalog:
         self.close()
 
     def _cleanup(self, batch):
+        from .search_filters import path_predicate
+        deadline = time.monotonic()+self.engine.config['scheduler']['phase_seconds']
         roots = self.store.rows("SELECT * FROM file_scan_roots r WHERE phase<>'done' "
-            "AND NOT EXISTS(SELECT 1 FROM file_scan_dirs d WHERE d.root=r.path)")
+            "AND NOT EXISTS(SELECT 1 FROM file_scan_dirs d WHERE d.root=r.path) ORDER BY r.cleanup_after,r.path LIMIT 16")
         for root in roots:
-            if self.engine.paused or self.engine.stop_event.is_set():
+            if self.engine.paused or self.engine.stop_event.is_set() or time.monotonic()>=deadline:
                 return
             self.engine.budget.check()
             with self.store.lock, self.store.db:
@@ -215,8 +236,9 @@ class FileCatalog:
                     self.store.db.execute("UPDATE file_scan_roots SET phase='done',completed_at=? WHERE path=?",
                                           (time.time(),root['path']))
                     continue
-                rows = self.store.db.execute("SELECT id,path FROM documents WHERE source_id='files' "
-                    "AND seen<>? AND id>? ORDER BY id LIMIT ?",(root['generation'],root['cleanup_after'],batch)).fetchall()
+                clause, path_args = path_predicate(root['path'])
+                rows = self.store.db.execute("SELECT d.id,d.path FROM documents d WHERE d.source_id='files' "
+                    "AND d.seen<>? AND d.id>?"+clause+" ORDER BY d.id LIMIT ?",[root['generation'],root['cleanup_after'],*path_args,batch]).fetchall()
                 missing = []
                 for row in rows:
                     path = Path(row['path'])
@@ -261,7 +283,8 @@ class FileCatalog:
             try:
                 if path.is_file() and not path.is_symlink() and not link_directory(path):
                     stat = path.stat()
-                    records.append((str(path.resolve()),stat.st_size,stat.st_mtime_ns))
+                    from .product import file_identity
+                    records.append((str(path.resolve()),stat.st_size,stat.st_mtime_ns,file_identity(stat)))
                 elif not path.exists():
                     self.engine._file(path, '')
             except OSError as error:
@@ -276,7 +299,7 @@ class FileCatalog:
         settings = self.engine.config['scheduler']
         deadline = time.monotonic() + settings['phase_seconds']
         rows = self.store.rows('SELECT d.*,w.attempts FROM file_work w JOIN documents d ON d.id=w.doc_id '
-            'WHERE w.available_at<=? ORDER BY w.available_at,w.doc_id LIMIT ?', (time.time(),settings['files_per_tick']))
+            'WHERE w.available_at<=? ORDER BY w.priority DESC,w.available_at,w.doc_id LIMIT ?', (time.time(),settings['files_per_tick']))
         processed = 0
         for row in rows:
             if self.engine.paused or self.engine.stop_event.is_set() or time.monotonic() >= deadline:

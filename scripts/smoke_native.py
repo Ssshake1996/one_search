@@ -74,17 +74,23 @@ def main():
                     async with ClientSession(read, write) as session:
                         await session.initialize()
                         tool_list = await session.list_tools()
-                        assert len(tool_list.tools) == 5
+                        names = {tool.name for tool in tool_list.tools}
+                        assert names == {'search', 'fetch', 'inspect_source', 'query_database', 'index_status',
+                                         'diagnose_path', 'read_context', 'refresh_path', 'prioritize_path',
+                                         'pause_indexing', 'resume_indexing'}, names
                         for name, arguments in [("search", {"query": "服务器", "mode": "keyword"}),
                             ("fetch", {"id": file_id}), ("inspect_source", {"source_id": "synthetic-db"}),
                             ("query_database", {"source_id": "synthetic-db", "request": {"table": "tickets", "columns": ["id", "description"]}}),
-                            ("index_status", {})]:
+                            ("index_status", {}), ('diagnose_path', {'path': str(root / 'server-plan.txt')}),
+                            ('read_context', {'id': file_id}), ('pause_indexing', {'seconds': 60}),
+                            ('refresh_path', {'path': str(root / 'server-plan.txt')}),
+                            ('prioritize_path', {'path': str(root)}), ('resume_indexing', {})]:
                             reply = await session.call_tool(name, arguments)
                             assert not reply.isError, reply
                             assert "not-authorized" not in str(reply)
             asyncio.run(mcp_roundtrip())
             print(json.dumps({"native_exe": executable, "files": 2, "sqlite_rows": 1,
-                              "embedded_chunks": coverage["embedded_chunks"], "mcp_tools": 5, "passed": True}, indent=2))
+                              "embedded_chunks": coverage["embedded_chunks"], "mcp_tools": 11, "passed": True}, indent=2))
         finally:
             cli("stop")
 

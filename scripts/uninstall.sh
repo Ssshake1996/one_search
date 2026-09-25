@@ -22,21 +22,25 @@ if m.get('product')!='data-search' or m.get('schema_version')!=1 or m['install_d
 for p in (install,data):
     if p != p.absolute() or p == pathlib.Path(p.anchor) or p == pathlib.Path.home() or any(x.is_symlink() for x in [p,*p.parents]): raise SystemExit(f'Unsafe deletion target: {p}')
 if data==install or data in install.parents or install in data.parents: raise SystemExit('Overlapping directories; refusing deletion.')
-if m.get('autostart')=='systemd-user':
-    expected_dir=pathlib.Path(os.environ.get('XDG_CONFIG_HOME',str(pathlib.Path.home()/'.config')))/'systemd/user'
-    unit=pathlib.Path(m['unit_path'])
-    if unit.parent!=expected_dir or unit.name!=m['unit_name'] or not unit.name.startswith('data-search-'): raise SystemExit('Invalid unit path.')
-    subprocess.run(['systemctl','--user','disable','--now',m['unit_name']],check=True)
-    unit.unlink(missing_ok=True)
-    subprocess.run(['systemctl','--user','daemon-reload'],check=True)
-cli=install/'venv/bin/data-search'
-if cli.exists(): subprocess.run([str(cli),'stop','--config',m['config']],check=True)
-shutil.rmtree(install)
 if sys.argv[2]=='1' and data.exists():
     marker=data/'.data-search-data.json'
     if not marker.is_file(): raise SystemExit('Data marker missing; data retained.')
     mark=json.loads(marker.read_text())
     if mark.get('product')!='data-search' or mark.get('data_dir')!=str(data): raise SystemExit('Invalid data marker; data retained.')
-    shutil.rmtree(data); print('Uninstalled and removed configured data directory.')
-else: print(f'Uninstalled. Configuration, models and indexes preserved at {data}')
+from data_search.config import load_config
+from data_search.maintenance import MaintenanceGuard, purge_external_index
+config=load_config(m['config'])
+with MaintenanceGuard(config,stop=True):
+    if sys.argv[2]=='1': purge_external_index(config)
+    if m.get('autostart')=='systemd-user':
+        expected_dir=pathlib.Path(os.environ.get('XDG_CONFIG_HOME',str(pathlib.Path.home()/'.config')))/'systemd/user'
+        unit=pathlib.Path(m['unit_path'])
+        if unit.parent!=expected_dir or unit.name!=m['unit_name'] or not unit.name.startswith('data-search-'): raise SystemExit('Invalid unit path.')
+        subprocess.run(['systemctl','--user','disable','--now',m['unit_name']],check=True)
+        unit.unlink(missing_ok=True)
+        subprocess.run(['systemctl','--user','daemon-reload'],check=True)
+    shutil.rmtree(install)
+    if sys.argv[2]=='1' and data.exists():
+        shutil.rmtree(data); print('Uninstalled and removed configured data directory and managed external index files.')
+    else: print(f'Uninstalled. Configuration, models and indexes preserved at {data}')
 PY

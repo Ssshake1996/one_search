@@ -13,8 +13,9 @@ def defaults(data_dir: str, roots: list[str] | None = None) -> dict:
         "scope": "machine" if roots is None else "directories",
         "roots": [str(Path(p).expanduser().resolve()) for p in roots or []],
         "exclude_paths": [],
-        "indexing": {"content_scope": "all", "content_roots": [], "content_extensions": [],
-                     "semantic_scope": "all", "semantic_roots": [], "semantic_extensions": []},
+        "indexing": {"content_scope": "all", "content_roots": [], "content_extensions": [], "content_exclude_paths": [],
+                     "semantic_scope": "all", "semantic_roots": [], "semantic_extensions": [], "semantic_exclude_paths": [],
+                     "sensitive_content_excluded": False},
         "scan_interval_seconds": 180, "reconcile_interval_seconds": 3600,
         "scheduler": {"metadata_batch_size": 256, "metadata_items_per_tick": 2000,
                       "directories_per_tick": 64, "files_per_tick": 32,
@@ -58,6 +59,14 @@ def load_config(path: str | Path) -> dict:
     if not config["node_id"] or len(config["node_id"]) > 100:
         raise ValueError("invalid node_id")
     config["data_dir"] = str(Path(config["data_dir"]).expanduser().resolve())
+    if 'index_dir' in config:
+        if not isinstance(config['index_dir'],str) or not config['index_dir']:
+            raise ValueError('index_dir must be a nonempty path')
+        config['index_dir'] = str(Path(config['index_dir']).expanduser().resolve())
+    from .runtime_policy import validate_policy
+    config['runtime_policy'] = validate_policy(config.get('runtime_policy',{}))
+    if not isinstance(config['indexing']['sensitive_content_excluded'],bool):
+        raise ValueError('sensitive_content_excluded must be boolean')
     if config['scope'] not in {'machine', 'directories'}:
         raise ValueError('scope must be machine or directories')
     for key in ('roots', 'exclude_paths', 'exclude_names'):
@@ -72,11 +81,12 @@ def load_config(path: str | Path) -> dict:
         indexing = config['indexing']
         if indexing[f'{layer}_scope'] not in {'all', 'directories', 'none'}:
             raise ValueError(f'indexing.{layer}_scope must be all, directories or none')
-        for suffix in ('roots', 'extensions'):
+        for suffix in ('roots', 'extensions', 'exclude_paths'):
             key = f'{layer}_{suffix}'
             if not isinstance(indexing[key], list) or any(not isinstance(item, str) or not item for item in indexing[key]):
                 raise ValueError(f'indexing.{key} must be a list of nonempty strings')
         indexing[f'{layer}_roots'] = list(dict.fromkeys(str(Path(item).expanduser().resolve()) for item in indexing[f'{layer}_roots']))
+        indexing[f'{layer}_exclude_paths'] = list(dict.fromkeys(str(Path(item).expanduser().resolve()) for item in indexing[f'{layer}_exclude_paths']))
         if any(not item.startswith('.') or '/' in item or '\\' in item for item in indexing[f'{layer}_extensions']):
             raise ValueError(f'indexing.{layer}_extensions must contain extensions beginning with a dot')
         indexing[f'{layer}_extensions'] = list(dict.fromkeys(item.lower() for item in indexing[f'{layer}_extensions']))

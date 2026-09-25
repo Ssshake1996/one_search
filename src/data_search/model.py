@@ -20,30 +20,66 @@ SHA256 = {
 }
 
 
-def download_model(directory: str) -> dict:
+class ModelCancelled(RuntimeError):
+    pass
+
+
+def asset_digest(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        while block := stream.read(1024 * 1024):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def download_model(directory: str, *, progress=None, cancelled=None, source_directory: str | None = None) -> dict:
+    """Install pinned assets with bounded memory; completed assets survive a retry."""
     dest = Path(directory)
     dest.mkdir(parents=True, exist_ok=True)
+    source = Path(source_directory).expanduser().resolve() if source_directory else None
+    if source:
+        supplied = json.loads((source / 'manifest.json').read_text(encoding='utf-8'))
+        if supplied.get('model_id') != MODEL_ID:
+            raise ValueError('Offline model fingerprint does not match the supported model')
+    def check_cancel():
+        if cancelled and cancelled():
+            raise ModelCancelled('Model installation cancelled')
+    def report(**fields):
+        if progress:
+            progress(fields)
     hashes = {}
-    for name, remote in ASSETS.items():
+    for number, (name, remote) in enumerate(ASSETS.items()):
+        check_cancel()
         path = dest / name
         url = f"https://huggingface.co/{MODEL_REPO}/resolve/{MODEL_REVISION}/{remote}"
-        # A completed installation is verified, not downloaded on every invocation.
-        manifest = dest / "manifest.json"
-        old = json.loads(manifest.read_text()) if manifest.exists() else {}
-        if path.exists() and old.get("model_id") == MODEL_ID:
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        report(asset=name, asset_index=number + 1, assets_total=len(ASSETS), phase='verifying', bytes_done=0, bytes_total=None)
+        # Validate completed assets even when a prior job ended before manifest publication.
+        if path.is_file():
+            digest = asset_digest(path)
             if SHA256[name] == digest:
                 hashes[name] = digest
                 continue
         tmp = path.with_suffix(".download")
         digest = hashlib.sha256()
-        with urllib.request.urlopen(url, timeout=90) as response, tmp.open("wb") as out:
+        check_cancel()
+        response = (source / name).open('rb') if source else urllib.request.urlopen(url, timeout=15)
+        with response, tmp.open("wb") as out:
+            total = (source / name).stat().st_size if source else response.headers.get('Content-Length')
+            total = int(total) if total and str(total).isdigit() else None
+            done = 0
+            report(phase='importing' if source else 'downloading', bytes_done=0, bytes_total=total)
             while block := response.read(1024 * 1024):
+                check_cancel()
                 digest.update(block)
                 out.write(block)
+                done += len(block)
+                report(bytes_done=done, bytes_total=total)
+            out.flush()
+            os.fsync(out.fileno())
+        check_cancel()
         if digest.hexdigest() != SHA256[name]:
             tmp.unlink(missing_ok=True)
-            raise ValueError('downloaded model asset checksum mismatch')
+            raise ValueError('Model asset checksum mismatch')
         os.replace(tmp, path)
         hashes[name] = digest.hexdigest()
     metadata = {"model_id": MODEL_ID, "repository": MODEL_REPO, "revision": MODEL_REVISION,
@@ -53,7 +89,13 @@ def download_model(directory: str) -> dict:
 
 
 def model_ready(directory: str) -> bool:
-    return all((Path(directory) / name).is_file() for name in [*ASSETS, "manifest.json"])
+    root = Path(directory)
+    try:
+        manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
+        return (manifest.get('model_id') == MODEL_ID and manifest.get('sha256') == SHA256
+                and all((root / name).is_file() and (root / name).stat().st_size > 0 for name in ASSETS))
+    except (OSError, ValueError, TypeError):
+        return False
 
 
 class Encoder:
@@ -66,7 +108,7 @@ class Encoder:
         if manifest.get("model_id") != MODEL_ID:
             raise ValueError("unsupported model fingerprint; rebuild indexes when changing model")
         for name, expected in SHA256.items():
-            if hashlib.sha256((root / name).read_bytes()).hexdigest() != expected:
+            if asset_digest(root / name) != expected:
                 raise ValueError("model asset checksum mismatch")
         self.np = np
         self.tokenizer = Tokenizer.from_file(str(root / "tokenizer.json"))

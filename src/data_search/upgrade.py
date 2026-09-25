@@ -7,6 +7,7 @@ is automatically rolled back, after proving that the data directory is unlocked.
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import hashlib
 import json
 import os
@@ -20,7 +21,8 @@ from .service import InstanceLock
 
 
 APP_FILES = ("install-manifest.json", "mcp.json", "Settings.vbs", "launch-hidden.vbs", "uninstall.ps1", "plugin")
-TRANSIENT_DATA = {"service.lock", "service.json", "daemon.log", "daemon.previous.log"}
+TRANSIENT_DATA = {"service.lock", "service.json", "daemon.log", "daemon.previous.log",
+                  ".one-search-index.lock", "model-job/manager.lock", "model-job/worker.lock"}
 
 
 def _validate_target(path, marker, expected):
@@ -163,6 +165,7 @@ def _restore_files(source: Path, destination: Path, current_files):
 
 
 def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, disk_usage=shutil.disk_usage):
+    from .maintenance import IndexDirectoryLease, MaintenanceGuard, _index_files
     install, data, runtime = (_target_path(request[key]) for key in ("InstallDir", "DataDir", "RuntimeDir"))
     if install == data or install.is_relative_to(data) or data.is_relative_to(install):
         raise ValueError("Install and data directories must be independent")
@@ -176,6 +179,12 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
     if previous_config and Path(previous_config["data_dir"]).resolve() != data:
         raise ValueError("Configured data directory does not match the installation")
     excluded = [data / name for name in TRANSIENT_DATA]
+    index = _target_path(previous_config.get('index_dir') or data) if previous_config else data
+    if index != data and (index.is_relative_to(install) or install.is_relative_to(index) or index.is_relative_to(data) or data.is_relative_to(index)):
+        raise ValueError("External index must be independent of the managed installation and data directories")
+    index_files = _index_files(index) if index != data else []
+    if any(path.is_symlink() or not path.is_file() for path in index_files):
+        raise ValueError("External index snapshot refuses links and non-file artifacts")
     if previous_config:
         model = Path(previous_config["semantic"]["model_dir"]).resolve()
         if model == data or data.is_relative_to(model):
@@ -186,7 +195,7 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
     data_files = _files(data, excluded)
     app_files = _app_files(install)
     required = sum((runtime / name).stat().st_size for name in inventory)
-    required += sum(path.stat().st_size for path in data_files + app_files) + 64 * 1024 * 1024
+    required += sum(path.stat().st_size for path in data_files + app_files + index_files) + 64 * 1024 * 1024
     volume = install
     while not volume.exists():
         volume = volume.parent
@@ -207,10 +216,13 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
     transaction.mkdir()
     stage, old_runtime = transaction / "staged-runtime", transaction / "previous-runtime"
     snapshot, app_snapshot = transaction / "data-snapshot", transaction / "app-snapshot"
+    index_snapshot = transaction / "index-snapshot"
     snapshot.mkdir()
     app_snapshot.mkdir()
+    if index != data:
+        index_snapshot.mkdir()
     record = {"product": "data-search-upgrade", "phase": "staging", "install_dir": str(install),
-        "data_dir": str(data), "backup_bytes": sum(path.stat().st_size for path in data_files),
+        "data_dir": str(data), "index_dir": str(index), "backup_bytes": sum(path.stat().st_size for path in data_files + index_files),
         "policy": "Immediate failed-start rollback only; no automatic later downgrade. Model files are excluded."}
     journal = transaction / "transaction.json"
     def mark(phase):
@@ -245,14 +257,20 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
     try:
         if old_existed:
             command([old_cli, "stop", "--config", config_path])
-        with InstanceLock(data / "service.lock"):
+        with ExitStack() as guards:
+            guards.enter_context(MaintenanceGuard(previous_config) if previous_config else InstanceLock(data / "service.lock"))
+            if previous_config:
+                guards.enter_context(IndexDirectoryLease(previous_config, directory=index))
             # Re-enumerate after stopping, including any final WAL/catalog writes.
             data_files = _files(data, excluded)
-            needed = sum(path.stat().st_size for path in data_files + app_files) + 64 * 1024 * 1024
+            index_files = _index_files(index) if index != data else []
+            needed = sum(path.stat().st_size for path in data_files + app_files + index_files) + 64 * 1024 * 1024
             if disk_usage(install).free < needed:
                 raise ValueError("Insufficient space for a consistent index backup after stopping")
             _copy_files(data_files, data, snapshot, copy)
             _copy_files(app_files, install, app_snapshot, copy)
+            if index != data:
+                _copy_files(index_files, index, index_snapshot, copy)
             snapshot_ready = True
             mark("snapshot_complete")
             if new_cli.parent.exists():
@@ -274,13 +292,18 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
             if new_cli.exists():
                 command([new_cli, "stop", "--config", config_path], check=False)
             try:
-                with InstanceLock(data / "service.lock"):
+                with ExitStack() as guards:
+                    guards.enter_context(MaintenanceGuard(previous_config) if previous_config else InstanceLock(data / "service.lock"))
+                    if previous_config:
+                        guards.enter_context(IndexDirectoryLease(previous_config, directory=index))
                     if new_cli.parent.exists():
                         new_cli.parent.rename(transaction / "failed-runtime")
                     if old_runtime.exists():
                         old_runtime.rename(new_cli.parent)
                     if snapshot_ready:
                         _restore_files(snapshot, data, _files(data, excluded))
+                        if index != data:
+                            _restore_files(index_snapshot, index, _index_files(index))
                         current_app = _app_files(install)
                         _restore_files(app_snapshot, install, current_app)
                     _restore_startup(startup_name, startup_state)

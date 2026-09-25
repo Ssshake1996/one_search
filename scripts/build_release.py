@@ -85,8 +85,8 @@ Reinstallation preserves the saved scope. Use the settings window, or stop the s
 The installer automatically selects the bundled runtime or bundled wheel and dependency wheelhouse.
 No Git checkout or source tree is needed. Installation starts a local background service and registers current-user login autostart; it does not configure the MCP host automatically.
 
-Model weights are NOT included. Installation downloads the pinned local model unless {model_options} is supplied to disable semantics or select an existing verified model directory.
-Python dependencies install offline from this bundle; the model needs network access by default.
+Model weights are NOT included. Installation starts basic search first, then queues a detached pinned-model preparation job unless {model_options} is supplied to disable semantics or select an offline model directory. Model download failure does not block filename/keyword search; use model-status, model-start, model-import and model-cancel to inspect or recover preparation.
+Python dependencies install offline from this bundle; the background model download needs network access by default. Read the repository README installation contract and DataDir/install-result.json for runtime, daemon, basic search and semantic readiness separately.
 
 The native Windows installation provides `Settings.vbs` in the installed application directory. Open it to change search scope, content/semantic tiers and resource budgets, explicitly test changed database settings, or inspect queued work and service controls.
 For a Python source installation use `python -m data_search.setup_ui --config <config.json>`.
