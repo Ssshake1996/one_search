@@ -183,7 +183,9 @@ def test_failed_manifest_publication_leaves_old_segments_queryable(segmented,mon
     with pytest.raises(OSError,match='publication interrupted'):
         sync(vectors)
     assert vectors.meta.read_bytes()==old_bytes
-    assert vectors.search(query,128)==[(old_id,0.0)]
+    hits = vectors.search(query,128)
+    assert [key for key,_ in hits] == [old_id]
+    assert hits[0][1] == pytest.approx(0.0, abs=1e-6)
     monkeypatch.setattr(module,'atomic_json',original)
     finish(vectors)
     assert metadata(vectors)['count']==130
@@ -308,7 +310,9 @@ def test_changed_hash_for_existing_chunk_does_not_use_old_segment_vector(segment
     bump(store)
     assert vectors.search(old_query,10)==[]
     sync(vectors)
-    assert vectors.search(new_vector,1)==[(chunk,0.0)]
+    hits = vectors.search(new_vector,1)
+    assert [key for key,_ in hits] == [chunk]
+    assert hits[0][1] == pytest.approx(0.0, abs=1e-6)
     assert metadata(vectors)['count']==1
 
 

@@ -922,14 +922,18 @@ class Engine:
                 'remote_nodes':'interface_reserved_not_implemented', 'coverage':self.coverage()}
 
     def coverage(self):
-        if self._coverage_cache is None or time.monotonic()-self._coverage_time > 5:
+        cached = self._coverage_cache
+        if cached is None or time.monotonic()-self._coverage_time > 5:
             states=self.store.rows('SELECT status,count(*) count FROM documents GROUP BY status')
             chunks=self.store.rows('SELECT count(*) n FROM chunks')[0]['n']
             embedded=self.store.rows('SELECT count(*) n FROM chunks c JOIN embeddings e ON c.hash=e.hash WHERE e.model=? AND c.semantic=1',(MODEL_ID,))[0]['n']
             eligible=self.store.rows('SELECT count(*) n FROM chunks WHERE semantic=1')[0]['n']
-            self._coverage_cache = {'documents':{r['status']:r['count'] for r in states},'chunks':chunks,'embedded_chunks':embedded,'semantic_eligible_chunks':eligible}
+            cached = {'documents':{r['status']:r['count'] for r in states},'chunks':chunks,'embedded_chunks':embedded,'semantic_eligible_chunks':eligible}
+            self._coverage_cache = cached
             self._coverage_time = time.monotonic()
-        return {**self._coverage_cache,
+        # A concurrent scan may invalidate the shared cache while this response
+        # is being built; keep the complete snapshot accepted by this request.
+        return {**cached,
                 'source_errors':dict(self.source_errors),'scanning':self.scanning,'last_scan':self.last_scan}
 
     def status(self):
