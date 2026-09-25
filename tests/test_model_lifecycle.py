@@ -95,6 +95,8 @@ def test_model_job_is_idempotent_and_runs_import(tmp_path, assets, monkeypatch):
         pid = 12345
         def __init__(self, command, **kwargs):
             children.append((command, kwargs))
+        def wait(self):
+            return 0
     monkeypatch.setattr(model_manager.subprocess, 'Popen', Child)
     first = model_manager.start_model_job(config, str(source))
     again = model_manager.start_model_job(config, str(source))

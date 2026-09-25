@@ -339,6 +339,14 @@ def run_daemon(config: dict, *, engine_factory=None):
                         pass
 
 
+def reap_child(process):
+    """Reap an exact child we launched, even if another client stops it later."""
+    # A new session does not detach POSIX parenthood. Retain the Popen and wait
+    # without blocking the caller, so a long-lived UI does not accumulate zombies.
+    # A daemon thread also lets short-lived CLI launchers exit independently.
+    threading.Thread(target=process.wait, name="one-search-child-reaper", daemon=True).start()
+
+
 def start_service(config: dict, *, timeout=30):
     try:
         return {**service_status(config), "started": False}
@@ -365,7 +373,11 @@ def start_service(config: dict, *, timeout=30):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
-            return {**service_status(config), "started": process.poll() is None}
+            health = service_status(config)
+            running = process.poll() is None
+            if running:
+                reap_child(process)
+            return {**health, "started": running}
         except ServiceError:
             if process.poll() is not None:
                 break

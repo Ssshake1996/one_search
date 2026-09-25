@@ -13,7 +13,7 @@ import time
 from .config import load_config
 from .model import ASSETS, MODEL_ID, ModelCancelled, download_model, model_ready
 from .runtime import process_command
-from .service import InstanceLock, ServiceError
+from .service import InstanceLock, ServiceError, reap_child
 
 ACTIVE = {'queued', 'running', 'cancelling'}
 
@@ -118,6 +118,7 @@ def start_model_job(config, source_directory=None):
         except OSError:
             _write(directory / 'status.json', {**state, 'state': 'failed', 'error': {'code': 'launch_failed', 'message': 'Unable to launch model worker'}})
             raise
+        reap_child(child)
         return {**state, 'ready': False, 'pid': child.pid, 'reused': False}
 
 

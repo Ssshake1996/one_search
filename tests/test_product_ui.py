@@ -14,12 +14,22 @@ from data_search.product_ui import add_product_panels
 pytestmark = pytest.mark.skipif(os.name != 'nt', reason='Tk workflow acceptance uses the validated Windows host')
 
 
-@pytest.fixture
-def panel(tmp_path):
+@pytest.fixture(scope='module')
+def ui_root():
     import tkinter as tk
-    from tkinter import ttk
+    # The real settings application owns one Tcl/Tk interpreter. Reuse that
+    # lifecycle here; repeatedly recreating Tcl interpreters in this Windows
+    # Python build intermittently reports unreadable existing library files.
     root = tk.Tk()
     root.attributes('-alpha', 0.0)
+    yield root
+    root.destroy()
+
+
+@pytest.fixture
+def panel(tmp_path, ui_root):
+    from tkinter import ttk
+    root = ui_root
     root.geometry('900x700')
     notebook = ttk.Notebook(root)
     notebook.pack(fill='both', expand=True)
@@ -30,8 +40,9 @@ def panel(tmp_path):
     root.update()
     controller = notebook.one_search_product_controller
     yield root, notebook, controller, path, pages
-    if root.winfo_exists():
-        root.destroy()
+    for child in root.winfo_children():
+        child.destroy()
+    root.update()
 
 
 def wait(root, panel, timeout=8):
@@ -109,8 +120,7 @@ def test_search_context_citation_diagnosis_refresh_uses_real_engine(panel, monke
         engine.close()
 
 
-def test_fast_selection_never_shows_previous_hit_under_new_selection(tmp_path, monkeypatch):
-    import tkinter as tk
+def test_fast_selection_never_shows_previous_hit_under_new_selection(panel, tmp_path, monkeypatch):
     from tkinter import ttk
     started, release = threading.Event(), threading.Event()
     first, second = hit('c:1', tmp_path/'A.txt'), hit('c:2', tmp_path/'B.txt')
@@ -125,7 +135,8 @@ def test_fast_selection_never_shows_previous_hit_under_new_selection(tmp_path, m
         item = first if parameters['id'] == 'c:1' else second
         return {'document': item, 'chunks': [{'locator': {}, 'text': item['name']}], 'citation': item['citation']}
     monkeypatch.setattr('data_search.service.rpc', rpc)
-    root = tk.Tk(); root.withdraw()
+    root, previous, _, _, _ = panel
+    previous.destroy()
     notebook = ttk.Notebook(root); notebook.pack(fill='both', expand=True)
     config_path = tmp_path/'config.json'; atomic_json(config_path, defaults(str(tmp_path/'data'), []))
     add_product_panels(notebook, config_path)
@@ -141,7 +152,7 @@ def test_fast_selection_never_shows_previous_hit_under_new_selection(tmp_path, m
         assert json.loads(root.clipboard_get())['id'] == 'c:2'
         assert [parameters['id'] for method, parameters in calls if method == 'read_context'] == ['c:1', 'c:2']
     finally:
-        release.set(); root.destroy()
+        release.set(); notebook.destroy()
 
 
 def test_manual_path_is_never_overridden_by_old_selection(panel, monkeypatch, tmp_path):
