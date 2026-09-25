@@ -1,0 +1,55 @@
+{
+  "version": "0.2.0",
+  "implemented": [
+    "machine_scope_with_optional_directories",
+    "independent_content_and_semantic_scopes",
+    "external_content_fts_and_float16_embedding_cache",
+    "isolated_ann_build_immutable_publication",
+    "adaptive_candidates_and_batched_evidence",
+    "resumable_database_pages_watermarks_reconciliation",
+    "worker_os_controls_and_native_thread_limits",
+    "native_windows_runtime_and_local_settings_ui"
+  ],
+  "verification": {
+    "full_suite": {
+      "version": "0.2.0",
+      "recorded_at": "2026-09-25T06:39:31.719749+00:00",
+      "command": ".venv/Scripts/python.exe -m pytest -q",
+      "passed": 208,
+      "skipped": 2,
+      "warnings": 0,
+      "seconds": 35.78,
+      "skip_reason": "Opt-in external MySQL/PostgreSQL fixtures; separately executed and reported in databases-v0.2.json",
+      "python": "3.11.3",
+      "platform": "Windows-10-10.0.22631-SP0"
+    },
+    "100k_synthetic_chunks": {
+      "text_bytes": 27026395,
+      "old_final_disk_mib": 722.78,
+      "new_initial_disk_mib": 392.41,
+      "new_final_disk_mib": 506.51,
+      "final_disk_reduction_percent": 29.92,
+      "old_ann_initial_seconds": 646.102,
+      "new_ann_initial_seconds": 739.306,
+      "old_filename_p95_ms": 2.11,
+      "new_filename_p95_ms": 2.21,
+      "old_keyword_p95_ms": 90.763,
+      "new_keyword_p95_ms": 105.115,
+      "old_ann_kernel_p95_ms": 3.757,
+      "new_ann_kernel_p95_ms": 10.021,
+      "speedup_demonstrated": false
+    },
+    "concurrent_reader_test": "ANN add held behind a test barrier; SQLite and previous snapshot queries completed before build resumed.",
+    "migration_failure_test": "Injected error during external-content FTS rebuild; restart preserves canonical rows and keyword hits.",
+    "memory_cap_test": "Real Windows child allocation refusal under128MiB committed virtual-memory limit; successful real model encoding under512MiB after native-library thread limits.",
+    "unicode_windows_paths": "Python-wide mmap query reads plus isolated worker ASCII basename publication; actual source and native/bootstrap tests passed with Chinese/spaced program, data, source and model paths."
+  },
+  "unverified": [
+    "physical8GB/16GB PCs",
+    "hundreds_of_GB_real_extracted_content",
+    "Linux_host_installation",
+    "long_running_production_database_load",
+    "multi_machine_transport",
+    "DSH_specific_plugin_store_install_hooks"
+  ]
+}

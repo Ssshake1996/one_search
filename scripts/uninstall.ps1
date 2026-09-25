@@ -25,7 +25,7 @@ function Assert-ExactTarget([string]$Path, [string]$Expected) {
 if (-not (Test-Path -LiteralPath $InstallDir)) { Write-Host 'Already uninstalled.'; exit 0 }
 $manifestPath = Join-Path $InstallDir 'install-manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath)) { throw 'No data-search install manifest; refusing deletion.' }
-$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
 if ($manifest.product -ne 'data-search' -or $manifest.schema_version -ne 1) { throw 'Invalid install manifest.' }
 $checkedInstall = Assert-ExactTarget $InstallDir $manifest.install_dir
 $checkedData = Assert-ExactTarget $manifest.data_dir $manifest.data_dir
@@ -33,6 +33,8 @@ if ($checkedData -eq $checkedInstall -or $checkedInstall.StartsWith($checkedData
     throw 'Manifest contains overlapping directories; refusing deletion.'
 }
 $cli = Join-Path $checkedInstall 'venv\Scripts\data-search.exe'
+if ($manifest.PSObject.Properties['cli']) { $cli = $manifest.cli }
+if (-not ([IO.Path]::GetFullPath($cli)).StartsWith($checkedInstall.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'CLI path must be within the managed installation.' }
 if (Test-Path -LiteralPath $cli) {
     & $cli stop --config $manifest.config
     if ($LASTEXITCODE -ne 0) { throw 'Daemon did not stop; installation and data retained.' }
@@ -43,7 +45,7 @@ Remove-Item -LiteralPath $checkedInstall -Recurse -Force
 if ($DeleteData -and (Test-Path -LiteralPath $checkedData)) {
     $markerPath = Join-Path $checkedData '.data-search-data.json'
     if (-not (Test-Path -LiteralPath $markerPath)) { throw 'Data directory marker missing; data retained.' }
-    $marker = Get-Content -LiteralPath $markerPath -Raw | ConvertFrom-Json
+    $marker = Get-Content -LiteralPath $markerPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($marker.product -ne 'data-search' -or $marker.data_dir -ne $checkedData) { throw 'Invalid data marker; data retained.' }
     Remove-Item -LiteralPath $checkedData -Recurse -Force
     Write-Host 'Uninstalled and removed the configured data directory.'

@@ -28,7 +28,7 @@ import psutil
 from data_search.config import atomic_json, defaults
 from data_search.model import MODEL_ID
 from data_search.resources import Budget
-from data_search.store import Store, query_terms, terms, text_hash
+from data_search.store import Store, pack_vector, query_terms, text_hash, unpack_vector
 from data_search.vectors import Vectors
 
 
@@ -47,20 +47,30 @@ TOPICS = [
 class PeakRSS:
     def __init__(self):
         self.stop = threading.Event()
-        self.peak = psutil.Process().memory_info().rss
+        self.peak = self._rss()
         self.thread = threading.Thread(target=self._sample, daemon=True)
 
     def _sample(self):
-        process = psutil.Process()
         while not self.stop.wait(0.02):
-            self.peak = max(self.peak, process.memory_info().rss)
+            self.peak = max(self.peak, self._rss())
+
+    @staticmethod
+    def _rss():
+        process = psutil.Process()
+        result = 0
+        for child in [process] + process.children(recursive=True):
+            try:
+                result += child.memory_info().rss
+            except psutil.Error:
+                pass
+        return result
 
     def __enter__(self):
         self.thread.start()
         return self
 
     def __exit__(self, *_):
-        self.peak = max(self.peak, psutil.Process().memory_info().rss)
+        self.peak = max(self.peak, self._rss())
         self.stop.set()
         self.thread.join()
 
@@ -71,7 +81,7 @@ def populate(store: Store, start: int, count: int, generator, batch_size=500):
         size = min(batch_size, count - offset)
         matrix = generator.standard_normal((size, 512), dtype=np.float32)
         matrix /= np.linalg.norm(matrix, axis=1, keepdims=True)
-        documents, paths, chunks, fulltext, embeddings = [], [], [], [], []
+        documents, chunks, embeddings = [], [], []
         for local in range(size):
             number = start + offset + local
             slug, title, paragraph = TOPICS[number % len(TOPICS)]
@@ -81,15 +91,11 @@ def populate(store: Store, start: int, count: int, generator, batch_size=500):
             digest = text_hash(text)
             text_bytes += len(text.encode('utf-8'))
             documents.append((number, 'file:' + path, 'files', path, name, '.md', len(text.encode('utf-8')), 'ready'))
-            paths.append((number, path))
             chunks.append((number, number, text, digest, '{"line_start":1,"line_end":3}'))
-            fulltext.append((number, ' '.join(terms(text))))
-            embeddings.append((digest, MODEL_ID, matrix[local].tobytes()))
+            embeddings.append((digest, MODEL_ID, pack_vector(matrix[local])))
         with store.lock, store.db:
             store.db.executemany('INSERT INTO documents(id,key,source_id,path,name,extension,size,status) VALUES(?,?,?,?,?,?,?,?)', documents)
-            store.db.executemany('INSERT INTO paths_fts(rowid,path) VALUES(?,?)', paths)
             store.db.executemany('INSERT INTO chunks(id,doc_id,text,hash,locator) VALUES(?,?,?,?,?)', chunks)
-            store.db.executemany('INSERT INTO chunks_fts(rowid,tokens) VALUES(?,?)', fulltext)
             store.db.executemany('INSERT INTO embeddings(hash,model,vector) VALUES(?,?,?)', embeddings)
         if (offset + size) % 10_000 == 0:
             print(f"Indexed {offset + size}/{count} synthetic text records", file=sys.stderr, flush=True)
@@ -145,7 +151,7 @@ def run(args):
         'documents': args.documents,
         'chunks': args.documents,
         'vector_dimensions': 512,
-        'vector_storage': 'SQLite float32 source vectors; USearch cosine float16 ANN',
+        'vector_storage': 'SQLite float16 source vectors; USearch cosine float16 ANN',
         'environment': {
             'os': platform.platform(), 'python': platform.python_version(),
             'processor': platform.processor(), 'logical_cpus': psutil.cpu_count(),
@@ -157,15 +163,15 @@ def run(args):
         },
         'limits': {'memory_mb': args.memory_mb, 'disk_mb': args.disk_mb},
         'timing_boundary': {
-            'filename': 'Current Engine SQL: paths trigram/LIKE, doc metadata, max 60 candidates; no filesystem scope/stale checks or MCP response.',
-            'keyword': 'Current Engine FTS5/bm25 candidate SQL with tokenization, max 100 candidates; excludes follow-up evidence formatting and coverage calculation.',
+            'filename': 'Fixed paths trigram/LIKE SQL kernel, doc metadata, max 60 candidates; excludes Engine adaptive expansion/ordering, filesystem checks and MCP response.',
+            'keyword': 'Fixed FTS5/bm25 candidate SQL with tokenization, max 100 candidates; excludes Engine adaptive expansion, evidence formatting and coverage calculation.',
             'ann': 'Vectors.search with metadata/generation validation and up to 100 candidates; excludes tokenization, embedding inference and source fetch.',
         },
         'limitations': [
             'This synthetic corpus is small in source-text bytes even with 100,000 rows; it does not represent hundreds of GB of extracted text.',
             'Warm timings do not include cold process/model startup, initial filesystem reads, document parsing, network or answer generation.',
             'Random vectors measure index mechanics and latency, never semantic relevance or embedding model quality.',
-            'RSS samples describe this benchmark process only; the full daemon plus parser/model workers must be measured separately.',
+            'RSS samples include this process and its ANN worker; full daemon plus parser/model workloads are separate.',
             'Fixed query mix covers exact identifiers, common topics and no-match terms; different distributions can change latency.',
         ],
     }
@@ -191,7 +197,7 @@ def run(args):
             filename_values.append(f'document-{number:06d}' if index % 4 < 2 else slug if index % 4 == 2 else 'not-a-real-source')
             keyword_values.append(f'REF-BENCH-{number:06d}' if index % 4 < 2 else title if index % 4 == 2 else 'NOANSWERXYZ')
             row = store.rows('SELECT e.vector FROM embeddings e JOIN chunks c ON c.hash=e.hash WHERE c.id=?', (number,))[0]
-            query_vector = np.frombuffer(row['vector'], dtype=np.float32).copy()
+            query_vector = unpack_vector(row['vector']).astype(np.float32)
             query_vector += query_generator.standard_normal(512, dtype=np.float32) * .002
             query_vector /= np.linalg.norm(query_vector)
             ann_values.append(query_vector)

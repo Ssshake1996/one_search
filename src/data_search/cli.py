@@ -8,7 +8,8 @@ from pathlib import Path
 import sys
 
 from .config import defaults, load_config
-from .service import ServiceError, rpc, run_daemon, service_status, start_service, stop_service
+from .resources import ResourceLimit
+from .service import InstanceLock, ServiceError, rpc, run_daemon, service_status, start_service, stop_service
 
 
 def _parser():
@@ -16,12 +17,13 @@ def _parser():
     parser.add_argument("--config", help="Configuration JSON path")
     subparsers = parser.add_subparsers(dest="command", required=True)
     commands = {}
-    for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download"]:
+    for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download", "compact"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", default=argparse.SUPPRESS, help="Configuration JSON path")
         commands[command] = subparser
     commands["init"].add_argument("--data-dir", required=True)
-    commands["init"].add_argument("--root", action="append", default=[])
+    commands["init"].add_argument("--root", action="append", help="Search only this directory; repeat for more directories. Default: local machine disks")
+    commands["init"].add_argument("--exclude", action="append", default=[], help="Exclude this directory tree; repeat for more exclusions")
     commands["init"].add_argument("--node-id", default="local")
     commands["search"].add_argument("query")
     commands["search"].add_argument("--mode", choices=["hybrid", "keyword", "semantic", "files"], default="hybrid")
@@ -41,10 +43,11 @@ def _parser():
 
 def _initialize(args):
     path = Path(args.config).expanduser().resolve()
-    roots = [str(Path(root).expanduser().resolve()) for root in args.root]
-    if any(not Path(root).is_dir() for root in roots):
+    roots = [str(Path(root).expanduser().resolve()) for root in args.root] if args.root else None
+    if any(not Path(root).is_dir() for root in roots or []):
         raise ValueError("Every search root must be an existing directory")
     config = defaults(args.data_dir, roots)
+    config['exclude_paths'] = [str(Path(p).expanduser().resolve()) for p in args.exclude]
     config["node_id"] = args.node_id
     config["nodes"] = [{"id": args.node_id, "transport": "local"}]
     if not args.node_id or len(args.node_id) > 100:
@@ -55,7 +58,8 @@ def _initialize(args):
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         json.dump(config, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
-    return {"status": "initialized", "config": str(path), "data_dir": config["data_dir"], "roots": roots}
+    return {"status": "initialized", "config": str(path), "data_dir": config["data_dir"],
+            "scope": config['scope'], "roots": config['roots'], "exclude_paths": config['exclude_paths']}
 
 
 def main(argv=None):
@@ -74,6 +78,8 @@ def main(argv=None):
             config = load_config(args.config)
             command = args.command
             if command == "daemon":
+                from .runtime import configure_native_threads
+                configure_native_threads(config["semantic"]["threads"])
                 run_daemon(config)
                 return 0
             if command == "mcp":
@@ -109,6 +115,21 @@ def main(argv=None):
             elif command == "model-download":
                 from .model import download_model
                 result = download_model(config["semantic"]["model_dir"])
+            elif command == "compact":
+                from .resources import Budget
+                from .store import Store
+                # The same OS lock as daemon startup prevents a check/start race.
+                with InstanceLock(Path(config['data_dir']) / 'service.lock'):
+                    index = Path(config['data_dir']) / 'index.sqlite3'
+                    if not index.is_file():
+                        raise ValueError('No index exists to compact')
+                    budget = Budget(config)
+                    budget.check(disk=True, reserve_mb=2 * index.stat().st_size / 1048576 + 16)
+                    store = Store(config['data_dir'])
+                    try:
+                        result = {'status': 'compacted', **store.compact()}
+                    finally:
+                        store.close()
             else:
                 raise ValueError("Unknown command")
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -116,7 +137,7 @@ def main(argv=None):
     except KeyboardInterrupt:
         print("Interrupted", file=sys.stderr)
         return 130
-    except (ValueError, OSError, ServiceError) as error:
+    except (ValueError, OSError, ServiceError, ResourceLimit) as error:
         print(f"data-search: {error}", file=sys.stderr)
         return 1
     except Exception as error:

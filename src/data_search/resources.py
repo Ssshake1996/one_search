@@ -7,6 +7,8 @@ from pathlib import Path
 
 import psutil
 
+from .scope import link_directory
+
 
 class ResourceLimit(RuntimeError):
     pass
@@ -31,13 +33,15 @@ class Budget:
                 pass
         if force_disk or time.monotonic() - self._last_disk > 10:
             size = 0
-            paths = [self.path]
+            paths = [self.path.resolve()]
             model = Path(self.config['semantic']['model_dir']).resolve()
-            if not model.is_relative_to(self.path.resolve()):
+            if self.path.resolve().is_relative_to(model):
+                paths = [model]
+            elif not model.is_relative_to(self.path.resolve()):
                 paths.append(model)
             for directory in paths:
                 for base, dirs, files in os.walk(directory, followlinks=False):
-                    dirs[:] = [d for d in dirs if not Path(base, d).is_symlink()]
+                    dirs[:] = [d for d in dirs if not link_directory(Path(base, d))]
                     for name in files:
                         try:
                             p = Path(base, name)
@@ -49,7 +53,12 @@ class Budget:
         return {"rss_mb": round(memory / 1048576, 2),
                 "available_mb": round(psutil.virtual_memory().available / 1048576, 2),
                 "disk_mb": round(self._disk_bytes / 1048576, 2),
-                "free_disk_mb": round(shutil.disk_usage(self.path).free / 1048576, 2)}
+                "free_disk_mb": round(shutil.disk_usage(self.path).free / 1048576, 2),
+                "rss_enforcement": "sampled_process_tree",
+                "worker_limits_requested": {
+                    "memory_mb": self.config['resource'].get('worker_memory_mb',512),
+                    "cpu_percent": self.config['resource'].get('worker_cpu_percent',25),
+                    "note": "Applied limits and fallbacks are reported for each worker"}}
 
     def check(self, disk: bool = False, reserve_mb: float = 0) -> dict:
         state, limits = self.snapshot(force_disk=disk), self.config["resource"]

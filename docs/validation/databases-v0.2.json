@@ -1,0 +1,84 @@
+{
+  "recorded_at": "2026-09-25T06:17:34.235912+00:00",
+  "version": "0.2.0",
+  "platform": "Windows x64",
+  "data_policy": "Synthetic isolated fixtures only; no business databases accessed.",
+  "sqlite_version": "3.40.1",
+  "local_tests": {
+    "command": ".venv/Scripts/python.exe -m pytest tests/test_databases.py tests/test_engine_databases.py -q",
+    "passed": 73,
+    "skipped": 2,
+    "seconds": 10.53,
+    "skip_reason": "External MySQL/PostgreSQL connection configs are opt-in; separately executed below."
+  },
+  "external_tests": {
+    "command": ".venv/Scripts/python.exe .test-databases/run_sync_integration.py",
+    "tracked_adapter_tests_passed": 61,
+    "tracked_adapter_test_seconds": 2.13,
+    "additional_engine_checks": {
+      "postgres": {
+        "keyset_page_size": 2,
+        "full_rows": 4,
+        "timestamp_microseconds_preserved": true,
+        "equal_watermark_tie_breaker": true,
+        "worker_restart_checkpoint": true,
+        "incremental_update_insert": true,
+        "same_timestamp_update": true,
+        "delete_retained_until_full_reconcile": true,
+        "read_only_account": true
+      },
+      "mysql": {
+        "keyset_page_size": 2,
+        "full_rows": 4,
+        "timestamp_microseconds_preserved": true,
+        "equal_watermark_tie_breaker": true,
+        "worker_restart_checkpoint": true,
+        "incremental_update_insert": true,
+        "same_timestamp_update": true,
+        "delete_retained_until_full_reconcile": true,
+        "read_only_account": true
+      }
+    },
+    "versions": {
+      "postgres": "PostgreSQL 17.11 on x86_64-windows, compiled by msvc-19.44.35228, 64-bit",
+      "mysql": "8.4.11"
+    },
+    "exit_code": 0,
+    "lifecycle": "Temporary loopback-only ports, isolated data directories, SELECT-only accounts, no system services; both servers stopped by fixture finally block."
+  },
+  "regressions": {
+    "large_table": {
+      "rows": 1127,
+      "page_size": 137,
+      "max_pages_per_tick": 2,
+      "rows_after_tick_1": 274,
+      "rows_after_restart_tick_2": 548,
+      "final_rows": 1127,
+      "same_scan_generation_after_restart": true
+    },
+    "per_table_round_robin": true,
+    "no_offset_for_index_sync": true,
+    "fixed_cycle_upper_bound": true,
+    "watermark_and_id_tie_breaker": true,
+    "replay_equal_watermark_on_next_cycle": true,
+    "insert_and_update_incremental": true,
+    "backdated_update_found_by_full_reconcile": true,
+    "deletion_only_after_complete_full_scan": true,
+    "bounded_delete_cleanup_and_restart": true,
+    "page_error_retains_old_docs_and_cursor": true,
+    "partial_page_application_replays_chunks": true,
+    "configuration_fingerprint_resets_checkpoint": true,
+    "invalid_unique_key_nulls_cursor_and_watermark_types_rejected": true,
+    "allowlisted_columns_and_bound_values_preserved": true,
+    "status_and_inspection_expose_database_sync": true
+  },
+  "limits": [
+    "Cross-page synchronization uses separate short transactions and is eventually consistent, not CDC.",
+    "IDs must be stable single-column primary keys or non-partial UNIQUE keys, with non-null ordered values; indexed text of ordinary views is unsupported.",
+    "The source must maintain updated_column; lower/backdated values and deletes need a full reconciliation.",
+    "Equal-watermark groups are replayed; very large equal groups reduce incremental efficiency.",
+    "Large source tables should have an index on (updated_column,id_column); read-only plugin never creates source indexes.",
+    "The 1127-row test verifies coverage and resumability, not a billion-row or production throughput guarantee.",
+    "PostgreSQL 16/18, real TLS, long-duration high-concurrency workloads, CDC and remote multi-node search are unverified."
+  ]
+}

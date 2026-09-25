@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "recorded_at": "2026-09-25T06:39:31.710748+00:00",
+  "platform": "Windows-10-10.0.22631-SP0",
+  "method": "FileScope discovery and root access probe only; no full-machine file enumeration or content indexing performed",
+  "mode": "machine",
+  "effective_roots": [
+    "C:\\",
+    "D:\\",
+    "E:\\",
+    "F:\\",
+    "G:\\"
+  ],
+  "skipped_volumes": [],
+  "unavailable_roots": [],
+  "discovery_error": null,
+  "excluded_names": [
+    "$recycle.bin",
+    ".git",
+    ".venv",
+    "__pycache__",
+    "node_modules",
+    "system volume information"
+  ],
+  "program_data_model_excluded": true
+}

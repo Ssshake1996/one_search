@@ -1,52 +1,103 @@
 from __future__ import annotations
 
 import json
+import mmap
 import os
+import sqlite3
+import threading
+import uuid
+from pathlib import Path
 
 from .config import atomic_json
 from .model import MODEL_ID
 from .resources import ResourceLimit
+from .store import unpack_vector
 
 
 class Vectors:
-    """Recoverable ANN cache; SQLite remains the source of truth.
+    """Immutable ANN snapshots built outside the query and SQLite writer locks.
 
-    Chunk IDs are append-only identities in Store/Engine: changed content is
-    deleted and inserted with a new AUTOINCREMENT ID. Embeddings are immutable
-    for a (content hash, MODEL_ID). This lets sync diff IDs without loading every
-    stored vector or rebuilding every HNSW edge. A snapshot still rewrites the
-    ANN file, so its disk reservation includes the replacement copy.
+    Production builds use a monitored disposable process. The previous version
+    stays searchable; Engine checks current document IDs and scope on every hit.
+    Only a small manifest is atomically replaced after a complete snapshot save.
     """
+    SCHEMA_VERSION = 3
 
-    SCHEMA_VERSION = 2
-
-    def __init__(self, store, budget):
+    def __init__(self, store, budget, *, local_io=False):
         self.store, self.budget = store, budget
-        self.path = store.path.with_name('vectors.usearch')
-        self.meta = self.path.with_suffix('.json')
-        self.dirty = self.path.with_suffix('.dirty')
-        self.reader = None
-        self.generation = None
+        self.meta = store.path.with_name('vectors.json')
+        self.dirty = store.path.with_name('vectors.dirty')
+        self.reader = self.generation = self.reader_path = None
         self.last_sync = None
+        self.lock = threading.RLock()
+        self.worker = None
+        self.building = False
+        self.local_io = local_io
+
+    def _native_path(self, path):
+        # Only the disposable, single-request worker may change cwd. USearch's
+        # Windows C narrow-path API cannot open non-ASCII parent directories.
+        return path.name if self.local_io else str(path)
+
+    def _restore(self, path, *, view):
+        from usearch.index import Index
+        native = self._native_path(path)
+        if os.name != 'nt' or native.isascii():
+            return Index.restore(native,view=view)
+        # Python opens Windows paths with wide APIs; a file-backed buffer keeps
+        # query readers zero-copy even under a non-ASCII user/profile directory.
+        with path.open('rb') as stream:
+            mapping = mmap.mmap(stream.fileno(),0,access=mmap.ACCESS_READ)
+        try:
+            index = Index.restore(mapping,view=view)
+            if view and index is not None:
+                index._data_search_mapping = mapping
+            else:
+                mapping.close()
+            return index
+        except Exception:
+            mapping.close()
+            raise
+
+    @property
+    def path(self):
+        metadata = self._metadata()
+        return self.store.path.with_name(metadata['snapshot']) if metadata else self.store.path.with_name('vectors.usearch')
 
     def close(self):
-        self.reader = None
-        self.generation = None
+        if self.worker:
+            self.worker.close()
+        with self.lock:
+            self.reader = self.reader_path = self.generation = None
+
+    def cancel(self):
+        if self.worker:
+            self.worker.cancel()
 
     def _metadata(self):
-        if self.dirty.exists() or not self.path.exists():
+        if self.dirty.exists():
             return None
         try:
-            metadata = json.loads(self.meta.read_text(encoding='utf-8'))
-            stat = self.path.stat()
-            if (metadata.get('schema_version') != self.SCHEMA_VERSION
-                    or metadata.get('model') != MODEL_ID
-                    or metadata.get('snapshot_bytes') != stat.st_size
-                    or metadata.get('snapshot_mtime_ns') != stat.st_mtime_ns):
+            value = json.loads(self.meta.read_text(encoding='utf-8'))
+            name = value['snapshot']
+            if (not isinstance(name, str) or Path(name).name != name or not name.startswith('vectors-')
+                    or not name.endswith('.usearch') or value.get('schema_version') != self.SCHEMA_VERSION
+                    or value.get('model') != MODEL_ID or not isinstance(value.get('generation'),str)
+                    or isinstance(value.get('count'),bool) or not isinstance(value.get('count'),int)
+                    or value['count']<0):
                 return None
-            return metadata
-        except (OSError, ValueError, TypeError, AttributeError):
+            stat = self.store.path.with_name(name).stat()
+            if value.get('snapshot_bytes') != stat.st_size or value.get('snapshot_mtime_ns') != stat.st_mtime_ns:
+                return None
+            return value
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             return None
+
+    def status(self):
+        meta = self._metadata()
+        return {'building': self.building, 'published_chunks': meta['count'] if meta else 0,
+                'pending': meta is None or meta['generation'] != self.store.setting('vector_generation', '0'),
+                'last_sync': self.last_sync}
 
     @staticmethod
     def _flush(path):
@@ -55,8 +106,6 @@ class Vectors:
 
     @staticmethod
     def _flush_directory(path):
-        # POSIX makes the rename/marker durable with directory fsync. Windows
-        # does not expose an equivalent directory descriptor through os.open.
         if os.name != 'nt':
             descriptor = os.open(path, os.O_RDONLY | getattr(os, 'O_DIRECTORY', 0))
             try:
@@ -65,67 +114,100 @@ class Vectors:
                 os.close(descriptor)
 
     def _publish(self, index, generation, added, removed, rebuilt):
-        temporary = self.path.with_suffix('.tmp')
+        previous = self._metadata()
+        path = self.store.path.with_name(f'vectors-{uuid.uuid4().hex}.usearch')
         self.budget.check(disk=True, reserve_mb=max(8, max(len(index), index.capacity) * .002))
-        # The marker covers the two-file commit. A process interrupted after
-        # either replacement leaves it behind and the next sync rebuilds.
-        with self.dirty.open('w', encoding='ascii') as stream:
-            stream.write('snapshot publication in progress\n')
-            stream.flush()
-            os.fsync(stream.fileno())
-        self._flush_directory(self.path.parent)
         try:
-            index.save(str(temporary))
-            self._flush(temporary)
-            os.replace(temporary, self.path)
-            self._flush_directory(self.path.parent)
-            stat = self.path.stat()
-            atomic_json(self.meta, {
-                'schema_version': self.SCHEMA_VERSION,
+            native = self._native_path(path)
+            if os.name == 'nt' and not native.isascii():
+                # Inline test/library builds only; production workers always
+                # write an ASCII basename without an extra serialized copy.
+                path.write_bytes(index.save())
+            else:
+                index.save(native)
+            self._flush(path)
+            stat = path.stat()
+            atomic_json(self.meta, {'schema_version': self.SCHEMA_VERSION,
                 'generation': generation, 'model': MODEL_ID, 'count': len(index),
-                'snapshot_bytes': stat.st_size, 'snapshot_mtime_ns': stat.st_mtime_ns,
-            })
+                'previous_snapshot':previous['snapshot'] if previous else None,
+                'snapshot': path.name, 'snapshot_bytes': stat.st_size,
+                'snapshot_mtime_ns': stat.st_mtime_ns})
             self._flush(self.meta)
-            self._flush_directory(self.path.parent)
-            self.dirty.unlink()
-            self._flush_directory(self.path.parent)
-            self.last_sync = {'rebuilt': rebuilt, 'added': added, 'removed': removed, 'count': len(index)}
-        finally:
-            if temporary.exists():
-                temporary.unlink()
+            self._flush_directory(path.parent)
+        except Exception:
+            current = self._metadata()
+            if not current or current.get('snapshot') != path.name:
+                path.unlink(missing_ok=True)
+            raise
+        self.dirty.unlink(missing_ok=True)
+        keep = {path.name, previous['snapshot'] if previous else ''}
+        for stale in path.parent.glob('vectors-*.usearch'):
+            if stale.name not in keep:
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass  # A Windows reader may still map the previous file.
+        try:
+            (path.parent / 'vectors.usearch').unlink(missing_ok=True)
+        except OSError:
+            pass
+        self.last_sync = {'rebuilt': rebuilt, 'added': added, 'removed': removed, 'count': len(index)}
 
-    def sync(self, cancelled=None):
+    def sync(self, cancelled=None, *, isolated=None):
+        if isolated is None:
+            isolated = hasattr(self.budget, 'config')
+        self.building = True
+        try:
+            if isolated:
+                from .workers import Worker
+                if self.worker is None:
+                    self.worker = Worker(self.budget)
+                try:
+                    self.last_sync = self.worker.request({'method': 'vector_sync', 'config': self.budget.config},
+                                                        timeout=3600, cancelled=cancelled)
+                finally:
+                    self.worker.close()
+            else:
+                self._build(cancelled)
+        finally:
+            self.building = False
+
+    def _build(self, cancelled=None):
         import numpy as np
         from usearch.index import Index
 
         def checkpoint():
             if cancelled is not None and cancelled():
                 raise ResourceLimit('indexing_paused_or_stopping')
+            self.budget.check()
 
         checkpoint()
-
         metadata = self._metadata()
-        generation = self.store.setting('vector_generation', '0')
-        if metadata and metadata.get('generation') == generation:
-            # Validate the on-disk container at least once per process rather
-            # than trusting metadata when the ANN file is damaged.
+        keep = {metadata['snapshot'],metadata.get('previous_snapshot')} if metadata else set()
+        for orphan in self.store.path.parent.glob('vectors-*.usearch'):
+            if orphan.name not in keep:
+                try:
+                    orphan.unlink()
+                except OSError:
+                    pass
+        check_db = sqlite3.connect(self.store.path.as_uri()+'?mode=ro',uri=True)
+        try:
+            row = check_db.execute("SELECT value FROM settings WHERE key='vector_generation'").fetchone()
+            current_generation = row[0] if row else '0'
+        finally:
+            check_db.close()
+        if metadata and metadata['generation'] == current_generation:
             try:
-                if self.reader is None or self.generation != generation:
-                    self.reader = Index.restore(str(self.path), view=True)
-                    if self.reader is None or len(self.reader) != metadata['count'] or self.reader.ndim != 512:
-                        raise ValueError('invalid ANN snapshot')
-                    self.generation = generation
-                self.last_sync = {'rebuilt': False, 'added': 0, 'removed': 0, 'count': metadata['count']}
-                return
+                probe = self._restore(self.path,view=True)
+                if probe is not None and len(probe)==metadata['count'] and probe.ndim==512:
+                    self.last_sync = {'rebuilt':False,'added':0,'removed':0,'count':len(probe)}
+                    return
             except Exception:
-                metadata = None
-
-        self.close()
-        self.budget.check(disk=True)
+                pass
         index = None
         if metadata:
             try:
-                index = Index.restore(str(self.path), view=False)
+                index = self._restore(self.path,view=False)
                 if index is None or len(index) != metadata['count'] or index.ndim != 512:
                     index = None
             except Exception:
@@ -133,58 +215,81 @@ class Vectors:
         rebuilt = index is None
         if index is None:
             index = Index(ndim=512, metric='cos', dtype='f16', connectivity=16)
-
-        with self.store.lock:
-            checkpoint()
-            generation = self.store.setting('vector_generation', '0')
-            current = {int(row[0]) for row in self.store.db.execute(
-                'SELECT c.id FROM chunks c JOIN embeddings e ON c.hash=e.hash WHERE e.model=?', (MODEL_ID,))}
-            existing = set(map(int, np.asarray(index.keys)))
-            removed = existing - current
-            # Reclaim an extensively deleted graph; small changes remain
-            # incremental. Tombstones must not retain most of an old corpus.
-            if not rebuilt and len(removed) > max(1024, len(existing) // 3):
+        # Separate read snapshot, and an on-disk key table instead of giant sets.
+        connection = sqlite3.connect(self.store.path.as_uri() + '?mode=ro', uri=True, timeout=5, isolation_level=None)
+        try:
+            connection.execute('PRAGMA temp_store=FILE')
+            connection.execute('PRAGMA cache_size=-4096')
+            connection.execute('CREATE TEMP TABLE indexed(id INTEGER PRIMARY KEY)')
+            keys = np.asarray(index.keys)
+            connection.execute('BEGIN')
+            for offset in range(0, len(keys), 512):
+                checkpoint()
+                connection.executemany('INSERT INTO indexed VALUES(?)', ((int(k),) for k in keys[offset:offset+512]))
+            row = connection.execute("SELECT value FROM settings WHERE key='vector_generation'").fetchone()
+            generation = row[0] if row else '0'
+            if metadata and not rebuilt and metadata['generation'] == generation:
+                self.last_sync = {'rebuilt': False, 'added': 0, 'removed': 0, 'count': len(index)}
+                return
+            current_sql = 'SELECT c.id FROM chunks c JOIN embeddings e ON c.hash=e.hash WHERE e.model=?'
+            eligible = ' AND c.semantic=1' if any(r[1] == 'semantic' for r in connection.execute('PRAGMA table_info(chunks)')) else ''
+            current_sql += eligible
+            deleted_sql = f'SELECT id FROM indexed WHERE id NOT IN ({current_sql})'
+            removed = connection.execute(f'SELECT count(*) FROM ({deleted_sql})', (MODEL_ID,)).fetchone()[0]
+            if not rebuilt and removed > max(1024, len(index)//3):
                 index = Index(ndim=512, metric='cos', dtype='f16', connectivity=16)
                 rebuilt = True
-                existing = set()
+                connection.execute('DELETE FROM indexed')
             elif removed:
-                index.remove(np.asarray(sorted(removed), dtype=np.uint64), threads=1)
-            pending = sorted(current - existing)
-            for offset in range(0, len(pending), 256):
+                cursor = connection.execute(deleted_sql, (MODEL_ID,))
+                while rows := cursor.fetchmany(256):
+                    checkpoint()
+                    index.remove(np.asarray([r[0] for r in rows], dtype=np.uint64), threads=1)
+            count = connection.execute(f'SELECT count(*) FROM ({current_sql})', (MODEL_ID,)).fetchone()[0]
+            self.budget.check(disk=True, reserve_mb=max(8, count*.002))
+            after = added = 0
+            while True:
                 checkpoint()
-                self.budget.check(disk=True, reserve_mb=max(8, len(current) * .002))
-                batch = pending[offset:offset + 256]
-                placeholders = ','.join('?' for _ in batch)
-                rows = self.store.db.execute(
-                    'SELECT c.id,e.vector FROM chunks c JOIN embeddings e ON c.hash=e.hash '
-                    f'WHERE e.model=? AND c.id IN ({placeholders})', [MODEL_ID, *batch]).fetchall()
-                vectors = np.vstack([np.frombuffer(row[1], dtype=np.float32) for row in rows])
-                if vectors.shape[1] != 512 or not np.isfinite(vectors).all():
-                    raise ValueError('invalid persisted embedding; expected finite 512-dimensional vectors')
-                index.add(np.asarray([row[0] for row in rows], dtype=np.uint64), vectors, threads=1)
-            # Keep the source generation stable through publication. The caller
-            # serializes ANN access; this lock also protects the SQLite snapshot.
+                rows = connection.execute('SELECT c.id,e.vector FROM chunks c JOIN embeddings e ON c.hash=e.hash '
+                    'LEFT JOIN indexed i ON c.id=i.id WHERE i.id IS NULL AND e.model=? AND c.id>?'+eligible+
+                    ' ORDER BY c.id LIMIT 256', (MODEL_ID, after)).fetchall()
+                if not rows:
+                    break
+                values = np.vstack([unpack_vector(r[1]) for r in rows])
+                index.add(np.asarray([r[0] for r in rows], dtype=np.uint64), values, threads=1)
+                after, added = rows[-1][0], added+len(rows)
             checkpoint()
-            self._publish(index, generation, len(pending), len(removed), rebuilt)
+            self._publish(index, generation, added, removed, rebuilt)
+        finally:
+            connection.close()
 
     def search(self, vector: list[float], limit: int) -> list[tuple[int, float]]:
         import numpy as np
         from usearch.index import Index
-        generation = self.store.setting('vector_generation', '0')
-        meta = self._metadata()
-        if meta is None or meta.get('generation') != generation:
-            raise RuntimeError('semantic_index_pending')
-        if not meta['count']:
-            return []
-        if self.reader is None or self.generation != generation:
-            self.close()
-            try:
-                self.reader = Index.restore(str(self.path), view=True)
-                if self.reader is None or len(self.reader) != meta['count'] or self.reader.ndim != 512:
-                    raise ValueError('invalid ANN snapshot')
-            except Exception as exc:
-                self.close()
-                raise RuntimeError('semantic_index_pending: invalid ANN snapshot') from exc
-            self.generation = generation
-        found = self.reader.search(np.asarray(vector, dtype=np.float32), count=limit, threads=1)
-        return [(int(k), float(d)) for k, d in zip(found.keys, found.distances)]
+        with self.lock:
+            meta = self._metadata()
+            if meta is None:
+                raise RuntimeError('semantic_index_pending')
+            if not meta['count']:
+                return []
+            path = self.store.path.with_name(meta['snapshot'])
+            if self.reader is None or self.reader_path != path:
+                try:
+                    reader = self._restore(path,view=True)
+                    if reader is None or len(reader) != meta['count'] or reader.ndim != 512:
+                        raise ValueError('invalid ANN snapshot')
+                    self.reader, self.reader_path, self.generation = reader, path, meta['generation']
+                except Exception as exc:
+                    raise RuntimeError('semantic_index_pending: invalid ANN snapshot') from exc
+            found = self.reader.search(np.asarray(vector, dtype=np.float32), count=limit, threads=1)
+            return [(int(k), float(d)) for k, d in zip(found.keys, found.distances)]
+
+
+def build_in_worker(config):
+    from types import SimpleNamespace
+    from .resources import Budget
+    path = Path(config['data_dir']).resolve() / 'index.sqlite3'
+    os.chdir(path.parent)  # This is the isolated worker, never the daemon.
+    cache = Vectors(SimpleNamespace(path=path), Budget(config), local_io=True)
+    cache.sync(isolated=False)
+    return cache.last_sync

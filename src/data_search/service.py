@@ -353,7 +353,8 @@ def start_service(config: dict, *, timeout=30):
     if log_path.exists() and log_path.stat().st_size > 2 * 1024 * 1024:
         log_path.replace(directory / "daemon.previous.log")
     with log_path.open("ab") as log:
-        args = [sys.executable, "-m", "data_search", "daemon", "--config", str(Path(config_path).resolve())]
+        from .runtime import process_command
+        args = process_command("data_search", "daemon", "--config", str(Path(config_path).resolve()))
         options = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "close_fds": True}
         if os.name == "nt":
             options["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP

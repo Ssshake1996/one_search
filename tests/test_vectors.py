@@ -73,13 +73,13 @@ def test_add_delete_and_restart_change_only_affected_ids(cache, monkeypatch):
     restarted.close()
 
 
-def test_generation_mismatch_never_uses_old_results(cache):
+def test_generation_mismatch_keeps_last_published_snapshot_available(cache):
     store, vectors = cache
     _, _, vector = add_document(store, 'one', 0)
     vectors.sync()
     store.set_setting('vector_generation', '99')
-    with pytest.raises(RuntimeError, match='semantic_index_pending'):
-        vectors.search(vector, 10)
+    assert vectors.search(vector, 10)
+    assert vectors.status()['pending'] is True
     vectors.sync()
     assert vectors.last_sync['added'] == 0
     assert vectors.last_sync['rebuilt'] is False
@@ -146,12 +146,12 @@ def test_interrupted_metadata_commit_is_detected_and_recovered(cache, monkeypatc
     monkeypatch.setattr(module, 'atomic_json', fail_commit)
     with pytest.raises(OSError, match='simulated interruption'):
         vectors.sync()
-    assert vectors.dirty.exists()
-    with pytest.raises(RuntimeError, match='semantic_index_pending'):
-        vectors.search(vector, 10)
+    assert not vectors.dirty.exists()
+    assert vectors.search(vector, 10)
+    assert new_id not in {key for key, _ in vectors.search(new_vector, 10)}
     monkeypatch.setattr(module, 'atomic_json', original)
     vectors.sync()
-    assert vectors.last_sync['rebuilt'] is True
+    assert vectors.last_sync['rebuilt'] is False
     assert vectors.search(new_vector, 10)[0][0] == new_id
     assert not vectors.dirty.exists()
     assert not vectors.path.with_suffix('.tmp').exists()

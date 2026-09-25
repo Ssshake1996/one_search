@@ -5,7 +5,7 @@ repo_dir="$(dirname -- "$script_dir")"
 install_dir="${XDG_DATA_HOME:-$HOME/.local/share}/data-search/app"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/data-search/data"
 python_bin=python3
-package_path="$repo_dir"
+package_path=""
 wheelhouse=""
 model_dir=""
 skip_model=0
@@ -22,16 +22,20 @@ while (($#)); do
     --model-dir) model_dir="$2"; shift 2;;
     --skip-model) skip_model=1; shift;;
     --no-autostart) no_autostart=1; shift;;
-    --help) printf '%s\n' 'install.sh --root DIRECTORY [--root DIRECTORY ...] [--install-dir DIR] [--data-dir DIR] [--python PYTHON] [--package-path WHEEL_OR_SOURCE] [--wheelhouse DIR] [--model-dir DIR | --skip-model] [--no-autostart]'; exit 0;;
+    --help) printf '%s\n' 'install.sh [--root DIRECTORY ...] [--install-dir DIR] [--data-dir DIR] [--python PYTHON] [--package-path WHEEL_OR_SOURCE] [--wheelhouse DIR] [--model-dir DIR | --skip-model] [--no-autostart]' 'Default first-install scope: this machine. Reinstall preserves existing scope.'; exit 0;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
   esac
 done
 if [[ $skip_model == 1 && -n "$model_dir" ]]; then echo 'Choose --skip-model or --model-dir.' >&2; exit 2; fi
-"$python_bin" -c 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ required"'
+"$python_bin" "$script_dir/check_runtime.py" "$repo_dir"
+if [[ -z "$package_path" && -f "$repo_dir/RELEASE_MANIFEST.json" ]]; then
+  package_path="$repo_dir/$("$python_bin" -c 'import json,sys; print(json.load(open(sys.argv[1]))["package_wheel"])' "$repo_dir/RELEASE_MANIFEST.json")"
+  if [[ -z "$wheelhouse" ]]; then wheelhouse="$repo_dir/wheelhouse"; fi
+fi
+if [[ -z "$package_path" ]]; then package_path="$repo_dir"; fi
 install_dir="$("$python_bin" -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$install_dir")"
 data_dir="$("$python_bin" -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$data_dir")"
 config_path="$data_dir/config.json"
-if [[ ! -f "$config_path" && ${#roots[@]} == 0 ]]; then echo 'First installation requires an explicit --root directory.' >&2; exit 2; fi
 for search_root in "${roots[@]}"; do [[ -d "$search_root" ]] || { printf 'Search root is not a directory: %s\n' "$search_root" >&2; exit 2; }; done
 if [[ -n "$model_dir" ]]; then
   model_dir="$("$python_bin" -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$model_dir")"
@@ -79,12 +83,13 @@ venv_python="$install_dir/venv/bin/python"
 cli="$install_dir/venv/bin/data-search"
 if [[ -x "$cli" ]]; then "$cli" stop --config "$config_path"; fi
 if [[ ! -x "$venv_python" ]]; then "$python_bin" -m venv "$install_dir/venv"; fi
+"$venv_python" "$script_dir/check_runtime.py" "$repo_dir"
 echo 'Installing data-search and dependencies into its isolated environment...'
 pip_args=(-m pip install --disable-pip-version-check --quiet)
 if [[ -n "$wheelhouse" ]]; then pip_args+=(--no-index --find-links "$wheelhouse"); fi
 "$venv_python" "${pip_args[@]}" "$package_path"
 if [[ ! -f "$config_path" ]]; then
-  init_args=(init --config "$config_path" --data-dir "$data_dir")
+  init_args=(init --config "$config_path" --data-dir "$data_dir" --exclude "$install_dir")
   for search_root in "${roots[@]}"; do init_args+=(--root "$search_root"); done
   "$cli" "${init_args[@]}"
   "$venv_python" - "$config_path" "$skip_model" "$model_dir" <<'PY'
@@ -95,6 +100,13 @@ if sys.argv[3]: c['semantic']['model_dir']=sys.argv[3]
 p.write_text(json.dumps(c,ensure_ascii=False,indent=2)); p.chmod(0o600)
 PY
 else echo "Preserving existing configuration: $config_path (roots and model options unchanged)."; fi
+"$venv_python" - "$config_path" "$install_dir" <<'PY'
+import json, pathlib, sys
+p=pathlib.Path(sys.argv[1]); c=json.loads(p.read_text())
+excluded=c.setdefault('exclude_paths', [])
+if sys.argv[2] not in excluded:
+    excluded.append(sys.argv[2]); p.write_text(json.dumps(c,ensure_ascii=False,indent=2)); p.chmod(0o600)
+PY
 if [[ $skip_model == 0 && -z "$model_dir" ]] && "$venv_python" -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["semantic"]["enabled"] else 1)' "$config_path"; then
   "$cli" model-download --config "$config_path"
 fi

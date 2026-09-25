@@ -15,6 +15,7 @@ import sqlite3
 import threading
 import time
 from typing import Iterator
+from uuid import UUID
 
 
 class DatabaseError(ValueError):
@@ -52,6 +53,21 @@ def _identifier(value):
 def _fields(value, allowed, required=()):
     if not isinstance(value, dict) or set(value) - set(allowed) or set(required) - set(value):
         raise DatabaseError("Invalid structured request fields")
+
+
+def _sync_scalar(value):
+    """Lossless JSON checkpoint values that the drivers can bind back to SQL."""
+    if value is None or isinstance(value, (bool, bytes)):
+        raise DatabaseError("Index identities and watermarks must be non-null ordered scalars")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise DatabaseError("Index identities and watermarks must be finite")
+    if isinstance(value, Decimal) and not value.is_finite():
+        raise DatabaseError("Index identities and watermarks must be finite")
+    if isinstance(value, (datetime, date, Decimal, UUID)):
+        value = str(value)
+    if not isinstance(value, (str, int, float)) or (isinstance(value, str) and len(value) > 2048):
+        raise DatabaseError("Index identities and watermarks require bounded ordered scalars")
+    return value
 
 
 class DatabaseSource:
@@ -375,6 +391,140 @@ class DatabaseSource:
         return {"source_id": self.id, "columns": labels, "rows": rows, "row_count": len(rows),
                 "truncated": truncated, "elapsed_ms": round((time.monotonic() - started) * 1000, 2),
                 "queried_at": datetime.now().astimezone().isoformat()}
+
+    def _index_key_is_unique(self, connection, table, column):
+        """Require a real single-column key; a composite/partial unique index is insufficient."""
+        with self._cursor(connection) as cursor:
+            if self.kind == "sqlite":
+                cursor.execute("SELECT name, pk FROM pragma_table_info(?) WHERE pk > 0", (table,))
+                if [r[0] for r in cursor.fetchall()] == [column]:
+                    return True
+                cursor.execute('SELECT name FROM pragma_index_list(?) WHERE "unique"=1 AND partial=0', (table,))
+                names = [r[0] for r in cursor.fetchall()]
+                for name in names:
+                    cursor.execute("SELECT name FROM pragma_index_info(?) ORDER BY seqno", (name,))
+                    if [r[0] for r in cursor.fetchall()] == [column]:
+                        return True
+            elif self.kind == "mysql":
+                cursor.execute("SELECT INDEX_NAME, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=%s AND TABLE_NAME=%s AND NON_UNIQUE=0 ORDER BY INDEX_NAME, SEQ_IN_INDEX", (self.config["database"], table))
+                indexes = {}
+                for name, field in cursor.fetchall():
+                    indexes.setdefault(name, []).append(field)
+                return [column] in indexes.values()
+            else:
+                schema, name = table.split(".")
+                cursor.execute("SELECT a.attname FROM pg_index i JOIN pg_class t ON t.oid=i.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace JOIN pg_attribute a ON a.attrelid=t.oid AND a.attnum=i.indkey[0] WHERE n.nspname=%s AND t.relname=%s AND i.indisunique AND i.indisvalid AND i.indimmediate AND i.indnkeyatts=1 AND i.indpred IS NULL AND i.indexprs IS NULL", (schema, name))
+                return column in [r[0] for r in cursor.fetchall()]
+        return False
+
+    def index_page(self, entry, *, mode="full", after=None, boundary=None, watermark=None, page_size=250):
+        """One bounded, read-only keyset page. Each call has its own short snapshot.
+
+        The caller commits the returned cursor only after storing every document.
+        A fixed upper boundary makes each cycle finite while the source keeps growing.
+        Equal-watermark rows are replayed on the next cycle; IDs break ties within it.
+        """
+        _integer(page_size, "page_size", 1, 1000)
+        _fields(entry, {"table", "id_column", "text_columns", "updated_column"}, {"table", "id_column", "text_columns"})
+        if entry not in self.config.get("index", []):
+            raise DatabaseError("Index specification is not configured")
+        if mode not in {"full", "incremental"} or (mode == "incremental" and not entry.get("updated_column")):
+            raise DatabaseError("Incremental synchronization requires updated_column")
+        table, identity_column = entry["table"], entry["id_column"]
+        text_columns, updated = entry["text_columns"], entry.get("updated_column")
+        if not isinstance(text_columns, list) or not 1 <= len(text_columns) <= 50:
+            raise DatabaseError("text_columns requires 1 to 50 column names")
+        qualified = self._table(table)
+        identity_sql = self._quote(identity_column)
+        updated_sql = self._quote(updated) if updated else None
+
+        def pair(value):
+            if not isinstance(value, list) or len(value) != 2:
+                raise DatabaseError("Invalid watermark cursor")
+            return [_sync_scalar(v) for v in value]
+
+        if watermark is not None:
+            watermark = pair(watermark)
+        if after is not None:
+            after = _sync_scalar(after) if mode == "full" else pair(after)
+        if boundary is not None:
+            _fields(boundary, {"id", "watermark"}, {"id", "watermark"})
+            if boundary["id"] is not None:
+                _sync_scalar(boundary["id"])
+            if boundary["watermark"] is not None:
+                pair(boundary["watermark"])
+
+        with self._connection() as connection:
+            schema = self._schema(connection, table)
+            fields = {c["name"]: c for c in schema["columns"]}
+            required = [identity_column] + text_columns + ([updated] if updated else [])
+            if any(name not in fields for name in required):
+                raise DatabaseError("Index column is unavailable or not allowed")
+            if schema["kind"] != "table" or not self._index_key_is_unique(connection, table, identity_column):
+                raise DatabaseError("Index identity requires a single-column primary key or non-partial UNIQUE index")
+            for column in [identity_column] + ([updated] if updated else []):
+                kind = fields[column]["type"].lower()
+                if any(t in kind for t in ("blob", "binary", "bytea", "json", "array", "bool")) or kind.endswith("[]"):
+                    raise DatabaseError("Index identities and watermarks must use ordered scalar column types")
+            if boundary is None:
+                with self._cursor(connection) as cursor:
+                    for column in [identity_column] + ([updated] if updated else []):
+                        cursor.execute("SELECT 1 FROM " + qualified + " WHERE " + self._quote(column) + " IS NULL LIMIT 1")
+                        nulls = cursor.fetchall()
+                        if nulls:
+                            raise DatabaseError("Index identities and watermarks must be non-null")
+                    cursor.execute("SELECT " + identity_sql + " FROM " + qualified + " ORDER BY " + identity_sql + " DESC LIMIT 1")
+                    last = cursor.fetchall()
+                    boundary = {"id": _sync_scalar(last[0][0]) if last else None, "watermark": None}
+                    if updated and last:
+                        cursor.execute("SELECT " + updated_sql + ", " + identity_sql + " FROM " + qualified + " ORDER BY " + updated_sql + " DESC, " + identity_sql + " DESC LIMIT 1")
+                        boundary["watermark"] = pair(list(cursor.fetchall()[0]))
+            if boundary["id"] is None or (mode == "incremental" and boundary["watermark"] is None):
+                return {"documents": [], "next_cursor": after, "boundary": boundary, "complete": True}
+            predicates, params = [], []
+            placeholder = self._param
+
+            def tuple_predicate(values, greater):
+                op, tie_op = (">", ">") if greater else ("<", "<=")
+                predicates.append(f"({updated_sql} {op} {placeholder} OR ({updated_sql} = {placeholder} AND {identity_sql} {tie_op} {placeholder}))")
+                params.extend([values[0], values[0], values[1]])
+
+            if mode == "full":
+                predicates.append(f"{identity_sql} <= {placeholder}")
+                params.append(boundary["id"])
+                if after is not None:
+                    predicates.append(f"{identity_sql} > {placeholder}")
+                    params.append(after)
+            else:
+                tuple_predicate(boundary["watermark"], False)
+                if after is not None:
+                    tuple_predicate(after, True)
+                if watermark is not None:
+                    predicates.append(f"{updated_sql} >= {placeholder}")
+                    params.append(watermark[0])
+            cast = "CHAR" if self.kind == "mysql" else "TEXT"
+            selected = [identity_sql] + ([updated_sql] if updated else [])
+            selected += [f"SUBSTR(CAST({self._quote(c)} AS {cast}), 1, 12001)" for c in text_columns]
+            order = identity_sql if mode == "full" else updated_sql + ", " + identity_sql
+            sql = "SELECT " + ", ".join(selected) + " FROM " + qualified + " WHERE " + " AND ".join(predicates) + " ORDER BY " + order + f" LIMIT {placeholder}"
+            params.append(page_size + 1)
+            documents, next_cursor, complete = [], after, True
+            with self._cursor(connection, stream=True) as cursor:
+                cursor.execute(sql, params)
+                for row in cursor:
+                    if len(documents) == page_size:
+                        complete = False
+                        break
+                    identity = _sync_scalar(row[0])
+                    stamp = _sync_scalar(row[1]) if updated else None
+                    next_cursor = identity if mode == "full" else [stamp, identity]
+                    key_material = json.dumps([self.id, table, identity_column, identity], ensure_ascii=False, sort_keys=True)
+                    text = "\n".join(f"{name}: {value}" for name, value in zip(text_columns, row[2:] if updated else row[1:]) if value is not None)
+                    documents.append({"kind": "document", "key": "db:" + hashlib.sha256(key_material.encode("utf-8")).hexdigest(),
+                        "table": table, "text": text[:12000], "version": hashlib.sha256(text[:12000].encode("utf-8")).hexdigest(),
+                        "locator": {"source_id": self.id, "table": table, "id_column": identity_column, "id": identity,
+                                    "columns": text_columns, "truncated": len(text) > 12000}})
+            return {"documents": documents, "next_cursor": next_cursor, "boundary": boundary, "complete": complete}
 
     def iter_documents(self, max_rows: int = 10000) -> Iterator[dict]:
         """Yield documents followed by one completeness marker; never infer completeness from EOF."""

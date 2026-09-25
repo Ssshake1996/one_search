@@ -1,6 +1,6 @@
 {
   "name": "data-search",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Search local files, document contents and read-only database sources using MCP.",
   "author": {
     "name": "Local developer"

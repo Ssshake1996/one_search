@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import threading
 import time
 
 from .resources import Budget, ResourceLimit
+from .runtime import process_command
 
 
 class Worker:
@@ -19,14 +21,25 @@ class Worker:
         self.last_used = 0.0
         self.responses = queue.Queue()
         self.cancelled = threading.Event()
+        self.control = None
+        self.control_status = {}
 
     def _start(self):
+        if self.control:
+            self.control.close()
+            self.control = None
         self.responses = queue.Queue()
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
-        self.proc = subprocess.Popen([sys.executable, "-m", "data_search.worker"],
+        child_env = os.environ.copy()
+        for name in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'MKL_NUM_THREADS', 'NUMEXPR_NUM_THREADS'):
+            child_env[name] = str(self.budget.config['semantic']['threads'])
+        self.proc = subprocess.Popen(process_command('data_search.worker'),
                                      stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                      stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
-                                     creationflags=flags)
+                                     creationflags=flags, env=child_env)
+        from .resource_control import attach_worker
+        self.control = attach_worker(self.proc.pid, self.budget.config)
+        self.control_status = self.control.status
         q, proc = self.responses, self.proc
         def read():
             try:
@@ -41,7 +54,7 @@ class Worker:
                 q.put({"ok": False, "error": "worker exited"})
         threading.Thread(target=read, daemon=True).start()
 
-    def request(self, request: dict, timeout: float = 60):
+    def request(self, request: dict, timeout: float = 60, cancelled=None):
         with self.lock:
             if self.cancelled.is_set():
                 raise ResourceLimit('service_stopping')
@@ -53,6 +66,8 @@ class Worker:
                 self.proc.stdin.flush()
                 deadline = time.monotonic() + timeout
                 while time.monotonic() < deadline:
+                    if cancelled is not None and cancelled():
+                        raise ResourceLimit('indexing_paused_or_stopping')
                     if self.cancelled.is_set():
                         raise ResourceLimit('service_stopping')
                     self.budget.check()
@@ -61,6 +76,8 @@ class Worker:
                     except queue.Empty:
                         continue
                     if not result["ok"]:
+                        if result['error'] == 'worker exited':
+                            raise RuntimeError(f'worker exited (exit_code={self.proc.poll()}); check worker_memory_mb and resource controls')
                         raise RuntimeError(result["error"])
                     self.last_used = time.monotonic()
                     return result["result"]
@@ -82,6 +99,9 @@ class Worker:
                 for stream in (proc.stdin, proc.stdout):
                     if stream:
                         stream.close()
+            if self.control:
+                self.control.close()
+                self.control = None
 
     def idle_close(self, seconds: float):
         if self.lock.acquire(blocking=False):

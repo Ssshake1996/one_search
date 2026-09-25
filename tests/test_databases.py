@@ -249,3 +249,98 @@ def test_service_database_integration(engine):
     assert docs[-1]["complete"] and docs[-1]["row_count"] == 4
     assert "服务器成本优化" in docs[0]["text"]
     assert list(source.iter_documents(max_rows=2))[-1]["complete"] is False
+    for mode in ['full'] + (['incremental'] if config['index'][0].get('updated_column') else []):
+        after, boundary, identities = None, None, []
+        for _ in range(5):
+            page = source.index_page(config['index'][0], mode=mode, after=after, boundary=boundary, page_size=1)
+            identities += [document['locator']['id'] for document in page['documents']]
+            after, boundary = page['next_cursor'], page['boundary']
+            if page['complete']:
+                break
+        assert page['complete'] and identities == [1, 2, 3, 4]
+
+
+
+def test_keyset_pages_cover_ties_without_offset(config, database):
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE orders SET updated_at='2026-01-01'")
+    source = DatabaseSource(config)
+    for mode in ('full', 'incremental'):
+        after, boundary, ids = None, None, []
+        for _ in range(5):
+            page = source.index_page(config['index'][0], mode=mode, after=after, boundary=boundary, page_size=1)
+            ids += [d['locator']['id'] for d in page['documents']]
+            after, boundary = page['next_cursor'], page['boundary']
+            if page['complete']:
+                break
+        assert ids == [1, 2, 3, 4]
+        assert page['complete']
+        assert boundary['watermark'] == ['2026-01-01', 4]
+
+
+def test_keyset_boundary_finishes_despite_new_rows(config, database):
+    source = DatabaseSource(config)
+    first = source.index_page(config['index'][0], page_size=2)
+    with sqlite3.connect(database) as connection:
+        connection.execute("INSERT INTO orders(id,description,updated_at) VALUES(5,'later','2026-02-01')")
+    second = source.index_page(config['index'][0], after=first['next_cursor'], boundary=first['boundary'], page_size=2)
+    assert [d['locator']['id'] for d in second['documents']] == [3, 4]
+    assert second['complete']
+    incremental = source.index_page(config['index'][0], mode='incremental', watermark=first['boundary']['watermark'])
+    assert [d['locator']['id'] for d in incremental['documents']] == [4, 5]
+
+
+@pytest.mark.parametrize('change,error', [
+    ('nonunique', 'single-column'), ('composite', 'single-column'),
+    ('partial', 'single-column'), ('null_id', 'non-null'),
+    ('null_watermark', 'non-null'), ('blob_watermark', 'ordered scalar'),
+    ('view', 'single-column'), ('hidden_watermark', 'not allowed'),
+])
+def test_index_page_rejects_unreliable_keys_and_watermarks(config, database, change, error):
+    entry = config['index'][0]
+    with sqlite3.connect(database) as connection:
+        if change in {'nonunique', 'composite', 'partial'}:
+            entry['id_column'] = 'customer_id'
+            if change == 'composite':
+                connection.execute('CREATE UNIQUE INDEX composite_key ON orders(customer_id, id)')
+            if change == 'partial':
+                connection.execute('CREATE UNIQUE INDEX partial_key ON orders(customer_id) WHERE id=1')
+        elif change == 'null_id':
+            connection.execute('UPDATE orders SET customer_id=id')
+            connection.execute('CREATE UNIQUE INDEX nullable_key ON orders(customer_id)')
+            connection.execute('UPDATE orders SET customer_id=NULL WHERE id=1')
+            entry['id_column'] = 'customer_id'
+        elif change == 'null_watermark':
+            connection.execute('UPDATE orders SET updated_at=NULL WHERE id=1')
+        elif change == 'blob_watermark':
+            connection.execute("UPDATE orders SET updated_at=x'1020' WHERE id=4")
+        elif change == 'view':
+            entry.update(table='public_orders')
+            entry.pop('updated_column')
+        elif change == 'hidden_watermark':
+            config['allowed_columns']['orders'].remove('updated_at')
+    with pytest.raises(DatabaseError, match=error):
+        DatabaseSource(config).index_page(entry)
+
+
+def test_single_column_unique_key_and_quoted_values_are_bound(config, database):
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE names (name TEXT NOT NULL UNIQUE, body TEXT)")
+        connection.executemany('INSERT INTO names VALUES(?,?)', [("a' OR 1=1 --", 'first'), ('z', 'last')])
+    config['allowed_tables'].append('names')
+    entry = {'table': 'names', 'id_column': 'name', 'text_columns': ['body']}
+    config['index'] = [entry]
+    source = DatabaseSource(config)
+    first = source.index_page(entry, page_size=1)
+    second = source.index_page(entry, page_size=1, after=first['next_cursor'], boundary=first['boundary'])
+    assert first['documents'][0]['locator']['id'] == "a' OR 1=1 --"
+    assert [d['locator']['id'] for d in second['documents']] == ['z']
+    assert second['complete']
+
+
+@pytest.mark.parametrize('arguments', [{'page_size': True}, {'page_size': 1001},
+    {'mode': 'arbitrary'}, {'after': {}}, {'mode':'incremental','after':['x']},
+    {'watermark': [None, 1]}, {'watermark': [float('inf'), 1]}, {'boundary': {'id':1}}])
+def test_index_page_rejects_invalid_cursors(config, arguments):
+    with pytest.raises(DatabaseError):
+        DatabaseSource(config).index_page(config['index'][0], **arguments)

@@ -4,9 +4,32 @@
       "id": "local_orders",
       "kind": "sqlite",
       "path": "C:/data/orders.sqlite",
-      "allowed_tables": ["orders"],
-      "allowed_columns": {"orders": ["id", "description", "updated_at", "amount"]},
-      "index": [{"table": "orders", "id_column": "id", "text_columns": ["description"], "updated_column": "updated_at"}]
+      "allowed_tables": [
+        "orders"
+      ],
+      "allowed_columns": {
+        "orders": [
+          "id",
+          "description",
+          "updated_at",
+          "amount"
+        ]
+      },
+      "index": [
+        {
+          "table": "orders",
+          "id_column": "id",
+          "text_columns": [
+            "description"
+          ],
+          "updated_column": "updated_at"
+        }
+      ],
+      "sync": {
+        "page_size": 250,
+        "max_pages_per_tick": 4,
+        "reconcile_interval_seconds": 3600
+      }
     },
     {
       "id": "mysql_catalog",
@@ -16,9 +39,33 @@
       "database": "catalog",
       "user": "data_search_reader",
       "password_env": "DATA_SEARCH_MYSQL_PASSWORD",
-      "allowed_tables": ["products"],
-      "allowed_columns": {"products": ["id", "name", "description", "updated_at"]},
-      "index": [{"table": "products", "id_column": "id", "text_columns": ["name", "description"], "updated_column": "updated_at"}]
+      "allowed_tables": [
+        "products"
+      ],
+      "allowed_columns": {
+        "products": [
+          "id",
+          "name",
+          "description",
+          "updated_at"
+        ]
+      },
+      "index": [
+        {
+          "table": "products",
+          "id_column": "id",
+          "text_columns": [
+            "name",
+            "description"
+          ],
+          "updated_column": "updated_at"
+        }
+      ],
+      "sync": {
+        "page_size": 250,
+        "max_pages_per_tick": 4,
+        "reconcile_interval_seconds": 3600
+      }
     },
     {
       "id": "postgres_knowledge",
@@ -28,10 +75,36 @@
       "database": "knowledge",
       "user": "data_search_reader",
       "password_env": "DATA_SEARCH_POSTGRES_PASSWORD",
-      "ssl": {"sslmode": "verify-full"},
-      "allowed_tables": ["public.articles"],
-      "allowed_columns": {"public.articles": ["id", "title", "body", "updated_at"]},
-      "index": [{"table": "public.articles", "id_column": "id", "text_columns": ["title", "body"], "updated_column": "updated_at"}]
+      "ssl": {
+        "sslmode": "verify-full"
+      },
+      "allowed_tables": [
+        "public.articles"
+      ],
+      "allowed_columns": {
+        "public.articles": [
+          "id",
+          "title",
+          "body",
+          "updated_at"
+        ]
+      },
+      "index": [
+        {
+          "table": "public.articles",
+          "id_column": "id",
+          "text_columns": [
+            "title",
+            "body"
+          ],
+          "updated_column": "updated_at"
+        }
+      ],
+      "sync": {
+        "page_size": 250,
+        "max_pages_per_tick": 4,
+        "reconcile_interval_seconds": 3600
+      }
     }
   ]
 }

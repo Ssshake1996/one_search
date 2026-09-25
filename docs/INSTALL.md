@@ -1,56 +1,106 @@
-# data_search 单机安装与接入
+# one_search v0.2 安装、设置与接入
 
-本版先验证单机。每台机器拥有独立 `node_id`，搜索结果保留节点标识；远程节点传输、认证和跨机汇总尚未实现。填写远程节点 ID 不会自动访问其他机器。
+本版先交付单机服务。每台机器使用独立 `node_id`，协议保留节点标识；远程认证、传输与跨机汇总尚未实现。新安装默认发现本机文件范围，传入目录参数可限制范围；重装保留现有设置。
 
-## 发行形式与前提
+## 选择发行形式
 
-当前提供 **Python bootstrap 安装器**，要求 Windows 或 Linux 上已有 Python 3.11+、venv 和 pip。Linux 发行版可能需要单独安装 `python3-venv`。本项目尚未交付免 Python 的原生安装包，也未验证 Codex/DSH 插件商店的安装钩子。
+| 形式 | 文件或入口 | 前提 |
+|---|---|---|
+| Windows 原生运行时包 | `one-search-0.2.0-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
+| Windows Python bootstrap 包 | `one-search-0.2.0-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
+| 源码 | 仓库中的 `scripts/install.ps1` / `scripts/install.sh` | Python 3.11+、venv/pip；安装依赖需要网络或匹配 wheelhouse |
+| 项目 wheel | `data_search-0.2.0-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
 
-安装器执行同一套流程：创建隔离环境、安装服务依赖、初始化明确选定的搜索目录、准备本地模型、配置用户自启动、启动服务、生成 MCP 配置。默认需要网络下载 Python 依赖和固定版本模型。模型推理在本机运行。
+本轮发行目标为 Windows amd64，实测主机是 Windows 11、内核 10.0.22631；其他 Windows 版本/ARM64 不作为已验收平台。Linux 有源码安装脚本，尚无本轮 Linux 免 Python 二进制，也未完成 Linux 主机安装验收。源码最低 Python 版本与 bootstrap 包的固定小版本要求不同，安装器会检查包的 `RELEASE_MANIFEST.json` 并拒绝不匹配解释器。
 
-软件目录与数据目录必须独立且不互相嵌套。首次安装拒绝非空且没有管理标识的目录。安装器不扫描全盘，不改写 AI 宿主配置，也不把插件注册进全局 marketplace。
+最终发行目录为 `dist/release-v0.2.0`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
 
-Windows 默认目录：
+模型不在默认 ZIP 内。首次安装默认下载固定版本本地 embedding 模型；可以指定已校验的离线模型目录，或先关闭语义功能。推理始终在本机。
+
+## Windows 安装
+
+完整解压 ZIP，在解压目录运行：
+
+```powershell
+.\scripts\install.ps1
+```
+
+原生包还可双击 `Install.cmd`。安装器识别包类型，原生包复制随附运行时；bootstrap 包建立隔离 venv 并使用随包 wheelhouse。随后初始化配置、准备模型、注册当前用户登录启动项、隐藏启动服务，并生成 MCP 配置。原生分支不调用系统 Python。
+
+默认目录：
 
 - 程序：`%LOCALAPPDATA%\data-search\app`
 - 配置、模型、索引：`%LOCALAPPDATA%\data-search\data`
+- 配置文件：数据目录下 `config.json`
 
-Linux 默认目录：
-
-- 程序：`${XDG_DATA_HOME:-~/.local/share}/data-search/app`
-- 配置、模型、索引：`${XDG_DATA_HOME:-~/.local/share}/data-search/data`
-
-## Windows
-
-在仓库根目录打开 PowerShell，指定真实资料目录：
+只检索指定目录，或选择独立安装路径：
 
 ```powershell
-.\scripts\install.ps1 -Root 'C:\Users\you\Documents'
+.\scripts\install.ps1 -Root @('D:\资料', 'D:\项目') `
+  -InstallDir 'D:\apps\data-search' -DataDir 'D:\app-data\data-search'
 ```
 
-需要多个目录时：
+安装目录与数据目录须独立且不嵌套，首次安装要求空目录；已有安装需有本程序的管理清单。原始资料应放在这两个目录之外，安装目录、索引与模型目录会被排除。
+
+bootstrap 指定解释器示例：
 
 ```powershell
-.\scripts\install.ps1 -Root @('D:\资料', 'D:\projects') -InstallDir 'D:\apps\data-search' -DataDir 'D:\app-data\data-search'
+.\scripts\install.ps1 -Python 'C:\Python311\python.exe'
 ```
 
-安装器注册当前用户登录时运行的启动项，通过隐藏窗口启动后台服务，不需要管理员权限。启动项仅对当前用户生效；没有用户登录时，不保证服务运行。如果操作系统策略禁用了 Windows Script Host 或用户启动项，使用 `-NoAutostart` 并手工启动；这不是已注册的系统级服务。
+安装器不修改全局 PowerShell 执行策略。如果本机策略禁止运行脚本，应按设备/组织政策审阅并允许运行本地脚本。自启动使用当前用户 Run 项和隐藏启动脚本，不需要管理员权限；它不是开机即运行的系统服务。Windows Script Host 或 Run 项被策略禁用时可使用 `-NoAutostart`，以后手工启动。
 
-若本机执行策略阻止脚本，按组织或设备策略允许运行经过审阅的本地脚本；安装器不修改全局执行策略。
-
-开发或烟雾测试可不下载模型、不注册启动项：
+隔离试用或验收应显式指定合成资料范围：
 
 ```powershell
-.\scripts\install.ps1 -Root 'D:\samples' -InstallDir 'D:\test-app' -DataDir 'D:\test-data' -SkipModel -NoAutostart
+.\scripts\install.ps1 -Root 'D:\samples' `
+  -InstallDir 'D:\test-app' -DataDir 'D:\test-data' -SkipModel -NoAutostart
 ```
 
-`-SkipModel` 仅在首次创建配置时关闭语义功能。之后重复安装会保留现有配置；显式修改 `config.json` 的 `semantic.enabled` 才能改变原设置。关键词和文件名检索无需模型。
+`-SkipModel` 在首次配置中关闭 `semantic.enabled`，关键词和文件名仍可工作；重装不会替换原语义开关。`-NoAutostart` 省去登录启动项，但安装末尾仍会启动一次服务。
 
-## Linux
+## 设置窗口与范围
+
+原生安装后双击 `<InstallDir>\Settings.vbs`，也可执行：
+
+```powershell
+& "$env:LOCALAPPDATA\data-search\app\runtime\data-search.exe" setup `
+  --config "$env:LOCALAPPDATA\data-search\data\config.json"
+```
+
+源码/bootstrap 环境使用：
+
+```powershell
+& "$env:LOCALAPPDATA\data-search\app\venv\Scripts\python.exe" -m data_search.setup_ui `
+  --config "$env:LOCALAPPDATA\data-search\data\config.json"
+```
+
+`data-search setup` 是原生启动器的入口；Python CLI 使用上面的模块入口。直接运行解压包 `runtime/data-search.exe`（不带参数）也会打开设置窗口，但不会完成安装、自启动注册或 MCP 配置生成。建议先运行安装器。
+
+设置窗口可以：
+
+- 在本机范围和指定目录之间切换；通过“添加目录”选择路径。
+- 为正文和语义分别设置 `all` / `directories` / `none`、目录和扩展名；留空扩展名表示不额外筛选。
+- 通过表单添加 SQLite/MySQL/PostgreSQL，或编辑 JSON 以配置多个表、TLS 和同步预算。
+- 保存并启动、刷新状态、暂停/恢复索引、停止服务、下载模型。
+
+保存前验证配置和目录，随后停止旧服务、原子保存并启动；**保存不会验证远程数据库连接、表权限或唯一键**，实际结果需看同步状态/错误。窗口保留未编辑的高级配置；内存和磁盘预算目前在 `resource` JSON 中设置，没有完整图形预算编辑器。密码仅填环境变量名，没有图形凭据保险箱。
+
+新安装 `scope: "machine"` 在 Windows 发现当前账号可访问的固定本地磁盘，跳过网络/可移动卷、目录链接、程序/数据/模型目录与排除项，不提升权限。Linux 使用本地挂载发现并排除远程、虚拟文件系统和 `/proc`、`/sys`、`/dev`、`/run`；实现仍需 Linux 实机验收。`scope: "directories"` 使用 `roots`。旧配置未写 `scope` 时沿用旧目录范围，升级不会扩大为整机。
+
+正文/语义进一步受 `indexing.content_scope`、`indexing.semantic_scope`、各自的 `*_roots`、`*_extensions` 约束。语义只处理已经提取的正文。数据库正文由自己的 `index` 控制；文件目录/扩展名过滤不限制数据库，`semantic_scope: "none"` 也会关闭数据库嵌入。示例见 [项目说明](../README.md)。
+
+整机范围使用周期遍历。Windows 指定目录模式最多 32 个有效根时尝试监听，失败回退周期遍历；Linux 当前也采用周期遍历。看 `file_scope`、`coverage` 和 `database_sync` 判断实际覆盖，不能将“服务正在运行”理解为“所有资料已索引完成”。
+
+## Linux 源码安装
+
+要求 Python 3.11+、pip 和 venv；部分发行版需另装 `python3-venv`。可选图形窗口还需要桌面会话和 Tk/Tkinter（例如发行版提供的 `python3-tk`）。本轮未验收 Linux，下面是实现提供的安装接口。
 
 ```bash
-bash scripts/install.sh --root "$HOME/Documents"
+bash scripts/install.sh
 ```
+
+限定目录：
 
 ```bash
 bash scripts/install.sh --root /srv/docs --root /srv/project \
@@ -58,64 +108,68 @@ bash scripts/install.sh --root /srv/docs --root /srv/project \
   --data-dir "$HOME/.local/share/data-search/data"
 ```
 
-默认注册并启动 **systemd 用户服务**。运行安装命令的用户必须有正常的 systemd 用户会话；否则安装器会明确失败，要求使用 `--no-autostart`。自动启动保证的是用户会话生命周期，未自动启用 linger，也未注册 root 系统服务。
+默认注册 systemd **用户服务**，要求当前用户有可用的 systemd 会话；不可用会明确报错。无 systemd 时：
 
 ```bash
 bash scripts/install.sh --root /srv/docs --skip-model --no-autostart
 ```
 
-日志可通过 `journalctl --user -u <安装清单中的 unit_name>` 查看；后台程序也在数据目录保留自身状态信息。无 systemd 场景下由 CLI 分离后台运行，下次开机需手工 `start`。
+此模式安装完成仍分离启动后台进程，重新登录/开机后需手工 `start`。安装器不启用 linger、不注册 root 系统服务。默认路径以 `${XDG_DATA_HOME:-$HOME/.local/share}/data-search/{app,data}` 为准；自定义路径按参数配置。systemd 日志可使用 `journalctl --user -u <安装清单中的 unit_name>` 查看。
 
-## 离线模型与依赖
+## 离线模型与构建
 
-模型目录需要由相同版本的 `data-search model-download --config <配置路径>` 准备，包含固定版本的模型、分词器、配置和校验清单。不要把任意聊天模型目录当成 embedding 模型目录。
+离线模型应由同版本 `data-search model-download --config CONFIG` 准备，包含 `model.onnx`、`tokenizer.json`、`config.json`、`manifest.json`，并通过固定版本校验。不要使用任意聊天模型目录。
 
 ```powershell
-.\scripts\install.ps1 -Root 'D:\docs' -ModelDir 'D:\models\bge-small-zh-v1.5'
+.\scripts\install.ps1 -ModelDir 'D:\models\bge-small-zh-v1.5'
 ```
 
 ```bash
-bash scripts/install.sh --root /srv/docs --model-dir /srv/models/bge-small-zh-v1.5
+bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 ```
 
-`ModelDir` 采用已有模型的绝对路径，不复制或删除该外部目录。该选项仅对首次配置生效；重装不覆盖已有模型路径。完全离线时，还需本平台和 Python 版本兼容的 dependency wheelhouse：
+外部模型目录不会复制或随卸载删除。`ModelDir` 仅在首次配置时设置路径，不能与 `SkipModel` 同用。已有配置按原模型路径运行。Windows 原生包自带程序依赖，bootstrap 包自带匹配的依赖 wheel；配合有效离线模型目录可离线安装。
+
+源码安装使用自备 wheelhouse 示例：
 
 ```powershell
-.\scripts\install.ps1 -Root 'D:\docs' -PackagePath '.\wheelhouse\data_search-0.1.0-py3-none-any.whl' -Wheelhouse '.\wheelhouse' -ModelDir 'D:\models\bge-small-zh-v1.5'
+.\scripts\install.ps1 -Root 'D:\docs' `
+  -PackagePath '.\wheelhouse\data_search-0.2.0-py3-none-any.whl' `
+  -Wheelhouse '.\wheelhouse' -ModelDir 'D:\models\bge-small-zh-v1.5'
 ```
 
-构建发行包：
+开发者在已安装项目开发依赖的环境构建：
 
-```bash
-python scripts/build_release.py --output dist
+```powershell
+python scripts/build_release.py --output dist/release-v0.2.0 --native
 ```
 
-该脚本构建项目 wheel、下载当前平台依赖 wheel、附上安装器/文档/插件壳并生成 SHA256 清单和 ZIP。模型不包含在默认 ZIP 内。请分别在 Windows/Linux 目标架构与目标 Python 小版本构建、验证，原生依赖 wheel 不可跨平台混用。最终 ZIP 仍需要 Python；不能称为独立原生程序。
+`--native` 仅接受 64 位 Windows，使用 PyInstaller 生成完整运行时目录，同时生成 bootstrap 包；不传该参数只构建 bootstrap。`--wheelhouse PATH` 可复用构建/依赖 wheel。输出包目录已存在会拒绝覆盖；另选空输出目录。不要混用 Windows/Linux、不同架构或不同 CPython 小版本的原生依赖。当前没有打包 Linux 原生运行时。
 
 ## MCP 与 DSH 接入
 
-安装后读取 `<InstallDir>/mcp.json`。该文件含有已经解析成绝对路径的 `command` 和 `args`，复制 `mcpServers.data-search` 条目到宿主支持的 MCP 配置即可。DSH 的具体配置容器按所安装版本文档处理；本项目没有改写未知的 DSH 配置文件。
+读取 `<InstallDir>/mcp.json`，把 `mcpServers.data-search` 条目加入宿主支持的 MCP 配置。安装器已写入绝对路径；根据 DSH 实际版本选择配置容器。本版不自动改写 DSH 或 Codex 全局配置。
 
-示意结构：
+原生安装示意：
 
 ```json
 {
   "mcpServers": {
     "data-search": {
-      "command": "C:/Users/you/AppData/Local/data-search/app/venv/Scripts/data-search.exe",
+      "command": "C:/Users/you/AppData/Local/data-search/app/runtime/data-search.exe",
       "args": ["mcp", "--config", "C:/Users/you/AppData/Local/data-search/data/config.json"]
     }
   }
 }
 ```
 
-Codex 格式插件副本位于 `<InstallDir>/plugin`，其中 `.mcp.json` 已补全绝对路径。源码目录 `plugins/data-search` 是未绑定安装路径的 shell，不能把空 MCP 配置当成已运行的集成。当前不自动安装到 Codex marketplace。
+bootstrap 的 `command` 指向 `<InstallDir>/venv/Scripts/data-search.exe`；Linux 指向 `<InstallDir>/venv/bin/data-search`。Codex 格式副本位于 `<InstallDir>/plugin`，`.mcp.json` 同样已绑定绝对路径。源码 `plugins/data-search` 是待安装的外壳，空 MCP 文件不代表已经运行。插件商店生命周期安装与 marketplace 分发尚未验收。
 
-MCP 使用 stdio，后台 API 仅监听本机回环地址；不应将其直接端口转发或开放到网络。本地解析和向量生成不调用聊天模型，但 MCP 返回的内容会进入连接的 AI 客户端，其模型部署决定后续数据流向。
+MCP 使用 stdio，后台 HTTP 仅在 loopback 监听并验证本机 token。远程端口转发不是已支持的多机协议。数据在本机解析和嵌入；返回给宿主的片段后续如何处理，取决于宿主自身部署。
 
-## 服务控制与配置
+## 服务控制、维护与升级
 
-Windows 使用 `<InstallDir>\venv\Scripts\data-search.exe`；Linux 使用 `<InstallDir>/venv/bin/data-search`。所有操作指定绝对 `--config` 路径：
+用上节对应的可执行文件替代下列 `data-search`，`CONFIG` 使用配置绝对路径：
 
 ```text
 data-search status --config CONFIG
@@ -127,42 +181,52 @@ data-search stop --config CONFIG
 data-search start --config CONFIG
 ```
 
-修改配置前先停止服务，再启动。重装默认保留配置，包括 roots、数据源、资源预算与语义设置；重新传 `Root` 不会替换原 roots。文件监听、解析状态和实际索引覆盖应通过 `status` 查看。
+`scan` 请求后台调度，不表示扫描同步完成。`status` 包含文件覆盖、源错误、数据库扫描进度、ANN 是否正在构建/等待发布、worker 实际控制及回退原因。
 
-## 数据库需要的信息
+升级可用新包向相同程序/数据路径重新运行安装器。它先停止现有实例，更新程序，再启动；保留搜索范围、数据库、预算与语义设置，并确保安装目录排除。再次传 `Root` 不覆盖旧范围；改范围应使用设置窗口，或 `stop` 后编辑配置再 `start`。旧配置缺少新字段时由配置加载器补默认值。
 
-把 `examples/databases.json` 中需要的条目调整后加入配置的 `databases`。示例未指向真实业务数据，也不会自动启用。
+新写入向量为 float16，旧 float32 缓存仍可读取；FTS external-content 结构会按需要迁移。要转换旧向量并回收 SQLite 空间，可停服务后维护：
 
-| 类型 | 必填信息 |
+```text
+data-search stop --config CONFIG
+data-search compact --config CONFIG
+data-search start --config CONFIG
+```
+
+`compact` 持有同一实例锁，避免与后台同时操作；需额外临时磁盘空间，预算不足会拒绝。升级首次迁移及离线压缩耗时取决于原索引规模，不承诺瞬时完成。
+
+## 数据库接入
+
+把 [数据库配置示例](../examples/databases.json) 改成实际参数后加入配置的 `databases`，或在设置窗口添加。
+
+| 类型 | 需要提供 |
 |---|---|
-| SQLite | 数据库文件绝对路径、允许访问的表/视图及字段 |
-| MySQL | 可达主机、端口、库名、只读用户名、密码环境变量名、允许访问的表/字段；按服务器要求配置 TLS |
-| PostgreSQL | 可达主机、端口、库名、只读用户名、密码环境变量名、允许访问的 `schema.table`/字段；按服务器要求配置 TLS |
+| SQLite | 文件绝对路径、当前账号读取权限、允许表/字段 |
+| MySQL | 主机、端口、库名、只读用户名、密码环境变量名、允许表/字段，必要时 TLS |
+| PostgreSQL | 同上，表名使用 `schema.table` |
+| 持续正文索引 | 每表 `id_column`、`text_columns`，可选 `updated_column` 与 `sync` 预算 |
 
-密码本身不填入 JSON。`password_env` 引用后台服务进程可读的环境变量；临时终端变量只对从该终端启动的进程有效，自启动时必须另外确保同一变量可用。本版尚未交付图形凭据管理器，不应把密码写进启动命令。
+密码本身不写 JSON 或启动命令。`password_env` 必须在后台进程启动前可用；临时终端环境变量不会自动成为登录自启动环境。账号权限、对象/字段白名单和结构化查询限制共同生效。
 
-数据库用户名必须具备实际对象的读取权限。只读账号、对象/字段 allowlist、结构化查询限制共同生效。例子中的表和字段都需要替换为实际名称。数据库原始存储或备份文件不能当作已连接数据库处理。
+正文持续同步要求非空稳定的单列主键/唯一键，先完整分页，之后按水位增量并周期完整核对；每轮限额不会截断整个表。删除只在完整扫描后确认。授权视图可以实时查询，但不用于持续正文索引。详细一致性、键约束和复合索引建议见 [数据库说明](DATABASES.md)。
 
-可先生成独立演示库：`python examples/create_sample_database.py <新的绝对路径>/orders.sqlite`，把 SQLite 示例的 `path` 改成输出路径，再用 `examples/query.json` 的结构化请求验证。脚本拒绝覆盖既有文件；`examples/sample-documents` 也可直接作为首次安装的搜索目录。
+可用 `python examples/create_sample_database.py <新路径>/orders.sqlite` 生成合成 SQLite，脚本拒绝覆盖已有文件；首次安装试用也可把 `examples/sample-documents` 作为明确搜索范围。
 
-语义索引还需配置 `index`：每张表的稳定唯一键 `id_column`、文本字段 `text_columns`，以及可选 `updated_column`。本版采用限额快照核对，只有完整快照完成才识别删除；超过行数预算时报告不完整，不能保证整个大表已覆盖。查询接口仍可访问允许范围内的数据。
+## 卸载与保留数据
 
-## 卸载与数据保留
+Windows 可执行随包或安装目录中的卸载脚本：
 
 ```powershell
 .\scripts\uninstall.ps1
 .\scripts\uninstall.ps1 -InstallDir 'D:\apps\data-search'
 ```
 
+Linux：
+
 ```bash
-bash scripts/uninstall.sh
-bash scripts/uninstall.sh --install-dir /home/you/.local/share/data-search/app
+bash scripts/uninstall.sh --install-dir "$HOME/.local/share/data-search/app"
 ```
 
-卸载先停止服务、移除本安装实例启动项，再移除程序目录；默认保留配置、模型、索引。明确加 `-DeleteData` / `--delete-data` 才删除安装清单指向且带管理标识的数据目录。外部模型和被搜索的原始文件不属于数据目录，不会被卸载器删除。
+卸载先停止实例、移除本实例用户启动项，再删除受管理的程序目录；默认保留配置、模型和索引。只有显式 `-DeleteData` / `--delete-data` 才删除带管理标识的数据目录。外部模型目录和原始资料不删除。目录缺少管理标识、相互嵌套、包含不允许的链接或服务无法停止时拒绝删除。
 
-删除前校验绝对路径、安装清单、目录管理标识和符号链接；缺少标识、目录重叠或服务无法停止时拒绝危险操作。重新安装到相同程序/数据路径可以继续使用保留的配置。
-
-## 验证边界
-
-本机安装与检索 smoke、具体测试平台及数据库版本以主验证报告为准。Linux systemd 用户服务、其他 Windows 策略环境、目标数据库服务器版本和 8GB 实机压力测试，只有实际执行后才列为通过。脚本静态检查不能代替目标系统安装测试。多机接入将在单机验证完成后另行验证。
+恢复保留的数据可重新安装到相同路径。更详细的已通过验证和待验收条件见 [验证报告](VALIDATION.md) 与 [路线图](roadmap/README.md)。8GB/16GB 实机、几百 GB 正文、Linux 硬件、多机连接不能由本机烟雾测试替代。

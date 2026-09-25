@@ -4,8 +4,9 @@ param(
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'data-search\app'),
     [string]$DataDir = (Join-Path $env:LOCALAPPDATA 'data-search\data'),
     [string]$Python = 'python',
-    [string]$PackagePath = (Split-Path $PSScriptRoot -Parent),
+    [string]$PackagePath,
     [string]$Wheelhouse,
+    [string]$RuntimeDir,
     [string]$ModelDir,
     [switch]$SkipModel,
     [switch]$NoAutostart
@@ -39,6 +40,25 @@ function Write-Json([string]$Path, $Value) {
 }
 
 if ($SkipModel -and $ModelDir) { throw 'Choose either -SkipModel or -ModelDir.' }
+$repoRoot = Split-Path $PSScriptRoot -Parent
+$releaseManifestPath = Join-Path $repoRoot 'RELEASE_MANIFEST.json'
+if (Test-Path -LiteralPath $releaseManifestPath) {
+    $release = Get-Content -LiteralPath $releaseManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($release.kind -eq 'windows-native' -and -not $PackagePath -and -not $RuntimeDir) {
+        $RuntimeDir = Join-Path $repoRoot 'runtime'
+    } elseif ($release.kind -eq 'python-bootstrap' -and -not $PackagePath -and -not $RuntimeDir) {
+        $PackagePath = Join-Path $repoRoot $release.package_wheel
+        if (-not $Wheelhouse) { $Wheelhouse = Join-Path $repoRoot 'wheelhouse' }
+    }
+}
+if ($RuntimeDir) {
+    $RuntimeDir = (Get-Item -LiteralPath $RuntimeDir).FullName
+    if (-not (Test-Path -LiteralPath (Join-Path $RuntimeDir 'data-search.exe') -PathType Leaf)) { throw 'RuntimeDir must contain data-search.exe.' }
+    if (-not [Environment]::Is64BitOperatingSystem) { throw 'The native bundle requires 64-bit Windows.' }
+} else {
+    if (-not $PackagePath) { $PackagePath = $repoRoot }
+    Run-Checked $Python @((Join-Path $PSScriptRoot 'check_runtime.py'), $repoRoot)
+}
 $InstallDir = Full-Path $InstallDir
 $DataDir = Full-Path $DataDir
 Assert-ManagedTarget $InstallDir
@@ -51,7 +71,7 @@ $manifestPath = Join-Path $InstallDir 'install-manifest.json'
 $dataMarkerPath = Join-Path $DataDir '.data-search-data.json'
 if (Test-Path -LiteralPath $DataDir) {
     if (Test-Path -LiteralPath $dataMarkerPath) {
-        $dataMarker = Get-Content -LiteralPath $dataMarkerPath -Raw | ConvertFrom-Json
+        $dataMarker = Get-Content -LiteralPath $dataMarkerPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($dataMarker.product -ne 'data-search' -or $dataMarker.data_dir -ne $DataDir) { throw 'Invalid data directory marker.' }
     } elseif (@(Get-ChildItem -LiteralPath $DataDir -Force).Count -gt 0) {
         throw 'DataDir must be empty or an existing installer-managed data-search directory.'
@@ -59,16 +79,13 @@ if (Test-Path -LiteralPath $DataDir) {
 }
 if (Test-Path -LiteralPath $InstallDir) {
     if (Test-Path -LiteralPath $manifestPath) {
-        $old = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        $old = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($old.product -ne 'data-search' -or $old.schema_version -ne 1 -or $old.install_dir -ne $InstallDir -or $old.data_dir -ne $DataDir) {
             throw 'Existing install manifest does not match requested directories.'
         }
     } elseif (@(Get-ChildItem -LiteralPath $InstallDir -Force).Count -gt 0) {
         throw 'Refusing to install into a nonempty unmanaged directory.'
     }
-}
-if (-not (Test-Path -LiteralPath $configPath) -and $Root.Count -eq 0) {
-    throw 'First installation requires -Root with at least one explicit existing directory.'
 }
 $resolvedRoots = @($Root | ForEach-Object {
     $item = Get-Item -LiteralPath $_
@@ -81,7 +98,6 @@ if ($ModelDir) {
         if (-not (Test-Path -LiteralPath (Join-Path $ModelDir $asset) -PathType Leaf)) { throw "Offline model directory is missing: $asset" }
     }
 }
-Run-Checked $Python @('-c', 'import sys; assert sys.version_info >= (3,11), "Python 3.11+ required"')
 New-Item -ItemType Directory -Path $InstallDir, $DataDir -Force | Out-Null
 Write-Json $dataMarkerPath @{product='data-search'; data_dir=$DataDir; schema_version=1}
 $hash = [Security.Cryptography.SHA256]::Create()
@@ -94,31 +110,47 @@ $venvDir = Join-Path $InstallDir 'venv'
 $venvPython = Join-Path $venvDir 'Scripts\python.exe'
 $cli = Join-Path $venvDir 'Scripts\data-search.exe'
 if (Test-Path -LiteralPath $cli) { Run-Checked $cli @('stop', '--config', $configPath) }
-if (-not (Test-Path -LiteralPath $venvPython)) { Run-Checked $Python @('-m', 'venv', $venvDir) }
-Write-Host 'Installing data-search and dependencies into its isolated environment...'
-$pipArgs = @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet')
-if ($Wheelhouse) {
-    $Wheelhouse = (Get-Item -LiteralPath $Wheelhouse).FullName
-    $pipArgs += @('--no-index', '--find-links', $Wheelhouse)
+$nativeCli = Join-Path $InstallDir 'runtime\data-search.exe'
+if (Test-Path -LiteralPath $nativeCli) { Run-Checked $nativeCli @('stop', '--config', $configPath) }
+if ($RuntimeDir) {
+    $runtimeDest = Join-Path $InstallDir 'runtime'
+    New-Item -ItemType Directory -Path $runtimeDest -Force | Out-Null
+    Get-ChildItem -LiteralPath $RuntimeDir -Force | Copy-Item -Destination $runtimeDest -Recurse -Force
+    $cli = $nativeCli
+} else {
+    if (-not (Test-Path -LiteralPath $venvPython)) { Run-Checked $Python @('-m', 'venv', $venvDir) }
+    Run-Checked $venvPython @((Join-Path $PSScriptRoot 'check_runtime.py'), $repoRoot)
+    Write-Host 'Installing data-search and dependencies into its isolated environment...'
+    $pipArgs = @('-m', 'pip', 'install', '--disable-pip-version-check', '--quiet')
+    if ($Wheelhouse) {
+        $Wheelhouse = (Get-Item -LiteralPath $Wheelhouse).FullName
+        $pipArgs += @('--no-index', '--find-links', $Wheelhouse)
+    }
+    $pipArgs += (Get-Item -LiteralPath $PackagePath).FullName
+    Run-Checked $venvPython $pipArgs
 }
-$pipArgs += (Get-Item -LiteralPath $PackagePath).FullName
-Run-Checked $venvPython $pipArgs
+$manifest.cli = $cli
 if (-not (Test-Path -LiteralPath $configPath)) {
-    $initArgs = @('init', '--config', $configPath, '--data-dir', $DataDir)
+    $initArgs = @('init', '--config', $configPath, '--data-dir', $DataDir, '--exclude', $InstallDir)
     foreach ($searchRoot in $resolvedRoots) { $initArgs += @('--root', $searchRoot) }
     Run-Checked $cli $initArgs
-    $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+    $config = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($SkipModel) { $config.semantic.enabled = $false }
     if ($ModelDir) { $config.semantic.model_dir = $ModelDir }
     Write-Json $configPath $config
 } else { Write-Host "Preserving existing config: $configPath (roots and model options are unchanged)." }
-$activeConfig = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+$activeConfig = Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$excluded = @()
+if ($activeConfig.PSObject.Properties['exclude_paths']) { $excluded = @($activeConfig.exclude_paths) }
+if ($excluded -notcontains $InstallDir) {
+    $activeConfig | Add-Member -MemberType NoteProperty -Name exclude_paths -Value @($excluded + $InstallDir) -Force
+    Write-Json $configPath $activeConfig
+}
 if ($activeConfig.semantic.enabled -and -not $SkipModel -and -not $ModelDir) {
     Run-Checked $cli @('model-download', '--config', $configPath)
 }
 $mcp = @{ mcpServers = @{ 'data-search' = @{ command=$cli; args=@('mcp', '--config', $configPath) } } }
 Write-Json (Join-Path $InstallDir 'mcp.json') $mcp
-$repoRoot = Split-Path $PSScriptRoot -Parent
 $pluginSource = Join-Path $repoRoot 'plugins\data-search'
 $pluginDest = Join-Path $InstallDir 'plugin'
 if (Test-Path -LiteralPath $pluginSource) {
@@ -127,6 +159,11 @@ if (Test-Path -LiteralPath $pluginSource) {
     Write-Json (Join-Path $pluginDest '.mcp.json') $mcp
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'uninstall.ps1') -Destination (Join-Path $InstallDir 'uninstall.ps1') -Force
+if ($RuntimeDir) {
+    $settingsCommand = '"' + $cli + '" setup --config "' + $configPath + '"'
+    $settingsVbs = 'CreateObject("WScript.Shell").Run "' + $settingsCommand.Replace('"','""') + '", 0, False' + "`r`n"
+    [IO.File]::WriteAllText((Join-Path $InstallDir 'Settings.vbs'), $settingsVbs, [Text.Encoding]::Unicode)
+}
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 if ($NoAutostart) {
     if (Test-Path -LiteralPath $runKey) { Remove-ItemProperty -LiteralPath $runKey -Name $startupName -ErrorAction SilentlyContinue }
@@ -144,4 +181,4 @@ Write-Json $manifestPath $manifest
 Run-Checked $cli @('start', '--config', $configPath)
 Run-Checked $cli @('status', '--config', $configPath)
 Write-Host "Installed. MCP configuration: $(Join-Path $InstallDir 'mcp.json')"
-Write-Host "Search roots are explicit; existing host configuration has not been edited. Data: $DataDir"
+Write-Host "New installations search this machine by default; -Root selects directories. Existing scope is preserved. Data: $DataDir"

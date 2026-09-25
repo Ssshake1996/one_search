@@ -1,0 +1,12 @@
+{
+  "version": "0.2.0",
+  "recorded_at": "2026-09-25T06:39:31.719749+00:00",
+  "command": ".venv/Scripts/python.exe -m pytest -q",
+  "passed": 208,
+  "skipped": 2,
+  "warnings": 0,
+  "seconds": 35.78,
+  "skip_reason": "Opt-in external MySQL/PostgreSQL fixtures; separately executed and reported in databases-v0.2.json",
+  "python": "3.11.3",
+  "platform": "Windows-10-10.0.22631-SP0"
+}

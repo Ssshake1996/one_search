@@ -6,15 +6,20 @@ import os
 from pathlib import Path
 
 
-def defaults(data_dir: str, roots: list[str]) -> dict:
+def defaults(data_dir: str, roots: list[str] | None = None) -> dict:
     data = str(Path(data_dir).expanduser().resolve())
     return {
         "node_id": "local", "data_dir": data,
-        "roots": [str(Path(p).expanduser().resolve()) for p in roots],
+        "scope": "machine" if roots is None else "directories",
+        "roots": [str(Path(p).expanduser().resolve()) for p in roots or []],
+        "exclude_paths": [],
+        "indexing": {"content_scope": "all", "content_roots": [], "content_extensions": [],
+                     "semantic_scope": "all", "semantic_roots": [], "semantic_extensions": []},
         "scan_interval_seconds": 180, "reconcile_interval_seconds": 3600,
         "exclude_names": [".git", ".venv", "node_modules", "__pycache__", "$RECYCLE.BIN", "System Volume Information"],
         "resource": {"memory_mb": 1024, "min_available_mb": 768, "max_disk_mb": 10240,
-                     "min_free_disk_mb": 1024, "workers": 1, "batch_sleep_ms": 50},
+                     "min_free_disk_mb": 1024, "workers": 1, "batch_sleep_ms": 50,
+                     "worker_memory_mb": 512, "worker_cpu_percent": 25},
         "extraction": {"max_file_mb": 32, "max_chars": 2_000_000, "timeout_seconds": 30},
         "semantic": {"enabled": True, "model_dir": str(Path(data) / "models" / "bge-small-zh-v1.5"),
                      "threads": 1, "idle_seconds": 120, "batch_size": 8},
@@ -38,7 +43,7 @@ def load_config(path: str | Path) -> dict:
     value = json.loads(p.read_text(encoding="utf-8-sig"))
     config = defaults(value["data_dir"], value.get("roots", []))
     for k, v in value.items():
-        if k in ("resource", "extraction", "semantic"):
+        if k in ("resource", "extraction", "semantic", "indexing"):
             if not isinstance(v, dict):
                 raise ValueError(f"{k} must be an object")
             config[k].update(v)
@@ -47,8 +52,28 @@ def load_config(path: str | Path) -> dict:
     if not config["node_id"] or len(config["node_id"]) > 100:
         raise ValueError("invalid node_id")
     config["data_dir"] = str(Path(config["data_dir"]).expanduser().resolve())
+    if config['scope'] not in {'machine', 'directories'}:
+        raise ValueError('scope must be machine or directories')
+    for key in ('roots', 'exclude_paths', 'exclude_names'):
+        if not isinstance(config[key], list) or any(not isinstance(v, str) or not v for v in config[key]):
+            raise ValueError(f'{key} must be a list of nonempty strings')
     config["roots"] = [str(Path(r).expanduser().resolve()) for r in config["roots"]]
     config['roots'] = list(dict.fromkeys(config['roots']))
+    config['exclude_paths'] = list(dict.fromkeys(str(Path(r).expanduser().resolve()) for r in config['exclude_paths']))
+    if config['scope'] == 'machine' and config['roots']:
+        raise ValueError('machine scope discovers disks automatically; use directories scope with roots')
+    for layer in ('content', 'semantic'):
+        indexing = config['indexing']
+        if indexing[f'{layer}_scope'] not in {'all', 'directories', 'none'}:
+            raise ValueError(f'indexing.{layer}_scope must be all, directories or none')
+        for suffix in ('roots', 'extensions'):
+            key = f'{layer}_{suffix}'
+            if not isinstance(indexing[key], list) or any(not isinstance(item, str) or not item for item in indexing[key]):
+                raise ValueError(f'indexing.{key} must be a list of nonempty strings')
+        indexing[f'{layer}_roots'] = list(dict.fromkeys(str(Path(item).expanduser().resolve()) for item in indexing[f'{layer}_roots']))
+        if any(not item.startswith('.') or '/' in item or '\\' in item for item in indexing[f'{layer}_extensions']):
+            raise ValueError(f'indexing.{layer}_extensions must contain extensions beginning with a dot')
+        indexing[f'{layer}_extensions'] = list(dict.fromkeys(item.lower() for item in indexing[f'{layer}_extensions']))
     config['semantic']['model_dir'] = str(Path(config['semantic']['model_dir']).expanduser().resolve())
     for group, keys in (("resource", ["memory_mb", "max_disk_mb"]),
                         ("extraction", ["max_file_mb", "max_chars", "timeout_seconds"]),
@@ -63,6 +88,10 @@ def load_config(path: str | Path) -> dict:
             raise ValueError(f'resource.{key} must be a finite nonnegative number')
     if config['resource']['workers'] != 1:
         raise ValueError('Only one background indexing worker is supported')
+    for key, minimum, maximum in (('worker_memory_mb',64,65536), ('worker_cpu_percent',1,100)):
+        number = config['resource'][key]
+        if isinstance(number,bool) or not isinstance(number,int) or not minimum <= number <= maximum:
+            raise ValueError(f'resource.{key} must be an integer from {minimum} to {maximum}')
     for key, maximum in (('threads',2),('batch_size',32)):
         if not isinstance(config['semantic'][key],int) or config['semantic'][key] > maximum:
             raise ValueError(f'semantic.{key} must be an integer from 1 to {maximum}')
@@ -81,6 +110,14 @@ def load_config(path: str | Path) -> dict:
         cap = database.get('index_max_rows',1000)
         if isinstance(cap,bool) or not isinstance(cap,int) or not 1 <= cap <= 10000:
             raise ValueError('index_max_rows must be an integer from 1 to 10000')
+        sync = database.get('sync', {})
+        if not isinstance(sync, dict):
+            raise ValueError('database sync must be an object')
+        for key, default, maximum in (('page_size',250,1000), ('max_pages_per_tick',4,100),
+                                      ('reconcile_interval_seconds',3600,None)):
+            number = sync.get(key, default)
+            if isinstance(number,bool) or not isinstance(number,int) or number < 1 or (maximum is not None and number > maximum):
+                raise ValueError(f'database sync.{key} must be a positive integer' + (f' <= {maximum}' if maximum else ''))
     for node in config.get("nodes", []):
         if node.get("transport") != "local":
             raise ValueError("Remote nodes are reserved, not implemented in this release")

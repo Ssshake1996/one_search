@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-09-25T06:45:53.926465+00:00",
+  "synthetic_only": true,
+  "real_machine_scan_performed": false,
+  "version": "0.2.0",
+  "unicode_and_spaced_paths": true,
+  "installer_shell": "Windows PowerShell 5.1",
+  "installations": [
+    {
+      "artifact": "one-search-0.2.0-windows-amd64-native.zip",
+      "kind": "windows-native",
+      "zip_integrity": true,
+      "per_file_checksums": true,
+      "source_hashes_match": true,
+      "auto_bundle_selection": true,
+      "system_python_called": false,
+      "isolated_scope": true,
+      "app_directory_excluded": true,
+      "offline_dependencies": true,
+      "existing_local_model": true,
+      "local_semantic_search": true,
+      "sqlite_query": true,
+      "official_mcp_tools": 5,
+      "mcp_generated": true,
+      "reinstall_preserved_configuration": true,
+      "autostart": "disabled_for_test",
+      "uninstall_removed_managed_test_app_and_data": true
+    },
+    {
+      "artifact": "one-search-0.2.0-windows-amd64-py311-bootstrap.zip",
+      "kind": "python-bootstrap",
+      "zip_integrity": true,
+      "per_file_checksums": true,
+      "source_hashes_match": true,
+      "auto_bundle_selection": true,
+      "system_python_called": true,
+      "isolated_scope": true,
+      "app_directory_excluded": true,
+      "offline_dependencies": true,
+      "existing_local_model": true,
+      "local_semantic_search": true,
+      "sqlite_query": true,
+      "official_mcp_tools": 5,
+      "mcp_generated": true,
+      "reinstall_preserved_configuration": true,
+      "autostart": "disabled_for_test",
+      "uninstall_removed_managed_test_app_and_data": true
+    }
+  ],
+  "pytest": {
+    "passed": 208,
+    "skipped": 2,
+    "seconds": 35.78,
+    "warnings": 0
+  },
+  "linux": {
+    "shell_syntax_checked_with_bash_n": true,
+    "runtime_installation_tested": false
+  }
+}

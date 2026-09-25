@@ -1,90 +1,109 @@
 # one_search
 
-面向 DSH Agent 等 MCP 客户端的本地文件与数据库检索插件。当前交付单机版：共享后台服务、MCP stdio 桥，以及安装/升级/卸载脚本。索引和语义计算留在本机。
+面向 DSH Agent 等 MCP 客户端的本地文件与数据库检索插件。v0.2 提供共享后台服务、MCP stdio 接口、Windows 自带运行时的安装包和本地设置窗口；文件解析、正文索引与语义计算在本机进行。
 
-GitHub 项目名为 `one_search`；当前 Python 包名 `data_search`、命令及 MCP 配置名 `data-search` 保持兼容。
-
-先阅读 [本机验证报告](docs/VALIDATION.md)。Windows 已完成单机闭环验证；Linux、PostgreSQL 16/18、几百 GB 正文的完整索引和真实多机接入尚未实测。
-
-## 已实现的能力
-
-- 文件名、路径、扩展名、大小和修改时间。先发现文件，再逐步解析正文。
-- 关键词、本地 BGE 语义及混合检索，返回路径、正文片段、定位、索引时间和过期状态。
-- SQLite、MySQL、PostgreSQL 只读结构发现、受控查询，以及选定文本字段的本地快照索引。
-- 文件变更监听，默认每 180 秒处理增量、每小时目录核对；暂停/恢复、重启后核对、模型闲置释放。
-- 查询和结果包含 `node_id`、`source_id`，保留多机扩展协议。当前只接受本节点，远程节点明确返回尚未实现。
-
-正文支持 TXT/Markdown/LOG、常见代码和配置、JSON/JSONL、XML、HTML、CSV/TSV、DOCX、XLSX、PPTX、文字层 PDF。详细内容、定位、编码和排除类型见 [文件格式说明](docs/FORMATS.md)。图片/OCR、音视频、压缩包内部、旧版 DOC/XLS/PPT 不属于本版正文能力。
-
-数据库需要提供的地址、账号、密码环境变量、授权表/字段、稳定唯一标识和文本索引设置，见 [数据库说明](docs/DATABASES.md)。正文快照默认每个数据源最多 1,000 条，达到上限显示覆盖不完整；精确结构化查询直接访问授权数据库。
+新安装默认发现当前账号可访问的本地磁盘；可以改为指定目录。当前交付单机，接口已保留 `node_id`；多机传输、认证与跨机结果合并尚未实现。项目名是 `one_search`，Python 包 `data_search`、命令及 MCP 条目 `data-search` 保持兼容。
 
 ## 安装与接入
 
-需要 Python 3.11+；Windows 发行 ZIP 包含 Python 3.11 的依赖 wheel。模型约 24 MiB，首次安装下载，也可指定已准备的离线模型目录。此版本尚未打包 Python 运行时。
+下载：[v0.2.0 Release](https://github.com/Ssshake1996/one_search/releases/tag/v0.2.0) · [Windows x64 免 Python 安装包](https://github.com/Ssshake1996/one_search/releases/download/v0.2.0/one-search-0.2.0-windows-amd64-native.zip)。
 
-源码安装（PowerShell，替换为明确允许检索的目录）：
-
-```powershell
-.\scripts\install.ps1 -Root 'D:\资料'
-```
-
-安装器创建隔离环境，安装服务，准备模型，配置当前用户登录自启动，启动服务，并生成 `<InstallDir>/mcp.json`。将其中条目加入 DSH 或其他宿主的 MCP 配置即可。离线安装、Linux、暂停/恢复和卸载见 [安装说明](docs/INSTALL.md)。本版没有改写未知版本 DSH 的设置。
-
-开发环境和合成资料试用：
+Windows x64 原生包名为 `one-search-0.2.0-windows-amd64-native.zip`，不要求另装 Python。完整解压后双击 `Install.cmd`，或在解压目录执行：
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\python.exe -m pip install -e '.[dev]'
-.venv\Scripts\python.exe scripts/create_demo.py --output .demo
-.venv\Scripts\data-search.exe init --config .runtime\demo\config.json --data-dir .runtime\demo --root .demo\files
-.venv\Scripts\data-search.exe model-download --config .runtime\demo\config.json
-.venv\Scripts\data-search.exe start --config .runtime\demo\config.json
-.venv\Scripts\data-search.exe search '服务器费用怎么降低' --config .runtime\demo\config.json --mode hybrid
+.\scripts\install.ps1
 ```
 
-将 `.demo/database_config.json` 中的 SQLite 对象加入主配置 `databases` 后重启，可检索合成数据库。不要把参考答案或评估报告目录纳入文件索引。
+安装器准备本地模型、安装并启动后台服务、设置当前用户登录自启动，生成 `%LOCALAPPDATA%\data-search\app\mcp.json`。将其中条目加入 DSH 或其他宿主的 MCP 配置。安装器不会改写未知版本宿主的设置，插件商店安装钩子尚未验证。
 
-## MCP 接口
+仅检索选定目录：
+
+```powershell
+.\scripts\install.ps1 -Root @('D:\资料', 'D:\项目')
+```
+
+安装后双击程序目录的 `Settings.vbs`，可切换整机/目录范围、设置正文与语义范围、添加数据库并控制服务。数据库高级参数以 JSON 编辑；密码填写环境变量名。保存配置不会替代实际连接验证。
+
+也提供 `one-search-0.2.0-windows-amd64-py311-bootstrap.zip`，要求匹配的 **CPython 3.11 x64**、venv/pip。源码安装要求 Python 3.11+；Linux 当前只有源码/bootstrap 脚本，尚未完成目标系统验证。默认包不包含模型，首次安装需联网下载，也可用 `-ModelDir` 指定离线模型，或 `-SkipModel` 仅使用文件名和关键词。
+
+完整命令、平台条件、升级及卸载见 [安装说明](docs/INSTALL.md)。当前 Windows 实测环境与具体发行验证见 [验证报告](docs/VALIDATION.md)，不把未测试系统当作已经支持。
+
+## 能检索什么
+
+- 文件名、路径、扩展名、大小与修改时间；不支持解析正文的文件仍可按文件名找到。
+- 关键词、本地 BGE 语义和混合检索；返回正文片段、路径、定位、索引时间和过期标记。
+- SQLite 3、MySQL、PostgreSQL 的授权表/字段：结构发现、受控实时查询、选定正文的持续本地索引。
+- 暂停/恢复、资源预算、重启续传、文件核对、数据库水位增量与周期删除核对。
+
+正文支持 TXT/Markdown/LOG、常见代码和配置、JSON/JSONL、XML、HTML、CSV/TSV、DOCX、XLSX、PPTX、文字层 PDF。完整格式、编码及定位规则见 [文件说明](docs/FORMATS.md)。图片/OCR、音视频、压缩包内部、旧版 DOC/XLS/PPT 暂不提取正文。
+
+数据库连接需要地址/文件路径、只读账号、密码环境变量、允许访问的表和字段。持续正文索引还要求稳定的单列唯一键、文本字段；提供维护正确的 `updated_column` 可启用水位增量。后台默认每个来源每轮四页、每页 250 行，后续轮次从保存的游标继续，直至遍历授权表。完整巡检完成后才删除缺失记录。数据库版本、配置、必要索引和一致性边界见 [数据库说明](docs/DATABASES.md)。
+
+## 检索范围与资源取舍
+
+新配置的 `scope: "machine"` 在 Windows 枚举固定本地磁盘，按当前账号权限读取；不提升权限，跳过网络/可移动卷、目录链接、安装目录、索引/模型目录及配置排除项。Linux 本地文件系统发现已有代码，实际主机验证待完成。旧配置缺少 `scope` 时继续使用原有 `roots`，升级不会自动扩大范围。
+
+文件名、正文、语义是三层范围。正文和语义分别支持 `all`、`directories`、`none`，并可限制扩展名；语义以已提取正文为基础。下例保留整机文件名发现，只处理资料目录正文，再缩小语义范围：
+
+```json
+{
+  "scope": "machine",
+  "roots": [],
+  "indexing": {
+    "content_scope": "directories",
+    "content_roots": ["D:/资料"],
+    "content_extensions": [".txt", ".md", ".pdf", ".docx"],
+    "semantic_scope": "directories",
+    "semantic_roots": ["D:/资料/知识库"],
+    "semantic_extensions": []
+  }
+}
+```
+
+这是现有配置的局部示例；保留其他字段。扩展名空列表表示不加额外格式过滤，仍受支持类型和资源预算限制。数据库正文由自己的 `index` 授权，文件目录/扩展名筛选不限制数据库；`semantic_scope: "none"` 会停止数据库语义嵌入。
+
+| 设置 | 默认值与含义 |
+|---|---|
+| 后台任务 / 模型线程 | 1 / 1；模型线程可设 1–2 |
+| 进程树 RSS 预算 / 最低可用内存 | 1,024 / 768 MiB，采样检测 |
+| Windows 单 worker Job 内存限额 | 512 MiB，限制提交虚拟内存，**不是 RSS** |
+| Windows worker CPU rate cap | 25%，受系统或上层 Job 配额影响；同时限制亲和性、降低优先级 |
+| 索引与模型磁盘预算 / 最低空闲空间 | 10,240 / 1,024 MiB |
+| 单文件正文大小 / 字符上限 | 32 MiB / 200 万字符 |
+| 单文件解析超时 / 模型闲置释放 | 30 / 120 秒 |
+| 后台轮次 / 有监听时完整核对 | 180 / 3,600 秒 |
+
+Windows Job 限制若因宿主策略无法应用，会在 `worker_controls.fallback_errors` 显示；服务仍保留 RSS 采样预算。启动 worker 时显式限制 OpenBLAS、OpenMP、MKL、NumExpr 线程。Linux 当前仅有优先级/亲和性和采样预算，尚无 cgroup 硬配额，也未做 Linux 实机验收。
+
+整机范围采用周期遍历，不为整盘每个目录创建监听器；Windows 指定目录且数量不超过 32 时尝试监听并定期核对，失败回退遍历。更新时效是调度间隔加遍历/积压时间，数据较多时会超过几分钟。未实现 NTFS MFT/USN 专用目录发现，不能把本项目等同于 Everything 的文件名引擎。
+
+8GB/16GB 电脑、几百 GB 实际资料库还需按 [路线图](docs/roadmap/README.md) 验收。现有资源控制提供限速、暂停和缩小正文/语义范围的手段，不能仅凭磁盘容量承诺索引空间和检索耗时。
+
+## 已实现的六项优化
+
+| 优化 | 当前行为 |
+|---|---|
+| 分层索引 | 文件名、正文、语义分别确定范围，避免所有文件都解析和嵌入 |
+| 索引存储 | 向量以 float16 持久化；FTS5 使用 external-content，避免再存一份正文分词文本；提供离线 `compact` |
+| 后台 ANN 更新 | 独立受控 worker 构建不可变快照，成功后原子发布；上一版本继续可查询 |
+| 过滤与证据读取 | 候选不足时逐步扩展，上限 8,192；批量读取命中证据并去重 |
+| 数据库持续同步 | Keyset 分页、水位增量、持久化检查点、完整巡检及分批删除 |
+| 进程资源控制 | Windows Job、低优先级与亲和性、数值库线程限制、RSS/磁盘预算和可见的回退状态 |
+
+代码已实现不等于所有机器与数据规模均已验证。实际质量、资源和性能结论仅依据 [验证报告](docs/VALIDATION.md)；路线图单独记录尚未满足的验收条件。
+
+## MCP 与结果语义
 
 | 工具 | 用途 |
 |---|---|
-| `search` | 文件名、关键词、语义、混合检索，可选数据源和扩展名 |
-| `fetch` | 读取命中上下文；文件为带过期标记的索引快照，数据库按标识实时读取 |
-| `inspect_source` | 查看授权目录、数据源、表和字段 |
-| `query_database` | 结构化过滤、排序、分页、有限关联及聚合，不接受任意 SQL |
-| `index_status` | 覆盖、进度、资源、失败原因 |
+| `search` | 文件名、关键词、语义或混合检索，可指定数据源和扩展名 |
+| `fetch` | 文件返回带过期标记的索引片段；数据库按标识实时读取 |
+| `inspect_source` | 有效文件范围、来源、授权结构和数据库同步进度 |
+| `query_database` | 结构化筛选、排序、分页、有限关联/聚合，不接收任意 SQL |
+| `index_status` | 索引覆盖、扫描错误、数据库进度、ANN 发布状态及资源控制状态 |
 
-`id=c:...` 从命中片段开始分页；`document_id=d:...` 从文档开头分页。向量分数只用于排序，不代表资料一定能回答问题。语义检索先取有限近邻再按数据源/扩展名过滤，过滤可能导致漏召回，结果会提示；关键词检索在排序前应用过滤条件。
+`c:...` 从命中片段开始取上下文，`d:...` 从文档开头取。ANN 在候选选择后应用来源/扩展名过滤，即使扩大候选仍不保证全量召回；达到候选上限会提示缩小查询。ANN 更新期间可使用已发布版本并返回 `semantic_index_updating`；尚无可用版本时返回 pending 提示，不在查询请求中同步建索引。
 
-DSH 聊天模型负责理解问题、调用工具、引用证据并回答。本地 embedding 模型把查询/正文转成向量。本版不调用 DSH 聊天模型生成向量，也不上传正文做语义计算。返回给 DSH 的内容之后如何处理，仍取决于宿主自身配置。
+DSH 聊天模型负责理解问题、调用工具并引用证据；本地 embedding 模型负责把正文和问题转成向量，二者不同。向量分数仅用于排序，不是回答可信度。本地计算不把正文上传给模型服务；MCP 返回内容进入宿主后，后续处理由宿主自身配置决定。
 
-## 资源配置
-
-| 设置 | 默认值 |
-|---|---|
-| 后台索引任务 / 模型计算线程 | 1 / 1 |
-| 进程树 RSS 预算 / 可用内存门槛 | 1,024 / 768 MiB |
-| 索引与模型磁盘预算 / 最低剩余磁盘 | 10,240 / 1,024 MiB |
-| 单文件正文上限 / 字符上限 | 32 MiB / 200 万字符 |
-| 单文件解析超时 / 模型闲置释放 | 30 / 120 秒 |
-| 增量处理 / 完整目录核对 | 180 / 3,600 秒 |
-
-正文超出预算时保留可发现的文件名，并报告 `budget` 或 `partial`。更新时效是调度间隔加队列处理时间，积压时会超过几分钟。内存控制采用子进程隔离及约 100ms 采样，超预算终止 worker；这不是 OS 强制硬内存上限，瞬时峰值与系统文件缓存不由该数值保证。未设置硬 CPU 配额。
-
-8GB 电脑适合先用小范围资料验证，保留系统可用内存并接受限速、暂停。500GB 磁盘容量不能决定索引空间或查询速度；文件数、可提取文本量、片段数和存储性能更关键。
-
-实现采用 Python 控制服务、SQLite FTS5、USearch HNSW、ONNX Runtime。解析和模型使用可回收子进程；文件系统事件用于增量更新，未实现 NTFS MFT/USN 专用目录发现。
-
-```mermaid
-flowchart LR
-    A[DSH / MCP 客户端] --> B[MCP stdio 桥]
-    B --> C[本机共享后台服务]
-    C --> D[授权文件 / 只读数据库]
-    C --> E[解析与本地模型子进程]
-    E --> F[SQLite 正文索引与向量缓存]
-    F --> G[USearch 向量索引]
-    C --> F
-    C --> G
-```
-
-协议见 [接口说明](docs/CONTRACTS.md)。实测见 [验证报告](docs/VALIDATION.md)、[质量](docs/validation/quality.json)、[资源](docs/validation/resources.json)、[查询内核基准](docs/validation/benchmark.json)。
+架构和扩展协议见 [接口约定](docs/CONTRACTS.md)。开发演示资料可按 [文件说明](docs/FORMATS.md) 生成，并仅把生成的 `files` 目录作为测试范围。
