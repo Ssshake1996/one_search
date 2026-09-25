@@ -2,7 +2,10 @@
   "scope": "Single-machine resource policy, explicit maintenance, external index relocation, upgrade rollback and Windows uninstall",
   "platform": "Windows x64, Python 3.11 development runtime",
   "test_command": ".venv/Scripts/python.exe -m pytest tests/test_runtime_policy.py tests/test_maintenance.py tests/test_upgrade_lifecycle.py tests/test_resources.py tests/test_packaging.py -q",
-  "test_result": {"passed": 47, "elapsed_seconds": 1.85},
+  "test_result": {
+    "passed": 47,
+    "elapsed_seconds": 1.85
+  },
   "new_focused_tests": 28,
   "verified_scenarios": [
     "Resource presets preserve search scope, exclusions, database configuration and disk quota",
@@ -37,5 +40,23 @@
     "Physical 8GB/16GB memory and battery hardware behavior has not been measured",
     "Hundreds-of-gigabytes production corpus performance and long-running soak stability are not measured by these synthetic functional tests",
     "Resource limits are scheduling/enforcement settings, not measured consumption or latency guarantees"
-  ]
+  ],
+  "windows_runtime_swap_regression": {
+    "observed_in": "v0.4 candidate-2 native external-index reinstall acceptance",
+    "failure_before_fix": "WinError 5 while renaming the stopped native runtime directory",
+    "cause_boundary": "Service state and instance locks can disappear before Windows releases runtime file mappings; the exact holder was not captured in the candidate failure.",
+    "fix": "Retry only Windows access/sharing/lock errors (5,32,33) for at most five seconds during runtime swap and rollback while maintenance locks remain held.",
+    "test_command": ".venv/Scripts/python.exe -m pytest tests/test_upgrade_lifecycle.py tests/test_packaging.py -q",
+    "test_result": {
+      "passed": 13,
+      "elapsed_seconds": 2.08
+    },
+    "new_focused_tests": 4,
+    "verified": [
+      "A real Windows open file prevents directory rename with the same error class; closing the handle permits bounded retry success.",
+      "All four swap and rollback directory moves tolerate one transient sharing failure and restore the old runtime.",
+      "A persistent sharing failure stops at the deadline and retains the unchanged old executable, configuration and pre-migration snapshot.",
+      "Ordinary non-Windows permission failures are raised immediately."
+    ]
+  }
 }

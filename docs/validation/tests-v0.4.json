@@ -1,0 +1,38 @@
+{
+  "version": "0.4.0",
+  "stage": "Final Windows source regression",
+  "recorded_at": "2026-09-25T17:46:16.545795+00:00",
+  "python": "3.11.3",
+  "platform": "Windows-10-10.0.22631-SP0",
+  "command": ".venv/Scripts/python.exe -m pytest -q -rs --junitxml=.runtime/tests-v04-final-release.xml",
+  "tests": 454,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 5,
+  "passed": 449,
+  "elapsed_seconds": 67.26,
+  "skips": [
+    {
+      "test": "tests.test_change_journal.test_platform_fallback_needs_no_native_libraries",
+      "reason": "Non-Windows fallback only"
+    },
+    {
+      "test": "tests.test_databases.test_service_database_integration[mysql]",
+      "reason": "Isolated engine fixture not configured"
+    },
+    {
+      "test": "tests.test_databases.test_service_database_integration[postgres]",
+      "reason": "Isolated engine fixture not configured"
+    },
+    {
+      "test": "tests.test_databases.test_service_database_onboarding_and_os_credential_rotation[mysql]",
+      "reason": "Set explicit isolated test database config to run service onboarding"
+    },
+    {
+      "test": "tests.test_databases.test_service_database_onboarding_and_os_credential_rotation[postgres]",
+      "reason": "Set explicit isolated test database config to run service onboarding"
+    }
+  ],
+  "external_database_acceptance": "databases-product-v0.4.json",
+  "source_commit": "4124a9d4f9275b9316bc00cb015e8732cb635b14"
+}

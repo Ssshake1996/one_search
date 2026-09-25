@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "product_version": "0.4.0",
+  "stage": "source working tree",
+  "recorded_at_utc": "2026-09-25T17:52:53.887947+00:00",
+  "host": {
+    "platform": "Windows-10-10.0.22631-SP0",
+    "python": "3.11.3",
+    "cpu_logical": 24,
+    "physical_memory_bytes": 34160050176
+  },
+  "corpus": {
+    "initial_files": 24,
+    "initial_text_bytes": 7602,
+    "synthetic_only": true,
+    "chunks": 24,
+    "vectors": 24
+  },
+  "transport": "authenticated local HTTP RPC including service/engine; excludes DSH generation",
+  "method": {
+    "warm_samples_per_mode": 12,
+    "concurrent_seconds": 45,
+    "cold_definition": "first query of each mode after daemon restart; OS file cache is not flushed"
+  },
+  "limits": [
+    "One short synthetic run, not hours/days soak",
+    "Not a physical 8GB/16GB test",
+    "Small corpus, not hundreds of GB",
+    "OS file cache may remain warm after daemon restart"
+  ],
+  "checks": {
+    "timed_pause_applied": true,
+    "search_during_pause": true,
+    "timed_pause_expired": true,
+    "user_pause_survived_restart": true,
+    "background_writer_completed": true,
+    "queued_while_paused": true,
+    "pending_restart_preserved_pause": true,
+    "queued_file_recovered_after_restart": true,
+    "all_synthetic_vectors_recovered": true
+  },
+  "initial_index_seconds": 1.687,
+  "cold_first_query_ms": {
+    "files": 22.46,
+    "keyword": 15.79,
+    "semantic": 496.002
+  },
+  "warm_rpc": {
+    "files": {
+      "samples": 12,
+      "median_ms": 15.759,
+      "p95_ms": 24.435,
+      "max_ms": 24.435
+    },
+    "keyword": {
+      "samples": 12,
+      "median_ms": 14.886,
+      "p95_ms": 31.831,
+      "max_ms": 31.831
+    },
+    "semantic": {
+      "samples": 12,
+      "median_ms": 24.967,
+      "p95_ms": 31.645,
+      "max_ms": 31.645
+    }
+  },
+  "concurrent_rpc": {
+    "files": {
+      "samples": 121,
+      "median_ms": 3.766,
+      "p95_ms": 26.052,
+      "max_ms": 41.144
+    },
+    "keyword": {
+      "samples": 121,
+      "median_ms": 9.053,
+      "p95_ms": 28.247,
+      "max_ms": 32.298
+    },
+    "semantic": {
+      "samples": 121,
+      "median_ms": 30.241,
+      "p95_ms": 50.117,
+      "max_ms": 491.516
+    }
+  },
+  "background": {
+    "source_writes": 107,
+    "observations": 121,
+    "scanning_observations": 8,
+    "vector_pending_observations": 14
+  },
+  "queued_keyword_recovery_seconds": 3.485,
+  "all_vectors_recovery_seconds": 4.407,
+  "final_coverage": {
+    "documents": {
+      "ready": 25
+    },
+    "chunks": 25,
+    "embedded_chunks": 25,
+    "semantic_eligible_chunks": 25,
+    "source_errors": {},
+    "scanning": false,
+    "last_scan": "2026-09-25T17:53:48.341667+00:00"
+  },
+  "ok": true,
+  "daemon_stopped": true,
+  "reproduction_command": "python scripts/measure_product_v04.py --output <fresh-directory> --model-dir <prepared-pinned-model-directory> --concurrent-seconds 45",
+  "validation_history": {
+    "pre_fix_concurrent_run": "An earlier run failed on its first index_status after paused restart with a sanitized ServiceError; the original server traceback was unavailable.",
+    "confirmed_defect": "Source review identified a coverage-cache invalidation race. A deterministic regression test failed before the local-snapshot fix with TypeError: NoneType is not a mapping, and passed afterward.",
+    "original_failure_cause_proven": false,
+    "diagnostic_restart_probe": "A separate repeated-paused-restart diagnostic completed six iterations before a stop exceeded the 15-second timeout. The process was gone when subsequently inspected and no traceback was captured; this one-off symptom is not claimed resolved.",
+    "post_fix_result": "This final ordinary run passed all checks without adding retries around failed RPC calls; 25 of 25 chunks and vectors converged and the daemon stopped cleanly.",
+    "regression_tests": "tests/test_coverage_race.py plus tests/test_engine.py: 13 passed",
+    "subsequent_windows_stop_followup": {
+      "observed_again_in": "Windows CI test_daemon_lifecycle_and_dispatch",
+      "defect_proven": "A Windows read handle can block the one-shot owned-state deletion, leaving service.json after daemon teardown. A real-handle test reproduced stop timeout before the fix and passed after it.",
+      "fix_commit": "afd6553",
+      "fix": "Bounded ownership-checked deletion retries while service.lock is held",
+      "original_diagnostic_event_same_cause_proven": false
+    }
+  }
+}

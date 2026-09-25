@@ -1,0 +1,48 @@
+{
+  "version": "0.4.0",
+  "scope": "Windows Tk product panel interaction checks using synthetic files and mocked maintenance effects",
+  "command": ".venv/Scripts/python.exe -m pytest tests/test_product_ui.py tests/test_product_journeys.py tests/test_database_ui.py -q",
+  "passed": 21,
+  "skipped": 0,
+  "seconds": 14.76,
+  "new_panel_tests": 8,
+  "environment": {
+    "platform": "Windows",
+    "tk_interpreter_lifecycle": "One Tk interpreter per test module, matching the real settings application",
+    "windows_visible_to_user": false,
+    "sizes_checked": [
+      "900x700",
+      "740x560"
+    ]
+  },
+  "verified": {
+    "real_engine_synthetic_search_context_citation_diagnose_refresh": true,
+    "manual_diagnostic_path_remains_independent_of_selected_hit": true,
+    "stale_chunk_ids_invalidated_after_refresh": true,
+    "latest_selected_hit_wins_pending_context_race": true,
+    "clipboard_citation_matches_selected_hit": true,
+    "maintenance_worker_does_not_read_tk_variables": true,
+    "main_settings_busy_prevents_conflicting_panel_operation": true,
+    "restore_applies_in_memory_preview_not_changed_export_file": true,
+    "changed_active_config_requires_new_restore_preview": true,
+    "restore_notifies_main_form_to_invalidate_old_values": true,
+    "normal_close_waits_for_pending_operation": true,
+    "mutation_cannot_be_cancelled_mid_operation": true,
+    "read_only_result_display_can_be_cancelled": true,
+    "notebook_destruction_cancels_pending_tk_poll_callback": true,
+    "both_tabs_scroll_to_all_controls_without_horizontal_overflow": true
+  },
+  "limitations": [
+    "This checks actual Tk geometry and scripted interactions; it is not full manual visual acceptance at all DPI settings.",
+    "Maintenance filesystem effects are mocked here; maintenance/upgrade tests and installation evidence cover their backend behavior separately.",
+    "Real application integration, native release packaging and DSH answer quality are tracked separately."
+  ],
+  "final_fixture_followup": {
+    "lifecycle": "One session Tcl/Tk interpreter; independent Toplevel test windows and main-thread cleanup",
+    "reason": "Cloud and local consecutive interpreter initialization intermittently failed reading existing Tcl library files",
+    "windows_gui_initialization_errors_are_not_skipped": true,
+    "combined_service_mcp_gui_regression_passed": 53,
+    "combined_seconds": 23.72,
+    "full_suite_reference": "tests-v0.4.json"
+  }
+}
