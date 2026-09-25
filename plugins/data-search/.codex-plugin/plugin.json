@@ -1,0 +1,18 @@
+{
+  "name": "data-search",
+  "version": "0.1.0",
+  "description": "Search local files, document contents and read-only database sources using MCP.",
+  "author": {
+    "name": "Local developer"
+  },
+  "interface": {
+    "displayName": "Data Search",
+    "shortDescription": "Find local files and source-backed content.",
+    "longDescription": "Connect to an installed data_search service for keyword and local semantic search. Run the bundled installer first; it writes an absolute MCP command into the installed plugin copy.",
+    "developerName": "Local developer",
+    "category": "Productivity",
+    "capabilities": ["Read"],
+    "defaultPrompt": ["Find documents about my project and include their source locations.", "Show the indexing coverage and local service status."]
+  },
+  "mcpServers": "./.mcp.json"
+}

@@ -1,0 +1,128 @@
+"""Command-line entry point. Machine-readable output stays on stdout."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+from .config import defaults, load_config
+from .service import ServiceError, rpc, run_daemon, service_status, start_service, stop_service
+
+
+def _parser():
+    parser = argparse.ArgumentParser(prog="data-search", description="Local, resource-bounded file and database search")
+    parser.add_argument("--config", help="Configuration JSON path")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    commands = {}
+    for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download"]:
+        subparser = subparsers.add_parser(command)
+        subparser.add_argument("--config", default=argparse.SUPPRESS, help="Configuration JSON path")
+        commands[command] = subparser
+    commands["init"].add_argument("--data-dir", required=True)
+    commands["init"].add_argument("--root", action="append", default=[])
+    commands["init"].add_argument("--node-id", default="local")
+    commands["search"].add_argument("query")
+    commands["search"].add_argument("--mode", choices=["hybrid", "keyword", "semantic", "files"], default="hybrid")
+    commands["search"].add_argument("--limit", type=int, default=20)
+    commands["search"].add_argument("--source", dest="source_id")
+    commands["search"].add_argument("--extension")
+    commands["fetch"].add_argument("id")
+    commands["fetch"].add_argument("--offset", type=int, default=0)
+    commands["fetch"].add_argument("--limit", type=int, default=5)
+    commands["inspect"].add_argument("--source", dest="source_id")
+    commands["query"].add_argument("--source", dest="source_id", required=True)
+    commands["query"].add_argument("--request", required=True, help="JSON object, or @path to a JSON file")
+    for name in ["search", "fetch", "inspect", "query", "status"]:
+        commands[name].add_argument("--node-id")
+    return parser
+
+
+def _initialize(args):
+    path = Path(args.config).expanduser().resolve()
+    roots = [str(Path(root).expanduser().resolve()) for root in args.root]
+    if any(not Path(root).is_dir() for root in roots):
+        raise ValueError("Every search root must be an existing directory")
+    config = defaults(args.data_dir, roots)
+    config["node_id"] = args.node_id
+    config["nodes"] = [{"id": args.node_id, "transport": "local"}]
+    if not args.node_id or len(args.node_id) > 100:
+        raise ValueError("node_id must contain 1 to 100 characters")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # O_EXCL protects user configuration even if installers race.
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+        json.dump(config, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+    return {"status": "initialized", "config": str(path), "data_dir": config["data_dir"], "roots": roots}
+
+
+def main(argv=None):
+    # Redirected Windows console streams otherwise depend on the user's legacy code page.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if not args.config:
+        parser.error("--config is required")
+    try:
+        if args.command == "init":
+            result = _initialize(args)
+        else:
+            config = load_config(args.config)
+            command = args.command
+            if command == "daemon":
+                run_daemon(config)
+                return 0
+            if command == "mcp":
+                from .mcp_server import run_mcp
+                run_mcp(config)
+                return 0
+            if command == "start":
+                result = start_service(config)
+            elif command == "stop":
+                result = stop_service(config)
+            elif command == "status":
+                result = {"service": service_status(config), "index": rpc(config, "index_status", {"node_id": args.node_id} if args.node_id else {})}
+            elif command in {"scan", "pause", "resume"}:
+                result = rpc(config, command)
+            elif command == "search":
+                parameters = {key: getattr(args, key) for key in ["query", "mode", "limit", "source_id", "extension", "node_id"] if getattr(args, key) is not None}
+                result = rpc(config, "search", parameters)
+            elif command == "fetch":
+                parameters = {key: getattr(args, key) for key in ["id", "offset", "limit", "node_id"] if getattr(args, key) is not None}
+                result = rpc(config, "fetch", parameters)
+            elif command == "inspect":
+                parameters = {key: getattr(args, key) for key in ["source_id", "node_id"] if getattr(args, key) is not None}
+                result = rpc(config, "inspect_source", parameters)
+            elif command == "query":
+                raw = Path(args.request[1:]).read_text(encoding="utf-8-sig") if args.request.startswith("@") else args.request
+                request = json.loads(raw)
+                if not isinstance(request, dict):
+                    raise ValueError("Query request must be a JSON object")
+                parameters = {"source_id": args.source_id, "request": request}
+                if args.node_id:
+                    parameters["node_id"] = args.node_id
+                result = rpc(config, "query_database", parameters)
+            elif command == "model-download":
+                from .model import download_model
+                result = download_model(config["semantic"]["model_dir"])
+            else:
+                raise ValueError("Unknown command")
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+        return 0
+    except KeyboardInterrupt:
+        print("Interrupted", file=sys.stderr)
+        return 130
+    except (ValueError, OSError, ServiceError) as error:
+        print(f"data-search: {error}", file=sys.stderr)
+        return 1
+    except Exception as error:
+        print(f"data-search: operation failed ({type(error).__name__}); check configuration and service status", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

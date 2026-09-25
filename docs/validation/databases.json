@@ -1,0 +1,9 @@
+{
+  "versions": {
+    "postgres": "PostgreSQL 17.11 on x86_64-windows, compiled by msvc-19.44.35228, 64-bit",
+    "mysql": "8.4.11"
+  },
+  "exit_code": 0,
+  "test_summary": "42 passed in 1.19s",
+  "scope": "synthetic local SQLite + MySQL 8.4.11 + PostgreSQL 17.11; all temporary server processes stopped"
+}

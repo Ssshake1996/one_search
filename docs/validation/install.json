@@ -1,0 +1,105 @@
+{
+  "checked_at": "2026-09-25T03:31:02.335258+00:00",
+  "platform": "Windows-10-10.0.22631-SP0",
+  "python": "3.11.3",
+  "powershell": "7.6.5",
+  "status": "passed",
+  "source_install": {
+    "roots": [
+      "examples/sample-documents"
+    ],
+    "skip_model": true,
+    "autostart": false,
+    "checks": [
+      "install_ready",
+      "absolute_mcp_paths",
+      "preserved_config_hash_on_upgrade",
+      "repeated_start_same_pid",
+      "uninstall_preserves_data",
+      "reinstall_from_preserved_data",
+      "explicit_delete_data"
+    ]
+  },
+  "offline_wheelhouse_install": {
+    "offline_dependency_install": true,
+    "wheel_count": 63,
+    "keyword_query": "CPU",
+    "keyword_hits": 1,
+    "official_mcp_sdk_tools": [
+      "search",
+      "fetch",
+      "inspect_source",
+      "query_database",
+      "index_status"
+    ],
+    "mcp_search_hits": 1,
+    "installed_uninstaller_self_removal": true,
+    "processes_cleaned": true
+  },
+  "windows_autostart": {
+    "restarted_pid": 43220,
+    "previous_pid": 41988,
+    "status": "passed",
+    "repeated_start_pid": 43220,
+    "startup_kind": "HKCU Run plus hidden WSH",
+    "actual_login_or_reboot_tested": false,
+    "startup_value_removed": true,
+    "startup_file_removed": true
+  },
+  "real_local_model_mcp": {
+    "status": "passed",
+    "local_model_dir": ".runtime/models/bge-small-zh-v1.5",
+    "model_ready": true,
+    "embedded_chunks": 5,
+    "mcp_tools": [
+      "search",
+      "fetch",
+      "inspect_source",
+      "query_database",
+      "index_status"
+    ],
+    "query": "如何降低服务器成本",
+    "top_result": "服务器成本优化.md",
+    "locator": {
+      "line_start": 1,
+      "line_end": 9,
+      "char_start": 0,
+      "char_end": 155
+    },
+    "fetch_verified": true,
+    "retrieval_elapsed_ms": 376.05,
+    "timing_is_smoke_only": true
+  },
+  "project_wheel_sha256": "c3b7f1bb2e6122dd118434f6b1567e5c781da3e05bee2c64582b9d14632e960c",
+  "final_upgrade_reuses_dependencies": true,
+  "distribution_kind": "python-bootstrap",
+  "requires": "Windows amd64 Python 3.11 with venv/pip; model download or offline ModelDir; import generated MCP configuration into host",
+  "not_validated": [
+    "Actual login/reboot startup; HKCU registration and manual hidden invocation were tested",
+    "Linux systemd installation (Bash syntax only)",
+    "8GB physical-machine stress test",
+    "Multiple-node connections",
+    "DSH application UI import (official MCP SDK protocol tested)"
+  ],
+  "notes": [
+    "Source lifecycle and Windows autostart tests used SkipModel; the final installed-wheel smoke used an existing pinned local BGE directory.",
+    "Semantic fixture has two documents and five chunks; smoke latency is not a large-corpus performance claim.",
+    "The final document-ID, bounded HTTP-body-drain and ANN cancellation fixes landed after the installed semantic smoke. The final wheel matches every frozen source module byte-for-byte and all packaged Python modules compile. These isolated changes were covered by the final repository test suite (134 passed, 2 external tests skipped); the full installation was not repeated afterward. Earlier wheel-direct document-ID non-reuse checks are recorded above."
+  ],
+  "final_cleanup": {
+    "daemon_stopped": true,
+    "app_removed": true,
+    "data_removed_explicitly": true,
+    "external_model_preserved": true
+  },
+  "final_wheel_source_match": true,
+  "final_wheel_narrow_check": {
+    "service_and_store_imported_from_final_wheel": true,
+    "deleted_document_id_not_reused": true,
+    "first_id": 1,
+    "next_id": 2
+  },
+  "installed_semantic_smoke_source_match_at_test_time": true,
+  "final_package_checked_at": "2026-09-25T03:44:18.133516+00:00",
+  "final_source_module_count": 15
+}

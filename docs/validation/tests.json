@@ -1,0 +1,13 @@
+{
+  "date": "2026-09-25",
+  "command": ".venv/Scripts/python.exe -m pytest -q",
+  "passed": 134,
+  "skipped": 2,
+  "failed": 0,
+  "seconds": 17.04,
+  "skipped_reason": "External MySQL/PostgreSQL cases require explicit synthetic-server config; both were separately run against MySQL 8.4.11 and PostgreSQL 17.11.",
+  "service_stability": {"passed_per_run": 28, "consecutive_runs": 5},
+  "plugin_manifest_validation": "passed using official validate_plugin.py",
+  "external_database_evidence": "databases.json",
+  "notes": "No business data, whole-drive scan or remote-node connection was used. Large-scale timings are recorded separately and do not measure end-to-end semantic search."
+}

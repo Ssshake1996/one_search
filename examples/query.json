@@ -1,0 +1,8 @@
+{
+  "table": "orders",
+  "columns": ["id", "description", "amount"],
+  "filters": [{"column": "amount", "op": "gte", "value": 100}],
+  "order_by": [{"column": "id", "direction": "desc"}],
+  "limit": 20,
+  "offset": 0
+}
