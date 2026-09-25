@@ -7,6 +7,8 @@ import sqlite3
 import threading
 from pathlib import Path
 
+from .model import MODEL_ID
+
 
 def terms(text: str) -> list[str]:
     result = []
@@ -31,6 +33,16 @@ def query_terms(text: str) -> str:
 
 def text_hash(text: str) -> str:
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def short_path_tokens(path: str) -> str:
+    # Trigram FTS cannot accelerate one/two-character Chinese path substrings.
+    # Deduplicated unigram/bigram postings add only these needed candidates.
+    tokens = set()
+    for word in re.findall(r'[\u3400-\u9fff]+', path):
+        tokens.update(word)
+        tokens.update(word[i:i+2] for i in range(len(word)-1))
+    return ' '.join(sorted(tokens))
 
 
 def pack_vector(values) -> bytes:
@@ -59,6 +71,7 @@ class Store:
         self.db = sqlite3.connect(self.path, check_same_thread=False, timeout=5)
         self.db.row_factory = sqlite3.Row
         self.db.create_function('search_tokens', 1, lambda value: ' '.join(terms(value)), deterministic=True)
+        self.db.create_function('short_path_tokens', 1, short_path_tokens, deterministic=True)
         self.db.executescript("""
           PRAGMA journal_mode=WAL;
           PRAGMA foreign_keys=ON;
@@ -75,11 +88,13 @@ class Store:
             id INTEGER PRIMARY KEY AUTOINCREMENT, doc_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
             text TEXT NOT NULL, hash TEXT NOT NULL, locator TEXT NOT NULL);
           CREATE INDEX IF NOT EXISTS chunks_doc ON chunks(doc_id);
-          CREATE INDEX IF NOT EXISTS chunks_hash ON chunks(hash);
           CREATE TABLE IF NOT EXISTS embeddings(hash TEXT PRIMARY KEY, model TEXT NOT NULL, vector BLOB NOT NULL);
           CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT);
         """)
         self.db.commit()
+        if not any(r[1] == 'chunking_version' for r in self.db.execute('PRAGMA table_info(documents)')):
+            self.db.execute('ALTER TABLE documents ADD COLUMN chunking_version INTEGER NOT NULL DEFAULT 0')
+            self.db.commit()
         if not any(r[1] == 'semantic' for r in self.db.execute('PRAGMA table_info(chunks)')):
             self.db.execute('ALTER TABLE chunks ADD COLUMN semantic INTEGER NOT NULL DEFAULT 1')
             self.db.commit()
@@ -125,6 +140,96 @@ class Store:
           END;
         """)
 
+        self._init_embedding_queues(budget)
+        self._init_short_paths(budget)
+
+    def _init_embedding_queues(self, budget):
+        """One-time migration; steady-state work discovery is a queue lookup."""
+        row = self.db.execute("SELECT value FROM settings WHERE key='embedding_queue_model'").fetchone()
+        if row and row[0] == MODEL_ID:
+            return
+        if budget is not None and self.db.execute('SELECT 1 FROM chunks LIMIT 1').fetchone():
+            try:
+                budget.check(disk=True, reserve_mb=max(16, self.path.stat().st_size/1048576))
+            except Exception:
+                self.db.close()
+                raise
+        model = "'" + MODEL_ID.replace("'", "''") + "'"
+        def eligible(key):
+            return f'EXISTS(SELECT 1 FROM chunks WHERE hash={key} AND semantic=1)'
+        def embedded(key, current=True):
+            return f'EXISTS(SELECT 1 FROM embeddings WHERE hash={key}' + (f' AND model={model}' if current else '') + ')'
+        def refresh(key):
+            live, ready, present = eligible(key), embedded(key), embedded(key, False)
+            return f'''
+                DELETE FROM embedding_queue WHERE hash={key} AND (NOT {live} OR {ready});
+                INSERT OR IGNORE INTO embedding_queue SELECT {key} WHERE {live} AND NOT {ready};
+                DELETE FROM orphan_embedding_queue WHERE hash={key} AND ({live} OR NOT {present});
+                INSERT OR IGNORE INTO orphan_embedding_queue SELECT {key} WHERE {present} AND NOT {live};
+            '''
+        triggers = {
+            'embedding_chunk_insert': ("AFTER INSERT ON chunks", f'''
+                DELETE FROM orphan_embedding_queue WHERE hash=new.hash AND new.semantic=1;
+                INSERT OR IGNORE INTO embedding_queue SELECT new.hash WHERE new.semantic=1 AND NOT {embedded('new.hash')};
+            '''),
+            'embedding_chunk_delete': ("AFTER DELETE ON chunks", f'''
+                DELETE FROM embedding_queue WHERE hash=old.hash AND NOT {eligible('old.hash')};
+                INSERT OR IGNORE INTO orphan_embedding_queue SELECT old.hash WHERE {embedded('old.hash', False)} AND NOT {eligible('old.hash')};
+            '''),
+            'embedding_chunk_update': ('AFTER UPDATE OF hash,semantic ON chunks', refresh('old.hash') + refresh('new.hash')),
+            'embedding_insert': ('AFTER INSERT ON embeddings', refresh('new.hash')),
+            'embedding_delete': ('AFTER DELETE ON embeddings', refresh('old.hash')),
+            'embedding_update': ('AFTER UPDATE OF hash,model ON embeddings', refresh('old.hash') + refresh('new.hash')),
+        }
+        try:
+            with self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                # The compound index also serves all existing hash-only joins.
+                self.db.execute('CREATE INDEX IF NOT EXISTS chunks_hash_semantic ON chunks(hash,semantic)')
+                self.db.execute('DROP INDEX IF EXISTS chunks_hash')
+                self.db.execute('CREATE TABLE IF NOT EXISTS embedding_queue(hash TEXT PRIMARY KEY) WITHOUT ROWID')
+                self.db.execute('CREATE TABLE IF NOT EXISTS orphan_embedding_queue(hash TEXT PRIMARY KEY) WITHOUT ROWID')
+                for name, (event, body) in triggers.items():
+                    self.db.execute(f'DROP TRIGGER IF EXISTS {name}')
+                    self.db.execute(f'CREATE TRIGGER {name} {event} BEGIN {body} END')
+                self.db.execute('DELETE FROM embedding_queue')
+                self.db.execute('DELETE FROM orphan_embedding_queue')
+                self.db.execute(f'''INSERT OR IGNORE INTO embedding_queue SELECT c.hash FROM chunks c
+                    WHERE c.semantic=1 AND NOT EXISTS(SELECT 1 FROM embeddings e WHERE e.hash=c.hash AND e.model={model})''')
+                self.db.execute('''INSERT INTO orphan_embedding_queue SELECT e.hash FROM embeddings e
+                    WHERE NOT EXISTS(SELECT 1 FROM chunks c WHERE c.hash=e.hash AND c.semantic=1)''')
+                self.db.execute("INSERT OR REPLACE INTO settings VALUES('embedding_queue_model',?)", (MODEL_ID,))
+        except Exception:
+            self.db.close()
+            raise
+
+    def _init_short_paths(self, budget):
+        short_schema = self.db.execute("SELECT sql FROM sqlite_master WHERE name='paths_short_fts'").fetchone()
+        if short_schema is None:
+            if budget is not None and self.db.execute('SELECT 1 FROM documents LIMIT 1').fetchone():
+                try:
+                    budget.check(disk=True, reserve_mb=max(16, self.path.stat().st_size/1048576))
+                except Exception:
+                    self.db.close()
+                    raise
+            with self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                self.db.execute("CREATE VIEW short_file_paths AS SELECT id,short_path_tokens(path) tokens FROM documents WHERE source_id='files'")
+                self.db.execute("CREATE VIRTUAL TABLE paths_short_fts USING fts5(tokens,content='short_file_paths',content_rowid='id')")
+                self.db.execute("INSERT INTO paths_short_fts(paths_short_fts) VALUES('rebuild')")
+        self.db.executescript("""
+          CREATE TRIGGER IF NOT EXISTS paths_short_insert AFTER INSERT ON documents WHEN new.source_id='files' BEGIN
+            INSERT INTO paths_short_fts(rowid,tokens) VALUES(new.id,short_path_tokens(new.path));
+          END;
+          CREATE TRIGGER IF NOT EXISTS paths_short_delete BEFORE DELETE ON documents WHEN old.source_id='files' BEGIN
+            INSERT INTO paths_short_fts(paths_short_fts,rowid,tokens) VALUES('delete',old.id,short_path_tokens(old.path));
+          END;
+          CREATE TRIGGER IF NOT EXISTS paths_short_update AFTER UPDATE OF path,source_id ON documents BEGIN
+            INSERT INTO paths_short_fts(paths_short_fts,rowid,tokens) SELECT 'delete',old.id,short_path_tokens(old.path) WHERE old.source_id='files';
+            INSERT INTO paths_short_fts(rowid,tokens) SELECT new.id,short_path_tokens(new.path) WHERE new.source_id='files';
+          END;
+        """)
+
     def rows(self, sql: str, args=()) -> list[dict]:
         with self.lock:
             return [dict(r) for r in self.db.execute(sql, args)]
@@ -162,6 +267,7 @@ class Store:
             with self.db:
                 self.db.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
                 self.db.execute("INSERT INTO paths_fts(paths_fts) VALUES('optimize')")
+                self.db.execute("INSERT INTO paths_short_fts(paths_short_fts) VALUES('optimize')")
             self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
             self.db.execute('VACUUM')
             self.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')

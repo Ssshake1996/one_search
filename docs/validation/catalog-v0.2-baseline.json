@@ -1,0 +1,45 @@
+{
+  "version": "0.2.0",
+  "physical_files": 5000,
+  "synthetic_only": true,
+  "source_bytes": 135000,
+  "content_indexing": false,
+  "embedding_inference": false,
+  "scope": "Engine first/unchanged filename catalog and metadata-only processing; no MCP",
+  "environment": {
+    "platform": "Windows-10-10.0.22631-SP0",
+    "python": "3.11.3",
+    "physical_memory_mb": 32577.56,
+    "logical_cpus": 24
+  },
+  "runs": [
+    {
+      "phase": "first",
+      "seconds": 165.8571,
+      "ticks": 1,
+      "catalog_count": 5000,
+      "commits": 15002,
+      "peak_rss_mb": 31.12,
+      "cpu_seconds": 17.4375,
+      "process_read_bytes": 19509248,
+      "process_write_bytes": 387510784
+    },
+    {
+      "phase": "unchanged",
+      "seconds": 80.6598,
+      "ticks": 1,
+      "catalog_count": 5000,
+      "commits": 5002,
+      "peak_rss_mb": 31.12,
+      "cpu_seconds": 9.5156,
+      "process_read_bytes": 1605632,
+      "process_write_bytes": 22214032
+    }
+  ],
+  "limitations": [
+    "Windows process I/O counters include cached I/O; they are not physical drive traffic.",
+    "SQLite trace counting is enabled for both runs and adds instrumentation cost.",
+    "No model/parser or real user files. Physical 8GB/16GB machines are not simulated.",
+    "Scheduling ticks are driven immediately for measurement, excluding production idle intervals."
+  ]
+}

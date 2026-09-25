@@ -366,7 +366,18 @@ def start_service(config: dict, *, timeout=30):
         try:
             return {**service_status(config), "started": process.poll() is None}
         except ServiceError:
+            if process.poll() is not None:
+                break
             time.sleep(0.1)
+    # Only terminate the exact child created by this invocation. A failed
+    # activation must not leave a delayed daemon holding the upgrade snapshot.
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
     raise ServiceError("Daemon did not become ready; check daemon.log in the configured data directory")
 
 

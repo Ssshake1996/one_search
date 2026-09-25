@@ -74,7 +74,8 @@ def test_adaptive_candidates_recover_narrow_extension_and_long_document(tmp_path
         first = next(r['id'] for r in rows if r['extension']=='.txt')
         target = next(r['id'] for r in rows if r['extension']=='.md')
         requested = []
-        def near(vector, count):
+        def near(vector, count, **filters):
+            assert filters == {'source_id':None, 'extension':'.md'}
             requested.append(count)
             # A long leading document occupies the first 150 ANN positions.
             return [(first,0.1)]*min(count,150) + ([(target,0.2)] if count>150 else [])
@@ -230,7 +231,9 @@ def test_unchanged_sync_maps_without_loading_full_ann_and_cleans_orphan(tmp_path
     monkeypatch.setattr(Index,'restore',restore)
     try:
         cache.sync()
-        assert views==[True]
+        # Unchanged segments may avoid opening ANN files altogether; if a
+        # reader is needed it must remain an immutable memory-mapped view.
+        assert all(view is True for view in views)
         assert not (tmp_path/'vectors-interrupted.usearch').exists()
         metadata=json.loads(cache.meta.read_text())
         del metadata['count']

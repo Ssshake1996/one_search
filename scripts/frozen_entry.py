@@ -7,13 +7,22 @@ import sys
 def main():
     args = sys.argv[1:]
     if args[:1] == ["--internal-module"]:
-        if len(args) < 2 or args[1] not in {"data_search", "data_search.worker"}:
+        if len(args) < 2 or args[1] not in {"data_search", "data_search.worker", "data_search.preflight", "data_search.upgrade", "data_search.host_integration"}:
             raise SystemExit("Unknown internal module")
         module, args = args[1], args[2:]
         sys.argv = [module, *args]
         if module == "data_search.worker":
             from data_search.worker import main as worker_main
             return worker_main()
+        if module == "data_search.preflight":
+            from data_search.preflight import main as preflight_main
+            return preflight_main()
+        if module == "data_search.upgrade":
+            from data_search.upgrade import main as upgrade_main
+            return upgrade_main()
+        if module == "data_search.host_integration":
+            from data_search.host_integration import main as host_main
+            return host_main()
     if not args or args[:1] == ["setup"]:
         from data_search.runtime import configure_native_threads
         configure_native_threads()

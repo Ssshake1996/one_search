@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0
+
+### Durable indexing and retrieval
+
+- File-name discovery and body parsing use separate persistent work queues. Interrupted batches resume after restart, and known coverage, pending work and bounded errors are visible in status.
+- Windows can consume an existing accessible NTFS USN journal for change discovery. Missing permissions, journal resets and unresolved events fall back to reconciliation; first discovery still walks the selected scope and does not enumerate the MFT.
+- ANN updates publish immutable segments incrementally and merge them under resource limits, retaining the previous usable publication until the replacement is ready.
+- Short Chinese filename matching, structural text chunks and filtered vector scoring preserve source locations. Existing file chunks migrate through bounded persistent jobs; database text receives one full paged refresh. Quality and scale claims remain tied to the recorded evaluation corpus.
+
+### Installation and day-to-day operation
+
+- Native Windows installs verify and stage the runtime before replacing it. Upgrades stop the service, snapshot the pre-migration index and configuration, and retain the old runtime. An immediate startup failure restores the snapshot only after the instance lock is available; later automatic downgrades are not attempted.
+- Upgrade snapshots are retained under `.upgrade-*` and require additional space. Only verified pinned model assets and transient service files are excluded; unknown files under the model directory are backed up. Python bootstrap and Linux installs do not yet use the native runtime transaction.
+- The settings window exposes memory, worker CPU and disk budgets, known document/embedding counts, pending queues and source errors. Changed database settings require an explicit successful read-only preflight of that same configuration before activation.
+- Database preflight runs with bounded subprocess timeouts and checks allowed fields, stable unique keys and watermarks without returning row contents or credential values. Failed checks leave the running configuration intact.
+- A DeepSeek Harness Cordis bundle registers through `dsh.bundle.patch` and uses the official MCP client. Its first profile activation installs a missing local backend; package registration alone does not start it. Existing backends and settings are preserved.
+- An optional helper merges the installed MCP entry into an explicitly selected standard JSON host configuration, preserving unrelated settings and retaining a backup. DSH uses its separate Cordis integration.
+
+### Verification boundaries
+
+See the version-specific [validation report](docs/VALIDATION.md) for executed tests and artifact checks. Model weights remain separate from the release, Linux target-host installation and physical low-memory-machine acceptance remain pending, and multi-node transport is not implemented. Checksums detect changed bundle contents but are not a publisher signature.
+
 ## 0.2.0 — 2026-09-25
 
 ### Whole-machine scope and installation

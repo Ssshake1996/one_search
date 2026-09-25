@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-09-25T08:09:53.583157+00:00",
+  "synthetic_only": true,
+  "real_machine_scan_performed": false,
+  "version": "0.3.0",
+  "unicode_and_spaced_paths": true,
+  "installer_shell": "Windows PowerShell 5.1",
+  "installations": [
+    {
+      "artifact": "one-search-0.3.0-windows-amd64-native.zip",
+      "kind": "windows-native",
+      "zip_integrity": true,
+      "per_file_checksums": true,
+      "source_hashes_match": true,
+      "auto_bundle_selection": true,
+      "system_python_called": false,
+      "isolated_scope": true,
+      "app_directory_excluded": true,
+      "offline_dependencies": true,
+      "existing_local_model": true,
+      "local_semantic_search": true,
+      "sqlite_query": true,
+      "official_mcp_tools": 5,
+      "mcp_generated": true,
+      "reinstall_preserved_configuration": true,
+      "autostart": "disabled_for_test",
+      "uninstall_removed_managed_test_app_and_data": true
+    },
+    {
+      "artifact": "one-search-0.3.0-windows-amd64-py311-bootstrap.zip",
+      "kind": "python-bootstrap",
+      "zip_integrity": true,
+      "per_file_checksums": true,
+      "source_hashes_match": true,
+      "auto_bundle_selection": true,
+      "system_python_called": true,
+      "isolated_scope": true,
+      "app_directory_excluded": true,
+      "offline_dependencies": true,
+      "existing_local_model": true,
+      "local_semantic_search": true,
+      "sqlite_query": true,
+      "official_mcp_tools": 5,
+      "mcp_generated": true,
+      "reinstall_preserved_configuration": true,
+      "autostart": "disabled_for_test",
+      "uninstall_removed_managed_test_app_and_data": true
+    }
+  ],
+  "linux": {
+    "shell_syntax_checked_with_bash_n": true,
+    "runtime_installation_tested": false
+  },
+  "upgrade_workflows": {
+    "checked_at": "2026-09-25T08:13:33.861781+00:00",
+    "synthetic_only": true,
+    "real_machine_scan_performed": false,
+    "from_version": "0.2.0",
+    "to_version": "0.3.0",
+    "autostart": "disabled_for_test",
+    "source_database": "synthetic SQLite only",
+    "injected_startup_failure": {
+      "real_new_daemon_start_attempted": true,
+      "incompatible_index_and_config_mutation_restored": true,
+      "previous_executable_restored": true,
+      "old_schema_restored": true,
+      "old_service_restart_and_search": true,
+      "transaction_phase": "rolled_back",
+      "recovery_material_retained": true
+    },
+    "real_v02_to_v03": {
+      "configuration_preserved_byte_for_byte": true,
+      "native_metadata_matches": true,
+      "pre_migration_schema_and_chunks_retained": true,
+      "unchanged_files_rechunked": true,
+      "keyword_and_real_model_semantic_search": true,
+      "embedded_chunks": 4
+    },
+    "repeated_native_upgrade": {
+      "configuration_and_scope_preserved": true,
+      "health_and_search": true
+    },
+    "native_preflight_and_host_helper": {
+      "sqlite_read_only_preflight": true,
+      "row_content_not_returned": true,
+      "explicit_synthetic_host_backup_and_merge": true
+    },
+    "managed_test_installation_removed": true
+  }
+}

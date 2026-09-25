@@ -107,17 +107,20 @@ def test_missing_roots_and_bounded_walk_errors_are_visible(tmp_path, monkeypatch
     root.mkdir()
     missing = tmp_path / 'missing'
     monkeypatch.setattr(scope, 'discover_volumes', lambda: ([str(root), str(missing)], []))
-    real_walk = scope.os.walk
-    def failed_walk(base, *, followlinks=False, onerror=None):
-        if Path(base) != root:
-            return real_walk(base, followlinks=followlinks, onerror=onerror)
-        for index in range(100):
-            onerror(PermissionError(13, 'access denied', str(root / str(index))))
-        return iter([])
-    monkeypatch.setattr('data_search.engine.os.walk', failed_walk)
+    for index in range(100):
+        (root / str(index)).mkdir()
+    real_scandir = scope.os.scandir
+    def failed_scandir(base):
+        if Path(base).parent == root:
+            raise PermissionError(13,'access denied',str(base))
+        return real_scandir(base)
+    monkeypatch.setattr('data_search.catalog.os.scandir', failed_scandir)
     engine = Engine(configuration(tmp_path))
     try:
-        status = engine.scan_once()
+        for _ in range(5):
+            status = engine.scan_once(full=not engine.catalog.active)
+            if not engine.catalog.active:
+                break
         report = status['file_scope']
         assert report['unavailable_roots'][0]['path'] == str(missing)
         assert report['scan_errors']['count'] == 100
@@ -203,6 +206,7 @@ def test_link_directory_is_not_descended(tmp_path, monkeypatch):
     (root / 'visible.txt').write_text('visibleneedle')
     real_check = scope.link_directory
     monkeypatch.setattr('data_search.engine.link_directory', lambda path: path == linked or real_check(path))
+    monkeypatch.setattr('data_search.catalog.link_directory', lambda path: path == linked or real_check(path))
     engine = Engine(configuration(tmp_path, [str(root)]))
     try:
         engine.scan_once()

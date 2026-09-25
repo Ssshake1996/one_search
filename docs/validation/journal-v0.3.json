@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "release": "0.3.0",
+  "tested_at_utc": "2026-09-25T07:53:17.733975+00:00",
+  "unit_integration": {
+    "command": ".venv/Scripts/python -m pytest tests/test_change_journal.py tests/test_scope.py tests/test_scheduler_journal.py tests/test_scheduler.py -q",
+    "passed": 106,
+    "skipped": 1,
+    "scope": "Only temporary synthetic files, fake volumes and fake change journals. No full real-machine scan.",
+    "coverage": [
+      "USN V2/V3 parsing and native structure layouts",
+      "bounded journal cursors and restart replay",
+      "rename/delete and directory reconciliation",
+      "journal reset, lost history and queue overflow",
+      "permission fallback and multi-tick idle recovery",
+      "removed volume handle cleanup and cached-scope revocation",
+      "concurrent events and metadata persistence",
+      "disk-budget rejection without cursor advancement"
+    ]
+  },
+  "native_probe": {
+    "platform": "Windows",
+    "operation": "Read-only existing-journal availability probe; volume open is required before FSCTL_QUERY_USN_JOURNAL",
+    "available": false,
+    "reason": "access_denied",
+    "journal_records_read": 0,
+    "privilege_changes": false,
+    "journal_mutations": false,
+    "volume_open_succeeded": false
+  },
+  "limitations": [
+    "Actual NTFS event replay is not verified: the current account cannot open the volume for journal reading.",
+    "Parsing, recovery and scheduler behavior are verified using synthetic journals; the real machine uses periodic scan fallback."
+  ]
+}

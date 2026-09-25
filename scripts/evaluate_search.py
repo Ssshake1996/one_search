@@ -20,7 +20,24 @@ def run(args):
     records = []
     begin = time.perf_counter()
     try:
-        status = engine.scan_once()
+        # Production ticks are deliberately bounded. Evaluation must wait for
+        # this explicitly selected synthetic corpus, not measure a partial index.
+        deadline = time.monotonic() + 300
+        for tick in range(200):
+            status = engine.scan_once()
+            if engine.vector_thread is not None:
+                engine.vector_thread.join(30)
+            pending = engine.store.rows('SELECT count(*) n FROM chunks c LEFT JOIN embeddings e ON c.hash=e.hash AND e.model=? WHERE c.semantic=1 AND e.hash IS NULL', (status['semantic']['model_id'],))[0]['n']
+            progress = engine.catalog.progress()
+            if (not pending and not progress['discovery_active'] and not progress['queued_files']
+                    and not progress['queued_events'] and not engine.vectors.status()['pending']):
+                engine._coverage_cache = None
+                status = engine.status()
+                break
+            if status['last_error'] or status.get('vector_error') or time.monotonic() >= deadline:
+                raise RuntimeError('Synthetic evaluation indexing did not complete: '+str(status['last_error'] or status.get('vector_error') or 'deadline'))
+        else:
+            raise RuntimeError('Synthetic evaluation indexing exceeded 200 bounded ticks')
         index_seconds = time.perf_counter() - begin
         for case in cases:
             if case['mode'] == 'database':
@@ -34,7 +51,8 @@ def run(args):
                     passed = expected in json.dumps(result['rows'], ensure_ascii=False)
                 records.append({'id':case['id'], 'mode':'database', 'passed':passed, 'result':result})
                 continue
-            result = engine.search(case['query'], case['mode'], limit=10, source_id='files')
+            result = engine.search(case['query'], case['mode'], limit=10,
+                                   source_id=case.get('source_id','files'), extension=case.get('extension'))
             paths = [Path(r['path']).relative_to(demo).as_posix() for r in result['results']]
             rank = next((i+1 for i,p in enumerate(paths) if p in case['expected_sources']), None)
             records.append({'id':case['id'], 'mode':case['mode'], 'language':case['language'],
@@ -52,7 +70,8 @@ def run(args):
         for language in ('zh','en','cross_language'):
             selected = [r for r in records if r['mode']=='semantic' and r['language']==language]
             summaries[language] = {'count':len(selected),'recall_at_5':sum(r['recall_at_5'] for r in selected)/max(1,len(selected))}
-        report = {'corpus':'synthetic 16 files and SQLite demo only', 'platform':platform.platform(),
+        file_count = sum(path.is_file() for path in (demo/'files').rglob('*'))
+        report = {'corpus':f'synthetic {file_count} files and SQLite demo only', 'platform':platform.platform(),
             'model_id':status['semantic']['model_id'], 'initial_index_seconds':round(index_seconds,3),
             'status_after_index':status, 'summary':summaries,
             'database_passed':sum(r.get('passed',False) for r in records if r['mode']=='database'),

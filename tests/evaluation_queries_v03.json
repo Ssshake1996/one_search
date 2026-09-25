@@ -1,0 +1,13 @@
+{
+  "description": "四个新增合成用例；原35题保持不变。仅评价这些资料的检索，不代表通用准确率。",
+  "fixtures": {
+    "files/retrieval_v03/财务预算.md": "# 合成财务资料\n\n本文件仅用于验证中文一字和两字文件名候选索引。",
+    "files/retrieval_v03/章节指南.md": "# 第一章：合成设备登记\n\n本章仅说明测试机器的编号规则。所有机器和项目均为虚构。\n\n# 第二章：蓝鲸项目备份\n\n蓝鲸项目的临时备份副本保留七十二小时，到期自动清理。正式归档副本需要人工审核，不能混用临时保留期。\n章节验收码 ZX-RETRIEVAL-2026。"
+  },
+  "cases": [
+    {"id":"V301","query":"财","mode":"files","language":"zh","expected_sources":["files/retrieval_v03/财务预算.md"],"answerability":"answerable","expected_evidence":"财务预算.md"},
+    {"id":"V302","query":"预算","mode":"files","language":"zh","expected_sources":["files/retrieval_v03/财务预算.md"],"answerability":"answerable","expected_evidence":"财务预算.md"},
+    {"id":"V303","query":"ZX-RETRIEVAL-2026","mode":"keyword","language":"zh","expected_sources":["files/retrieval_v03/章节指南.md"],"answerability":"answerable","expected_evidence":"章节验收码 ZX-RETRIEVAL-2026"},
+    {"id":"V304","query":"蓝鲸项目的临时备份副本需要保存多久？","mode":"semantic","extension":".md","language":"zh","expected_sources":["files/retrieval_v03/章节指南.md"],"answerability":"answerable","expected_evidence":"临时备份副本保留七十二小时"}
+  ]
+}

@@ -1,0 +1,447 @@
+{
+  "measured_at_utc": "2026-09-25T07:47:10.127219+00:00",
+  "platform": "Windows-10-10.0.22631-SP0",
+  "model_id": "Xenova/bge-small-zh-v1.5@75c43b069aac4d136ba6bc1122f995fedcfd2781:cls-l2-512:qint8",
+  "scope": "Only generated synthetic files and local SQLite demo records were indexed.",
+  "baseline_definitions": {
+    "historical_v02": "Previously recorded v0.2 validation report; not rerun as a v0.2 release executable in this comparison.",
+    "current_before": "Fresh isolated run of the unchanged 35 questions using the original 350/300 character chunker and post-ANN filters. The bounded scheduler and segmented ANN were already present.",
+    "current_after": "Fresh isolated run of the same 35 questions and exact same 16-file corpus using structural spans and SQL-prefiltered exact semantic scoring.",
+    "expanded": "Separate generated 18-file corpus: unchanged original 35 questions plus four new focused questions. Added documents also act as distractors."
+  },
+  "unchanged_35": {
+    "historical_v02": {
+      "case_count": 35,
+      "summary": {
+        "semantic": {
+          "count": 22,
+          "recall_at_5": 0.9545454545454546,
+          "recall_at_10": 1.0
+        },
+        "keyword": {
+          "count": 5,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "files": {
+          "count": 1,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "zh": {
+          "count": 19,
+          "recall_at_5": 1.0
+        },
+        "en": {
+          "count": 2,
+          "recall_at_5": 1.0
+        },
+        "cross_language": {
+          "count": 1,
+          "recall_at_5": 0.0
+        }
+      },
+      "database_passed": 3,
+      "case_ranks": {
+        "S01": 1,
+        "S02": 2,
+        "S03": 1,
+        "S04": 1,
+        "S05": 1,
+        "S06": 10,
+        "S07": 1,
+        "S08": 1,
+        "S09": 1,
+        "S10": 1,
+        "S11": 1,
+        "S12": 2,
+        "S13": 1,
+        "S14": 1,
+        "S15": 1,
+        "S16": 1,
+        "S17": 1,
+        "S18": 1,
+        "S19": 1,
+        "S20": 1,
+        "S21": 2,
+        "S22": 1,
+        "K01": 1,
+        "K02": 1,
+        "K03": 1,
+        "K04": 1,
+        "K05": 1,
+        "F01": 1,
+        "N01": null,
+        "N02": null,
+        "N03": null,
+        "N04": null
+      }
+    },
+    "current_before": {
+      "case_count": 35,
+      "summary": {
+        "semantic": {
+          "count": 22,
+          "recall_at_5": 0.9545454545454546,
+          "recall_at_10": 1.0
+        },
+        "keyword": {
+          "count": 5,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "files": {
+          "count": 1,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "zh": {
+          "count": 19,
+          "recall_at_5": 1.0
+        },
+        "en": {
+          "count": 2,
+          "recall_at_5": 1.0
+        },
+        "cross_language": {
+          "count": 1,
+          "recall_at_5": 0.0
+        }
+      },
+      "database_passed": 3,
+      "case_ranks": {
+        "S01": 1,
+        "S02": 2,
+        "S03": 1,
+        "S04": 1,
+        "S05": 1,
+        "S06": 10,
+        "S07": 1,
+        "S08": 1,
+        "S09": 1,
+        "S10": 1,
+        "S11": 1,
+        "S12": 2,
+        "S13": 1,
+        "S14": 1,
+        "S15": 1,
+        "S16": 1,
+        "S17": 1,
+        "S18": 1,
+        "S19": 1,
+        "S20": 1,
+        "S21": 2,
+        "S22": 1,
+        "K01": 1,
+        "K02": 1,
+        "K03": 1,
+        "K04": 1,
+        "K05": 1,
+        "F01": 1,
+        "N01": null,
+        "N02": null,
+        "N03": null,
+        "N04": null
+      }
+    },
+    "current_after": {
+      "case_count": 35,
+      "summary": {
+        "semantic": {
+          "count": 22,
+          "recall_at_5": 0.9545454545454546,
+          "recall_at_10": 1.0
+        },
+        "keyword": {
+          "count": 5,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "files": {
+          "count": 1,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "zh": {
+          "count": 19,
+          "recall_at_5": 1.0
+        },
+        "en": {
+          "count": 2,
+          "recall_at_5": 1.0
+        },
+        "cross_language": {
+          "count": 1,
+          "recall_at_5": 0.0
+        }
+      },
+      "database_passed": 3,
+      "case_ranks": {
+        "S01": 1,
+        "S02": 2,
+        "S03": 1,
+        "S04": 1,
+        "S05": 1,
+        "S06": 10,
+        "S07": 1,
+        "S08": 1,
+        "S09": 1,
+        "S10": 1,
+        "S11": 1,
+        "S12": 2,
+        "S13": 1,
+        "S14": 1,
+        "S15": 1,
+        "S16": 1,
+        "S17": 1,
+        "S18": 1,
+        "S19": 1,
+        "S20": 1,
+        "S21": 2,
+        "S22": 1,
+        "K01": 1,
+        "K02": 1,
+        "K03": 1,
+        "K04": 1,
+        "K05": 1,
+        "F01": 1,
+        "N01": null,
+        "N02": null,
+        "N03": null,
+        "N04": null
+      }
+    },
+    "case_file_sha256": "aab778fcb886219ab27773f4fbdd24c8340fdfb70ad0f973d6c4b50c4d48d393",
+    "corpus_files": [
+      {
+        "source": "files/engineering/issue_triage.tsv",
+        "bytes": 367,
+        "sha256": "3366988d58bed7400ab23afd2b42fd578e3255340ec22f3509e16c9776801057"
+      },
+      {
+        "source": "files/engineering/pilot_review.pptx",
+        "bytes": 35705,
+        "sha256": "4bf98c2419fbb0cbd1c52c948a6af60b3d59d8178dd5d5c4d20e9290db344d1a"
+      },
+      {
+        "source": "files/engineering/project_budget.xlsx",
+        "bytes": 6014,
+        "sha256": "c68d641e12fba94914c1d733d51408058d8ee00259e4e8174cfd9039ab95633a"
+      },
+      {
+        "source": "files/engineering/project_plan.json",
+        "bytes": 574,
+        "sha256": "67198079efd56ddf0f0f246d697703e50a59a2d20c7588127fa2c983030d6126"
+      },
+      {
+        "source": "files/engineering/resource_scheduler.py",
+        "bytes": 398,
+        "sha256": "0b382f4cdcf371f52a13fe522ff9d78aca0af0db8f29f16b449b0ba81fffacf9"
+      },
+      {
+        "source": "files/engineering/search_settings.yaml",
+        "bytes": 276,
+        "sha256": "41e5bbc4fd144d7a70d943a38bba589ae7880dd40d13577497372b1bc547cced"
+      },
+      {
+        "source": "files/operations/backup_runbook.pdf",
+        "bytes": 3567,
+        "sha256": "1f66574e312f9b211354afa3d7de4e7531edab2e2cbb01317aa60ac830d435e8"
+      },
+      {
+        "source": "files/operations/capacity_notes.txt",
+        "bytes": 406,
+        "sha256": "b836e3e7602883d0a2c9326b17774d895e9ef5a4d73e1f1f302616b6bb660650"
+      },
+      {
+        "source": "files/operations/finops_english.txt",
+        "bytes": 485,
+        "sha256": "c54779b97b57310d02fef18436e8588448558f98725a5c5f9d092dc2a4052dff"
+      },
+      {
+        "source": "files/operations/server_cost_review.md",
+        "bytes": 641,
+        "sha256": "52fe696bdb7f96e0be183e1faef5086eabea5e8e2f074fb55ffae2809b3ff9ad"
+      },
+      {
+        "source": "files/orders/orders_export.csv",
+        "bytes": 373,
+        "sha256": "cfeef81b9b0cbf7eceb581cc8924c49bae7fec6bc1294a9dd036720900a9ac7f"
+      },
+      {
+        "source": "files/orders/refund_policy.md",
+        "bytes": 487,
+        "sha256": "44549a0328cc31ea6a1c85e05d0b1c56a0b272b2caad10845195627626139836"
+      },
+      {
+        "source": "files/orders/return_delivery_case.txt",
+        "bytes": 364,
+        "sha256": "c9129bf39f5d8f0b237642c3951c842aaf02bbd97b8f19d8ab34b1440fd9054b"
+      },
+      {
+        "source": "files/people/leave_policy_gb18030.txt",
+        "bytes": 202,
+        "sha256": "2aa73c1f212215329a17cf1110994550ea5de45859a1f63d3a679506d781498e"
+      },
+      {
+        "source": "files/people/onboarding_checklist.docx",
+        "bytes": 37196,
+        "sha256": "b8bbbbc5e0d52bc4583db5ebb6fee2209d49765a64830c479ef5b9a25d00c4d7"
+      },
+      {
+        "source": "files/people/remote_work.html",
+        "bytes": 536,
+        "sha256": "2fca968103693c0f3affb1403bba33f2eb9ab04caa04a854444a78e11c8c2476"
+      }
+    ]
+  },
+  "expanded_39": {
+    "measured": {
+      "case_count": 39,
+      "summary": {
+        "semantic": {
+          "count": 23,
+          "recall_at_5": 0.9565217391304348,
+          "recall_at_10": 0.9565217391304348
+        },
+        "keyword": {
+          "count": 6,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "files": {
+          "count": 3,
+          "recall_at_5": 1.0,
+          "recall_at_10": 1.0
+        },
+        "zh": {
+          "count": 20,
+          "recall_at_5": 1.0
+        },
+        "en": {
+          "count": 2,
+          "recall_at_5": 1.0
+        },
+        "cross_language": {
+          "count": 1,
+          "recall_at_5": 0.0
+        }
+      },
+      "database_passed": 3,
+      "case_ranks": {
+        "S01": 2,
+        "S02": 2,
+        "S03": 1,
+        "S04": 1,
+        "S05": 1,
+        "S06": null,
+        "S07": 1,
+        "S08": 1,
+        "S09": 1,
+        "S10": 1,
+        "S11": 1,
+        "S12": 2,
+        "S13": 1,
+        "S14": 1,
+        "S15": 1,
+        "S16": 1,
+        "S17": 1,
+        "S18": 1,
+        "S19": 1,
+        "S20": 1,
+        "S21": 2,
+        "S22": 1,
+        "K01": 1,
+        "K02": 1,
+        "K03": 1,
+        "K04": 1,
+        "K05": 1,
+        "F01": 1,
+        "N01": null,
+        "N02": null,
+        "N03": null,
+        "N04": null,
+        "V301": 1,
+        "V302": 1,
+        "V303": 1,
+        "V304": 1
+      }
+    },
+    "added_cases": [
+      {
+        "id": "V301",
+        "first_relevant_rank": 1,
+        "literal_evidence_present": true,
+        "locator": {}
+      },
+      {
+        "id": "V302",
+        "first_relevant_rank": 1,
+        "literal_evidence_present": true,
+        "locator": {}
+      },
+      {
+        "id": "V303",
+        "first_relevant_rank": 1,
+        "literal_evidence_present": true,
+        "locator": {
+          "line_start": 5,
+          "line_end": 8,
+          "char_start": 43,
+          "char_end": 131,
+          "offset_basis": "extraction_chunk",
+          "source_spans": [
+            {
+              "source_chunk": 0,
+              "char_start": 43,
+              "char_end": 131,
+              "piece_start": 0,
+              "piece_end": 88
+            }
+          ],
+          "source_chunk": 0,
+          "heading": "第二章：蓝鲸项目备份"
+        }
+      },
+      {
+        "id": "V304",
+        "first_relevant_rank": 1,
+        "literal_evidence_present": true,
+        "locator": {
+          "line_start": 5,
+          "line_end": 8,
+          "char_start": 43,
+          "char_end": 131,
+          "offset_basis": "extraction_chunk",
+          "source_spans": [
+            {
+              "source_chunk": 0,
+              "char_start": 43,
+              "char_end": 131,
+              "piece_start": 0,
+              "piece_end": 88
+            }
+          ],
+          "source_chunk": 0,
+          "heading": "第二章：蓝鲸项目备份"
+        }
+      }
+    ],
+    "report": "retrieval-v0.3-expanded.json",
+    "regression": "S06, the single Chinese-to-English cross-language case, was rank 10 in the 16-file corpus and outside the top 10 after two synthetic distractor documents were added."
+  },
+  "regressions": {
+    "test_vector_segments.py": "Bounded segment work, unchanged reuse, tombstones, compaction, schema3 migration, Unicode, failed atomic publication, immutable old mappings, query snapshot/GC race and per-source/extension exact scoring.",
+    "test_retrieval_v03.py": "Structural headings/sentences, exact source spans and line locations, parser/page boundaries, input bounds, old-cache short-path migration, update/delete postings, FTS-first query plan, literal escaped paths and filtered Engine dispatch.",
+    "test_embedding_queue.py": "Duplicate hashes, semantic revocation/reactivation, existing-vector reuse, model replacement/update/delete, transaction rollback, one-time legacy migration, no full scan on restart, indexed reference lookups and bounded idle queue operations."
+  },
+  "limitations": [
+    "These small file-level recall samples do not establish general retrieval accuracy or answer correctness.",
+    "The single cross-language query misses top 5 in every measured run; it also misses top 10 in the expanded corpus.",
+    "Filtered semantic scoring uses bounded batches but visits every matching published vector; latency grows with the filtered vector count.",
+    "Structural locators identify extracted blocks, pages, rows or cells. Character offsets explicitly indicate extraction_chunk or grouped_extraction and source_spans; they are not original-file byte offsets.",
+    "Existing cached chunks are preserved until their document is reparsed; this report uses fresh isolated indexes.",
+    "No claims about 8GB/16GB machines, hundred-GB user corpora, Linux hardware or multi-node performance follow from these results."
+  ],
+  "reproduce_expanded": ".venv/Scripts/python.exe scripts/evaluate_retrieval_v03.py --work <new-empty-directory> --model <local-model-directory> --output <report.json>"
+}

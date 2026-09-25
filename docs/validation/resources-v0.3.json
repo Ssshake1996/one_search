@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-09-25T07:53:27.686315+00:00",
+  "scope": "single local daemon PID and its descendant workers only; measuring process, pytest, MCP bridge, DSH and other applications excluded",
+  "hardware": {
+    "os": "Windows-10-10.0.22631-SP0",
+    "python": "3.11.3",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "logical_cpus": 24,
+    "physical_cpus": 16,
+    "physical_memory_gib": 31.814
+  },
+  "corpus": {
+    "synthetic": true,
+    "files": 16,
+    "file_bytes": 87592,
+    "sqlite_rows": 8,
+    "sqlite_tables": 4
+  },
+  "configuration": {
+    "memory_budget_mib": 1024,
+    "model_id": "Xenova/bge-small-zh-v1.5@75c43b069aac4d136ba6bc1122f995fedcfd2781:cls-l2-512:qint8",
+    "model_threads": 1,
+    "embedding_batch_size": 8,
+    "test_model_idle_seconds": 2,
+    "product_default_model_idle_seconds": 120,
+    "scan_interval_seconds": 180,
+    "sampling_interval_seconds": 0.1,
+    "idle_unloaded_observation_seconds": 10
+  },
+  "limitations": [
+    "This small synthetic corpus is not a 100,000-file or hundreds-of-GB scale benchmark.",
+    "A 1024 MiB configured budget on this physical machine does not validate operation on an 8 GiB physical PC.",
+    "RSS is summed per process and may count shared pages more than once; it is not unique physical memory or system file-cache usage.",
+    "Samples start when the daemon is ready and exclude pre-ready interpreter startup; 100 ms sampling can miss shorter memory peaks.",
+    "CPU is sampled from daemon/worker process times; short-lived workers may exit between samples. Small interval peaks are noisy.",
+    "A zero CPU delta means no increment was visible at the operating system's CPU-time resolution during this observation; it is not a guarantee of literally zero CPU work.",
+    "Single-core CPU 100% means one fully occupied logical core; whole-machine percent divides by the recorded logical CPU count.",
+    "Indexing and unload-wait phases include status polling every 200 ms. Idle-unloaded observations make no RPC calls for ten seconds.",
+    "The 2-second idle setting shortens this test; the default keeps the model for 120 seconds, so default post-query memory stays higher for longer.",
+    "No MCP bridge is kept running in this measurement; MCP/DSH client memory is additional."
+  ],
+  "workspace": "F:\\data_search\\.runtime\\resources-55w8w6ef",
+  "daemon_pid": 45552,
+  "coverage_after_indexing": {
+    "documents": {
+      "ready": 24
+    },
+    "chunks": 87,
+    "embedded_chunks": 87,
+    "semantic_eligible_chunks": 87,
+    "source_errors": {},
+    "scanning": false,
+    "last_scan": "2026-09-25T07:53:35.270583+00:00"
+  },
+  "storage_after_indexing_mib": 24.29,
+  "warm_query_latency_ms": {
+    "count": 20,
+    "median": 17.581,
+    "p95": 43.508,
+    "max": 65.231,
+    "includes_loopback_rpc": true,
+    "excludes_sleep_between_queries": true
+  },
+  "model_still_unloaded_after_observation": true,
+  "final_resources_reported_by_daemon": {
+    "rss_mb": 45.07,
+    "available_mb": 15350.36,
+    "disk_mb": 26.86,
+    "free_disk_mb": 64235.74,
+    "disk_accounting": "reserved_writes_with_10s_calibration",
+    "rss_enforcement": "sampled_process_tree",
+    "worker_limits_requested": {
+      "memory_mb": 512,
+      "cpu_percent": 25,
+      "note": "Applied limits and fallbacks are reported for each worker"
+    }
+  },
+  "completed": true,
+  "phases": {
+    "indexing": {
+      "samples": 72,
+      "measured_seconds": 8.473,
+      "rss_mean_mib": 209.877,
+      "rss_peak_mib": 329.77,
+      "rss_min_mib": 49.555,
+      "cpu_seconds": 2.0781,
+      "cpu_single_core_percent_mean": 24.527,
+      "cpu_whole_machine_percent_mean": 1.022,
+      "cpu_single_core_percent_sample_peak": 94.644,
+      "cpu_whole_machine_percent_sample_peak": 3.944,
+      "max_processes": 13,
+      "peak_memory_process_tree": [
+        {
+          "pid": 45552,
+          "role": "daemon",
+          "rss_mib": 41.965
+        },
+        {
+          "pid": 39240,
+          "role": "worker",
+          "rss_mib": 3.977
+        },
+        {
+          "pid": 49316,
+          "role": "worker",
+          "rss_mib": 3.992
+        },
+        {
+          "pid": 52324,
+          "role": "worker",
+          "rss_mib": 3.98
+        },
+        {
+          "pid": 52820,
+          "role": "worker",
+          "rss_mib": 3.98
+        },
+        {
+          "pid": 52780,
+          "role": "worker",
+          "rss_mib": 11.16
+        },
+        {
+          "pid": 52784,
+          "role": "worker",
+          "rss_mib": 34.023
+        },
+        {
+          "pid": 52336,
+          "role": "worker",
+          "rss_mib": 11.148
+        },
+        {
+          "pid": 52372,
+          "role": "worker",
+          "rss_mib": 130.973
+        },
+        {
+          "pid": 32872,
+          "role": "worker",
+          "rss_mib": 11.168
+        },
+        {
+          "pid": 51900,
+          "role": "worker",
+          "rss_mib": 15.625
+        },
+        {
+          "pid": 51924,
+          "role": "worker",
+          "rss_mib": 11.156
+        },
+        {
+          "pid": 51892,
+          "role": "worker",
+          "rss_mib": 46.621
+        }
+      ]
+    },
+    "warm_queries": {
+      "samples": 21,
+      "measured_seconds": 2.472,
+      "rss_mean_mib": 193.224,
+      "rss_peak_mib": 196.613,
+      "rss_min_mib": 191.172,
+      "cpu_seconds": 0.125,
+      "cpu_single_core_percent_mean": 5.057,
+      "cpu_whole_machine_percent_mean": 0.211,
+      "cpu_single_core_percent_sample_peak": 26.291,
+      "cpu_whole_machine_percent_sample_peak": 1.095,
+      "max_processes": 4,
+      "peak_memory_process_tree": [
+        {
+          "pid": 45552,
+          "role": "daemon",
+          "rss_mib": 50.277
+        },
+        {
+          "pid": 52324,
+          "role": "worker",
+          "rss_mib": 3.98
+        },
+        {
+          "pid": 52336,
+          "role": "worker",
+          "rss_mib": 11.148
+        },
+        {
+          "pid": 52372,
+          "role": "worker",
+          "rss_mib": 131.207
+        }
+      ]
+    },
+    "waiting_for_model_unload": {
+      "samples": 18,
+      "measured_seconds": 2.117,
+      "rss_mean_mib": 185.682,
+      "rss_peak_mib": 196.766,
+      "rss_min_mib": 47.43,
+      "cpu_seconds": 0.0,
+      "cpu_single_core_percent_mean": 0.0,
+      "cpu_whole_machine_percent_mean": 0.0,
+      "cpu_single_core_percent_sample_peak": 0.0,
+      "cpu_whole_machine_percent_sample_peak": 0.0,
+      "max_processes": 4,
+      "peak_memory_process_tree": [
+        {
+          "pid": 45552,
+          "role": "daemon",
+          "rss_mib": 50.43
+        },
+        {
+          "pid": 52324,
+          "role": "worker",
+          "rss_mib": 3.98
+        },
+        {
+          "pid": 52336,
+          "role": "worker",
+          "rss_mib": 11.148
+        },
+        {
+          "pid": 52372,
+          "role": "worker",
+          "rss_mib": 131.207
+        }
+      ]
+    },
+    "idle_unloaded": {
+      "samples": 86,
+      "measured_seconds": 10.043,
+      "rss_mean_mib": 50.025,
+      "rss_peak_mib": 52.809,
+      "rss_min_mib": 44.969,
+      "cpu_seconds": 0.0,
+      "cpu_single_core_percent_mean": 0.0,
+      "cpu_whole_machine_percent_mean": 0.0,
+      "cpu_single_core_percent_sample_peak": 0.0,
+      "cpu_whole_machine_percent_sample_peak": 0.0,
+      "max_processes": 1,
+      "peak_memory_process_tree": [
+        {
+          "pid": 45552,
+          "role": "daemon",
+          "rss_mib": 52.809
+        }
+      ]
+    }
+  },
+  "overall_sampled_peak_rss_mib": 329.77,
+  "sampled_peak_within_1024_mib_budget": true,
+  "daemon_exited": true
+}

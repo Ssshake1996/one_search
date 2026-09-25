@@ -9,10 +9,14 @@ param(
     [string]$RuntimeDir,
     [string]$ModelDir,
     [switch]$SkipModel,
-    [switch]$NoAutostart
+    [switch]$NoAutostart,
+    [Parameter(DontShow=$true)][switch]$NativeTransactionChild,
+    [Parameter(DontShow=$true)][string]$UpgradeRequest
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+$OutputEncoding = [Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = $OutputEncoding
 
 function Full-Path([string]$Path) { return [IO.Path]::GetFullPath($Path) }
 function Assert-ManagedTarget([string]$Path) {
@@ -37,6 +41,18 @@ function Run-Checked([string]$Command, [string[]]$Arguments) {
 }
 function Write-Json([string]$Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 24), [Text.UTF8Encoding]::new($false))
+}
+
+if ($NativeTransactionChild) {
+    if (-not $UpgradeRequest) { throw 'Native transaction continuation requires a request file.' }
+    $continuation = Get-Content -LiteralPath $UpgradeRequest -Raw -Encoding UTF8 | ConvertFrom-Json
+    $InstallDir = [string]$continuation.InstallDir
+    $DataDir = [string]$continuation.DataDir
+    $RuntimeDir = [string]$continuation.RuntimeDir
+    $Root = [string[]]@($continuation.Root)
+    $ModelDir = [string]$continuation.ModelDir
+    $SkipModel = [bool]$continuation.SkipModel
+    $NoAutostart = [bool]$continuation.NoAutostart
 }
 
 if ($SkipModel -and $ModelDir) { throw 'Choose either -SkipModel or -ModelDir.' }
@@ -98,6 +114,19 @@ if ($ModelDir) {
         if (-not (Test-Path -LiteralPath (Join-Path $ModelDir $asset) -PathType Leaf)) { throw "Offline model directory is missing: $asset" }
     }
 }
+if ($RuntimeDir -and -not $NativeTransactionChild) {
+    $requestPath = Join-Path ([IO.Path]::GetTempPath()) ('data-search-upgrade-' + [Guid]::NewGuid().ToString('N') + '.json')
+    $request = @{InstallDir=$InstallDir; DataDir=$DataDir; RuntimeDir=$RuntimeDir; Root=@($resolvedRoots);
+        ModelDir=$ModelDir; SkipModel=[bool]$SkipModel; NoAutostart=[bool]$NoAutostart;
+        Installer=$PSCommandPath; PowerShell=[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName}
+    try {
+        Write-Json $requestPath $request
+        Run-Checked (Join-Path $RuntimeDir 'data-search.exe') @('--internal-module', 'data_search.upgrade', '--request', $requestPath)
+    } finally {
+        if (Test-Path -LiteralPath $requestPath) { Remove-Item -LiteralPath $requestPath -Force }
+    }
+    return
+}
 New-Item -ItemType Directory -Path $InstallDir, $DataDir -Force | Out-Null
 Write-Json $dataMarkerPath @{product='data-search'; data_dir=$DataDir; schema_version=1}
 $hash = [Security.Cryptography.SHA256]::Create()
@@ -109,13 +138,12 @@ Write-Json $manifestPath $manifest
 $venvDir = Join-Path $InstallDir 'venv'
 $venvPython = Join-Path $venvDir 'Scripts\python.exe'
 $cli = Join-Path $venvDir 'Scripts\data-search.exe'
-if (Test-Path -LiteralPath $cli) { Run-Checked $cli @('stop', '--config', $configPath) }
+if ((Test-Path -LiteralPath $cli) -and (Test-Path -LiteralPath $configPath)) { Run-Checked $cli @('stop', '--config', $configPath) }
 $nativeCli = Join-Path $InstallDir 'runtime\data-search.exe'
-if (Test-Path -LiteralPath $nativeCli) { Run-Checked $nativeCli @('stop', '--config', $configPath) }
+if ((Test-Path -LiteralPath $nativeCli) -and (Test-Path -LiteralPath $configPath)) { Run-Checked $nativeCli @('stop', '--config', $configPath) }
 if ($RuntimeDir) {
     $runtimeDest = Join-Path $InstallDir 'runtime'
-    New-Item -ItemType Directory -Path $runtimeDest -Force | Out-Null
-    Get-ChildItem -LiteralPath $RuntimeDir -Force | Copy-Item -Destination $runtimeDest -Recurse -Force
+    if (-not $NativeTransactionChild -or (Full-Path $RuntimeDir) -ne (Full-Path $runtimeDest)) { throw 'Native runtime must be staged and verified by the upgrade transaction.' }
     $cli = $nativeCli
 } else {
     if (-not (Test-Path -LiteralPath $venvPython)) { Run-Checked $Python @('-m', 'venv', $venvDir) }

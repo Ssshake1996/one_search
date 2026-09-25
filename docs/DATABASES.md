@@ -146,13 +146,13 @@ TLS 证书和网络通路由用户配置；示例主机名与路径需要替换�
 
 有 `updated_column` 时，首次完整扫描后改按 `(updated_column, id_column)` 分页读取增量，并固定本轮上界。为捕获同一时间戳内的更新，下轮重新读取最后一个水位值的全部记录，再按 ID 在页间推进。若大量记录共享同一水位值，这个相等组会重复读取；请使用实际维护、精度足够的水位字段。低于已保存水位的补写/回填由周期性完整巡检发现，不能承诺立即发现回拨时钟或历史时间更新。
 
-没有 `updated_column` 时，每轮完整遍历结束后，下一次后台轮次开始新的完整遍历，通过正文哈希识别变化；仍然分批运行。水位增量无法证明删除，因此仅在该表完整扫描全部页成功后清理本轮未出现的旧结果，清理自身也分批保存进度。超时、权限错误、无效键、水位错误、资源暂停或进程退出期间不会根据缺席删除旧结果。空表也先确认完整扫描成功，再清理缓存。
+没有 `updated_column` 时，每轮完整遍历结束后，等待来源轮询间隔（默认 180 秒）后开始新的完整遍历，通过正文哈希识别变化；仍然分批运行。水位增量无法证明删除，因此仅在该表完整扫描全部页成功后清理本轮未出现的旧结果，清理自身也分批保存进度。超时、权限错误、无效键、水位错误、资源暂停或进程退出期间不会根据缺席删除旧结果。空表也先确认完整扫描成功，再清理缓存。
 
 每个页面使用独立的短只读事务，页面之间没有长事务快照。这是**最终一致性**同步，不是 CDC：源数据在扫描期间变化可能在下次增量或完整巡检中才体现。删除核对、迟到更新和没有水位的更新，其时效包括扫描整个授权表的时间，不能将一页耗时当成全表同步时效。MySQL 建议使用 InnoDB。
 
 `index_status` 和 `inspect_source` 返回 `database_sync`。按数据源和表展示 `phase`（`scanning` / `reconciling` / `idle`）、`mode`（`full` / `incremental`）、`scanned_rows`、`pages`、`deleted_rows`、`cursor`、`watermark`、`last_full_at` 和 `last_error` 等。`scanned_rows` 是本轮累计行数；不额外执行昂贵的全表 COUNT，因而没有虚构百分比。正常的未完成分页显示进度，不记作错误。
 
-每个正文单元格在 SQL 端最多读取 12,001 字符，每条记录最多保留 12,000 字符，超出时 `locator.truncated=true`。稳定 key 由来源 ID、表、标识列和标识值计算，内容版本对实际保留正文计算 SHA-256，截断部分的变化不会触发正文更新。只在哈希变化时重建文本块和后续嵌入。
+每个正文单元格在 SQL 端最多读取 12,001 字符，每条记录最多保留 12,000 字符，超出时 `locator.truncated=true`。稳定 key 由来源 ID、表、标识列和标识值计算，内容版本对实际保留正文计算 SHA-256，截断部分的变化不会触发正文更新。正常情况下仅在哈希变化时重建文本块和后续嵌入；切分版本升级时例外，会做一次有界完整分页刷新，使未变化的历史记录也采用新切分。
 
 `DatabaseSource.index_page()` 是后台分页接口。返回当前页 `documents`、`next_cursor`、固定的 `boundary`、`complete`；`complete` 只表示当前表当前周期已读完，调用方仍需提交本页和执行受限删除核对。旧 `iter_documents(max_rows=...)` 保留供兼容和有界快照调用，后台持续索引已不再使用该一次性截断接口。
 
@@ -169,3 +169,6 @@ SQLite 真实临时数据库测试覆盖：结构发现、列/表权限、参数
 尚未验证的项目不能视为已通过：PostgreSQL 16/18、真实 TLS/证书认证、VPN/SSH 通路、业务库权限差异、长时间高并发、CDC 和多机联邦检索。
 
 官方机制参考：[SQLite URI 只读模式](https://www.sqlite.org/uri.html)、[SQLite 进度中断](https://www.sqlite.org/c3ref/progress_handler.html)、[MySQL 系统变量](https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html)、[PostgreSQL 连接参数](https://www.postgresql.org/docs/17/libpq-connect.html)。
+
+
+v0.3 已在相同隔离引擎版本上重新运行 61 项 adapter 测试及上述同步生命周期，记录见 [databases-v0.3.json](validation/databases-v0.3.json)。数据库调度加入来源轮询期限、错误退避与跨来源时间片；旧正文切分迁移、水位后的未变化行重写和迁移中重启由 SQLite 集成测试另行覆盖。

@@ -1,0 +1,27 @@
+{
+  "version": "0.3.0",
+  "command": "python -m pytest -q -rs",
+  "exit_code": 0,
+  "wall_seconds": 34.318,
+  "python": "3.11.3",
+  "platform": "Windows-10-10.0.22631-SP0",
+  "tests": 352,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 3,
+  "skip_reasons": [
+    {
+      "test": "test_platform_fallback_needs_no_native_libraries",
+      "reason": "Non-Windows fallback only"
+    },
+    {
+      "test": "test_service_database_integration[mysql]",
+      "reason": "Isolated engine fixture not configured"
+    },
+    {
+      "test": "test_service_database_integration[postgres]",
+      "reason": "Isolated engine fixture not configured"
+    }
+  ],
+  "summary": "349 passed, 3 skipped in 33.70s"
+}

@@ -61,7 +61,9 @@ def test_add_delete_and_restart_change_only_affected_ids(cache, monkeypatch):
     store.remove([first_doc])
     store.set_setting('vector_generation', str(int(store.setting('vector_generation')) + 1))
     vectors.sync()
-    assert calls == [third_id]
+    # The new delta is appended; deletion churn compacts only its small old
+    # segment, rebuilding the one surviving vector rather than a global graph.
+    assert calls == [third_id, second_id]
     assert vectors.last_sync == {'rebuilt': False, 'added': 1, 'removed': 1, 'count': 2}
     assert vectors.search(third_vector, 2)[0][0] == third_id
     assert first_id not in {key for key, _ in vectors.search(first_vector, 10)}

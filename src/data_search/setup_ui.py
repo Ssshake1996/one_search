@@ -35,6 +35,8 @@ def settings_config(current: dict, values: dict) -> dict:
         DatabaseSource(source)
     candidate["semantic"]["enabled"] = bool(values["semantic_enabled"])
     candidate.setdefault("indexing", {}).update(values["indexing"])
+    if "resource" in values:
+        candidate.setdefault("resource", {}).update(values["resource"])
     all_roots = list(candidate["roots"])
     for tier in ("content", "semantic"):
         if candidate["indexing"][f"{tier}_scope"] == "directories":
@@ -51,6 +53,56 @@ def settings_config(current: dict, values: dict) -> dict:
         atomic_json(path, candidate)
         load_config(path)
     return candidate
+
+
+def activate_settings(config_path: Path, current: dict, candidate: dict, tested: str | None = None):
+    from .preflight import require_preflight
+    from .service import start_service, stop_service
+    require_preflight(current, candidate, tested)
+    previous = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else None
+    if previous is not None:
+        stop_service(load_config(config_path))
+    atomic_json(config_path, candidate)
+    try:
+        return start_service(load_config(config_path))
+    except Exception:
+        # The service launcher must finish stopping its failed child before this returns.
+        stop_service(load_config(config_path))
+        if previous is not None:
+            atomic_json(config_path, previous)
+            start_service(load_config(config_path))
+        raise
+
+
+def status_rows(payload: dict) -> list[tuple[str, str]]:
+    """Show meaningful known counts without inventing a whole-disk percentage."""
+    index = payload.get("index", {})
+    coverage, resource = index.get("coverage", {}), index.get("resources", {})
+    documents = coverage.get("documents", {})
+    eligible = coverage.get("semantic_eligible_chunks", 0)
+    embedded = coverage.get("embedded_chunks", 0)
+    state = "已暂停" if index.get("paused") else "正在发现 / 建立索引" if coverage.get("scanning") else "等待变化"
+    rows = [("服务 / 索引", state), ("已发现文件与记录", str(sum(documents.values()))),
+        ("正文待处理", str(documents.get("pending", 0))),
+        ("受预算限制", str(documents.get("budget", 0))),
+        ("语义片段", f"{embedded} 已完成 / {eligible} 已知可处理；待处理 {max(0, eligible - embedded)}"),
+        ("内存 RSS / 系统可用", f"{resource.get('rss_mb', '—')} / {resource.get('available_mb', '—')} MiB"),
+        ("索引与模型 / 磁盘可用", f"{resource.get('disk_mb', '—')} / {resource.get('free_disk_mb', '—')} MiB")]
+    scheduler = index.get("scheduler", {})
+    for key, label in (("queued_directories", "等待发现的目录"), ("queued_files", "持久化正文任务"),
+                       ("queued_events", "等待处理的文件变化")):
+        if key in scheduler:
+            rows.append((label, str(scheduler[key])))
+    for name, count in documents.items():
+        rows.append((f"文件状态 · {name}", str(count)))
+    if index.get("last_error"):
+        rows.append(("最近错误 / 暂停原因", str(index["last_error"])))
+    for source, error in coverage.get("source_errors", {}).items():
+        rows.append((f"来源错误 · {source}", str(error)))
+    scope = index.get("file_scope", {})
+    if scope.get("scan_errors", {}).get("count"):
+        rows.append(("扫描失败项", str(scope["scan_errors"]["count"])))
+    return rows
 
 
 def main(argv=None):
@@ -74,7 +126,7 @@ def main(argv=None):
     # Older saved configurations preserve their previously selected directory scope.
     current.setdefault("scope", "directories")
     baseline = defaults(current["data_dir"], [])
-    for key in ("indexing", "semantic"):
+    for key in ("indexing", "semantic", "resource"):
         current[key] = {**baseline[key], **current.get(key, {})}
     window = tk.Tk()
     window.title("one_search · 本地搜索设置")
@@ -103,9 +155,10 @@ def main(argv=None):
     scope_window = scope_canvas.create_window((0, 0), window=scope_tab, anchor="nw")
     scope_tab.bind("<Configure>", lambda _: scope_canvas.configure(scrollregion=scope_canvas.bbox("all")))
     scope_canvas.bind("<Configure>", lambda event: scope_canvas.itemconfigure(scope_window, width=event.width))
-    database_tab, status_tab = (ttk.Frame(tabs, padding=10) for _ in range(2))
-    tabs.add(scope_page, text="检索范围与资源")
+    database_tab, resource_tab, status_tab = (ttk.Frame(tabs, padding=10) for _ in range(3))
+    tabs.add(scope_page, text="检索范围")
     tabs.add(database_tab, text="数据库")
+    tabs.add(resource_tab, text="资源预算")
     tabs.add(status_tab, text="状态与错误")
     scope = tk.StringVar(value=current["scope"])
     ttk.Radiobutton(scope_tab, text="整个电脑 / 服务器（当前账号可访问的本地文件系统）", variable=scope, value="machine").pack(anchor="w")
@@ -144,7 +197,21 @@ def main(argv=None):
         tier_widgets[tier] = (mode, tier_roots, extensions)
     semantic_enabled = tk.BooleanVar(value=current["semantic"]["enabled"])
     ttk.Checkbutton(scope_tab, text="启用本地语义模型（首次使用需下载模型）", variable=semantic_enabled).pack(anchor="w", pady=5)
-    ttk.Label(scope_tab, text="内存和磁盘预算沿用配置文件中的 resource 设置；达到预算会暂停或限制建库。", wraplength=780).pack(anchor="w")
+    ttk.Label(scope_tab, text="大资料库可优先建立文件名，再为常用目录开启正文和语义。", wraplength=780).pack(anchor="w")
+    resource_widgets = {}
+    ttk.Label(resource_tab, text="后台资源预算", font=("Microsoft YaHei UI", 15, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 12))
+    specifications = [("memory_mb", "总进程 RSS 预算（MiB，采样控制）"),
+        ("min_available_mb", "系统至少保留可用内存（MiB）"),
+        ("worker_memory_mb", "单个工作进程内存上限（MiB）"),
+        ("worker_cpu_percent", "单个工作进程 CPU 上限（%）"),
+        ("max_disk_mb", "索引与模型空间预算（MiB）"),
+        ("min_free_disk_mb", "磁盘至少保留空间（MiB）")]
+    for row, (key, label) in enumerate(specifications, 1):
+        ttk.Label(resource_tab, text=label).grid(row=row, column=0, sticky="w", pady=8)
+        variable = tk.StringVar(value=str(current["resource"][key]))
+        resource_widgets[key] = variable
+        ttk.Entry(resource_tab, textvariable=variable, width=16).grid(row=row, column=1, padx=16, sticky="w")
+    ttk.Label(resource_tab, text="Windows 工作进程上限约束 committed memory，与 RSS 口径不同。实际限制与平台回退可在状态详情查看。\n达到预算时会限制后台建库；这些设置不是整机总资源限制。", wraplength=750).grid(row=8, column=0, columnspan=2, sticky="w", pady=16)
 
     ttk.Label(database_tab, text="只读账号；密码填写环境变量名，不填写密码本身。环境变量需在服务启动前可用。", wraplength=780).pack(anchor="w")
     db_text = tk.Text(database_tab, height=24, wrap="none", undo=True, font=("Consolas", 10))
@@ -217,14 +284,22 @@ def main(argv=None):
                 messagebox.showerror("配置错误", str(error), parent=dialog)
         ttk.Button(form, text="加入配置", command=accept).grid(row=len(specifications), column=1, sticky="e", pady=10)
     ttk.Button(database_tab, text="添加数据库…", command=add_database).pack(anchor="w")
-    ttk.Label(database_tab, text="高级 TLS、多个表和字段配置可在上方 JSON 中编辑。保存不会测试远程数据库连接。", wraplength=780).pack(anchor="w", pady=5)
+    ttk.Label(database_tab, text="高级 TLS、多个表和字段可在上方 JSON 编辑。变更数据库后须点击“测试数据库”并通过，才能保存。", wraplength=780).pack(anchor="w", pady=5)
     status_summary = tk.StringVar(value="刷新状态，查看后台服务与索引进度。")
     ttk.Label(status_tab, textvariable=status_summary, font=("Microsoft YaHei UI", 12, "bold"), wraplength=780).pack(anchor="w", pady=(0, 12))
-    ttk.Label(status_tab, text="详细状态 / 错误信息").pack(anchor="w", pady=(0, 5))
+    status_table = ttk.Treeview(status_tab, columns=("item", "value"), show="headings", height=9)
+    status_table.heading("item", text="项目")
+    status_table.heading("value", text="当前状态")
+    status_table.column("item", width=200, stretch=False)
+    status_table.column("value", width=530)
+    status_table.pack(fill="both", expand=True, pady=(0, 8))
+    ttk.Label(status_tab, text="详细状态 / 预检结果 / 错误信息").pack(anchor="w", pady=(0, 5))
     status_text = tk.Text(status_tab, wrap="word", state="disabled", font=("Consolas", 10))
     status_text.pack(fill="both", expand=True)
     messages = queue.Queue()
     busy = False
+    tested_fingerprint = None
+    closed = False
     controls = ttk.Frame(container)
     controls.pack(fill="x", pady=(10, 0))
     activity = tk.StringVar(value="就绪；保存并启动后开始检索范围内的后台索引。")
@@ -261,20 +336,35 @@ def main(argv=None):
                 indexing[f"{tier}_scope"] = mode.get()
                 indexing[f"{tier}_roots"] = [p.strip() for p in paths.get("1.0", "end").splitlines() if p.strip()]
                 indexing[f"{tier}_extensions"] = [p.strip() for p in extensions.get().split(",") if p.strip()]
+            resource = {key: int(variable.get()) if key in {"worker_memory_mb", "worker_cpu_percent"} else float(variable.get()) for key, variable in resource_widgets.items()}
             candidate = settings_config(current, {"scope": scope.get(), "roots": [p.strip() for p in roots.get("1.0", "end").splitlines() if p.strip()],
-                "databases": json.loads(db_text.get("1.0", "end")), "semantic_enabled": semantic_enabled.get(), "indexing": indexing})
+                "databases": json.loads(db_text.get("1.0", "end")), "semantic_enabled": semantic_enabled.get(), "indexing": indexing, "resource": resource})
+            from .preflight import require_preflight
+            require_preflight(current, candidate, tested_fingerprint)
         except (ValueError, KeyError, TypeError, OSError) as error:
             messagebox.showerror("配置错误", str(error), parent=window)
             return
         def operation():
             nonlocal current
-            from .service import start_service, stop_service
-            if config_path.exists():
-                stop_service(configuration())
-            atomic_json(config_path, candidate)
+            result = activate_settings(config_path, current, candidate, tested_fingerprint)
             current = candidate
-            return start_service(configuration())
+            return result
         run_task(operation)
+
+    def test_databases():
+        if busy:
+            return
+        try:
+            sources = json.loads(db_text.get("1.0", "end"))
+            if not isinstance(sources, list) or any(not isinstance(source, dict) for source in sources):
+                raise ValueError("数据库配置必须为对象数组")
+        except (ValueError, TypeError) as error:
+            messagebox.showerror("配置错误", str(error), parent=window)
+            return
+        from .preflight import check_databases
+        run_task(lambda: check_databases(sources))
+
+    ttk.Button(database_tab, text="测试数据库", command=test_databases).pack(anchor="w")
 
     def control(action):
         def operation():
@@ -297,7 +387,9 @@ def main(argv=None):
         ttk.Button(controls, text=label, command=command, style="Primary.TButton" if label == "保存并启动" else "TButton").pack(side="left", padx=(0, 5))
 
     def poll():
-        nonlocal busy
+        nonlocal busy, tested_fingerprint
+        if closed:
+            return
         try:
             success, payload = messages.get_nowait()
         except queue.Empty:
@@ -311,6 +403,12 @@ def main(argv=None):
                 count = sum(coverage["documents"].values())
                 state = "索引已暂停" if index["paused"] else "正在建立索引" if coverage["scanning"] else "服务运行中"
                 status_summary.set(f"{state} · 已发现 {count} 个文件/记录 · 已生成 {coverage['embedded_chunks']} 段语义索引")
+                status_table.delete(*status_table.get_children())
+                for label, value in status_rows(payload):
+                    status_table.insert("", "end", values=(label, value))
+            elif success and isinstance(payload, dict) and payload.get("preflight"):
+                tested_fingerprint = payload["fingerprint"] if payload["ok"] else None
+                status_summary.set("数据库预检通过，可以保存当前配置。" if payload["ok"] else "数据库预检未通过；当前运行配置保持不变。")
             elif success:
                 status_summary.set("操作完成。可刷新状态查看当前覆盖范围。")
             else:
@@ -321,6 +419,14 @@ def main(argv=None):
             status_text.configure(state="disabled")
             tabs.select(status_tab)
         window.after(200, poll)
+    def close():
+        nonlocal closed
+        if busy:
+            activity.set("操作执行中，完成后可关闭窗口。")
+            return
+        closed = True
+        window.destroy()
+    window.protocol("WM_DELETE_WINDOW", close)
     poll()
     window.mainloop()
     return 0

@@ -88,10 +88,12 @@ No Git checkout or source tree is needed. Installation starts a local background
 Model weights are NOT included. Installation downloads the pinned local model unless {model_options} is supplied to disable semantics or select an existing verified model directory.
 Python dependencies install offline from this bundle; the model needs network access by default.
 
-The native Windows installation provides `Settings.vbs` in the installed application directory. Open it to change search scope, content/semantic tiers, database sources and service controls.
+The native Windows installation provides `Settings.vbs` in the installed application directory. Open it to change search scope, content/semantic tiers and resource budgets, explicitly test changed database settings, or inspect queued work and service controls.
 For a Python source installation use `python -m data_search.setup_ui --config <config.json>`.
 
 Generated MCP configuration: `{mcp_path}`.
+DeepSeek Harness uses the included [Cordis bundle](plugins/deepseek-harness/README.md). Registering the npm package adds the bundle; its first profile activation installs a missing backend and connects the official MCP client. An existing backend is reused.
+Native Windows upgrades retain the previous runtime and a stopped pre-migration index/configuration snapshot under `.upgrade-*`. They require additional disk space and attempt rollback only for this installation's failed startup. Bootstrap/Linux upgrades do not use this transaction.
 See [installation instructions](docs/INSTALL.md), [project README](PROJECT_README.md), and validation reports in docs/.
 
 This release does not grant a new project source-code license. Dependencies keep their own licenses. The native runtime contains collected third-party license notices; wheel files retain their upstream metadata/licenses.

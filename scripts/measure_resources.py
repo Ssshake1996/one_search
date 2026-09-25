@@ -154,7 +154,10 @@ def measure(model_directory: Path, output: Path, work_parent: Path):
         ], "workspace": str(workspace), "daemon_pid": health["pid"]}
     failure = None
     try:
-        indexed = wait_for(config, lambda status: status["coverage"]["last_scan"] and not status["coverage"]["scanning"],
+        indexed = wait_for(config, lambda status: status["coverage"]["last_scan"] and not status["coverage"]["scanning"]
+                           and not status['scheduler']['discovery_active'] and not status['scheduler']['queued_files']
+                           and status['coverage']['chunks']==status['coverage']['embedded_chunks']
+                           and not status['vector_index']['pending'],
                            120, "initial indexing")
         if indexed["last_error"] or indexed["coverage"]["source_errors"]:
             raise RuntimeError("Initial indexing reported errors: " + json.dumps(indexed, ensure_ascii=False))

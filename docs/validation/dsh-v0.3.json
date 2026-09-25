@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "release": "0.3.0",
+  "tested_at_utc": "2026-09-25T07:53:17.733975+00:00",
+  "versions": {
+    "dsh_cli": "0.1.5-rc.1",
+    "mcp_client": "0.1.5-rc.2",
+    "cordis": "4.0.2",
+    "node": "24.11.1"
+  },
+  "bootstrap_tests": {
+    "command": "node --test plugins/deepseek-harness/test/*.test.mjs",
+    "passed": 10,
+    "failed": 0
+  },
+  "host_integration": {
+    "profile": "isolated validation profile under ignored .runtime",
+    "registration": "Actual dsh plugin add file:... with --ignore-scripts succeeded",
+    "activation": "Actual DSH runProfile entry used by the installed CLI",
+    "backend": "Existing source venv with one explicitly selected synthetic directory; semantics disabled",
+    "success": true,
+    "tools": [
+      "mcp__one_search__search",
+      "mcp__one_search__fetch",
+      "mcp__one_search__inspect_source",
+      "mcp__one_search__query_database",
+      "mcp__one_search__index_status"
+    ],
+    "keyword_search": {
+      "synthetic_files": 1,
+      "ready_chunks": 1,
+      "expected_file_found": true,
+      "stale": false
+    },
+    "tools_after_dispose": [],
+    "daemon_stopped": true,
+    "model_requests_in_test": 0,
+    "telemetry_disabled": true,
+    "default_user_profile_modified": false
+  },
+  "native_first_activation": {
+    "status": "passed",
+    "candidate": "one-search-0.3.0-windows-amd64-native",
+    "candidate_identity": {
+      "build": "final-build-2",
+      "release_manifest_sha256": "25ca47d4624077bfe6254ca91befce8c0c77bd6cc0a135eef1225a2272f73847",
+      "source_manifest_sha256": "6625c47afa2ff78dbbbcfcc59f128a0ddc95ce1085c63cdff2464dcd3bdd91a4",
+      "source_manifest_digest_format": "SHA256 of source_sha256 map encoded as compact sorted-key JSON in UTF-8",
+      "native_executable_sha256": "c83824bfaa3516617c3881ec7931a3aad2e3501f9c102e33b897931b359a34a5"
+    },
+    "schema_version": 1,
+    "tested_at_utc": "2026-09-25T08:11:45.045Z",
+    "release_version": "0.3.0",
+    "host_cli_version": "0.1.5-rc.1",
+    "scope": "one explicitly selected synthetic directory",
+    "default_user_profile_modified": false,
+    "login_autostart_requested": false,
+    "model_download_requested": false,
+    "model_requests_in_test": 0,
+    "registration_with_scripts_disabled": true,
+    "first_activation_provisioned_native_backend": true,
+    "scope_preserved": true,
+    "tools": [
+      "mcp__one_search__fetch",
+      "mcp__one_search__index_status",
+      "mcp__one_search__inspect_source",
+      "mcp__one_search__query_database",
+      "mcp__one_search__search"
+    ],
+    "index_status_succeeded": true,
+    "synthetic_keyword_search_succeeded": true,
+    "tools_after_dispose": [],
+    "daemon_survived_plugin_dispose": true,
+    "repeat_activation_preserved_config": true,
+    "success": true,
+    "daemon_stopped": true,
+    "cleanup_verification": {
+      "service_state_present": false,
+      "remaining_matching_processes": 0,
+      "autostart": "none"
+    }
+  },
+  "limitations": [
+    "Package registration alone does not run setup. The service is provisioned at first profile activation.",
+    "The source-host smoke uses current installed DSH versions; other versions need revalidation."
+  ]
+}

@@ -17,7 +17,7 @@ def _parser():
     parser.add_argument("--config", help="Configuration JSON path")
     subparsers = parser.add_subparsers(dest="command", required=True)
     commands = {}
-    for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download", "compact"]:
+    for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download", "compact", "preflight"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", default=argparse.SUPPRESS, help="Configuration JSON path")
         commands[command] = subparser
@@ -34,6 +34,7 @@ def _parser():
     commands["fetch"].add_argument("--offset", type=int, default=0)
     commands["fetch"].add_argument("--limit", type=int, default=5)
     commands["inspect"].add_argument("--source", dest="source_id")
+    commands['preflight'].add_argument('--source',dest='source_id')
     commands["query"].add_argument("--source", dest="source_id", required=True)
     commands["query"].add_argument("--request", required=True, help="JSON object, or @path to a JSON file")
     for name in ["search", "fetch", "inspect", "query", "status"]:
@@ -88,6 +89,12 @@ def main(argv=None):
                 return 0
             if command == "start":
                 result = start_service(config)
+            elif command == 'preflight':
+                from .preflight import check_databases
+                sources = [source for source in config['databases'] if not args.source_id or source['id']==args.source_id]
+                if args.source_id and not sources:
+                    raise ValueError('Unknown database source')
+                result = check_databases(sources)
             elif command == "stop":
                 result = stop_service(config)
             elif command == "status":

@@ -120,6 +120,8 @@ def test_settings_window_save_restarts_with_selected_scope(tmp_path, monkeypatch
         machine = next(widget for label, widget in buttons.items() if label.startswith("整个电脑"))
         machine.invoke()
         buttons["保存并启动"].invoke()
+        window.tk.call(window.protocol("WM_DELETE_WINDOW"))
+        assert window.winfo_exists(), "Closing must not interrupt an active save/start operation"
         deadline = time.monotonic() + 3
         while time.monotonic() < deadline and len(calls) < 2:
             window.update()

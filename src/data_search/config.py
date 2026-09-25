@@ -16,13 +16,19 @@ def defaults(data_dir: str, roots: list[str] | None = None) -> dict:
         "indexing": {"content_scope": "all", "content_roots": [], "content_extensions": [],
                      "semantic_scope": "all", "semantic_roots": [], "semantic_extensions": []},
         "scan_interval_seconds": 180, "reconcile_interval_seconds": 3600,
+        "scheduler": {"metadata_batch_size": 256, "metadata_items_per_tick": 2000,
+                      "directories_per_tick": 64, "files_per_tick": 32,
+                      "embedding_batches_per_tick": 4, "phase_seconds": 2.0,
+                      "tick_seconds": 1.0, "journal_events_per_tick": 512},
         "exclude_names": [".git", ".venv", "node_modules", "__pycache__", "$RECYCLE.BIN", "System Volume Information"],
         "resource": {"memory_mb": 1024, "min_available_mb": 768, "max_disk_mb": 10240,
                      "min_free_disk_mb": 1024, "workers": 1, "batch_sleep_ms": 50,
                      "worker_memory_mb": 512, "worker_cpu_percent": 25},
         "extraction": {"max_file_mb": 32, "max_chars": 2_000_000, "timeout_seconds": 30},
         "semantic": {"enabled": True, "model_dir": str(Path(data) / "models" / "bge-small-zh-v1.5"),
-                     "threads": 1, "idle_seconds": 120, "batch_size": 8},
+                     "threads": 1, "idle_seconds": 120, "batch_size": 8,
+                     "segment_size": 20000, "max_segments_per_sync": 4,
+                     "compact_deleted_ratio": 0.3},
         "databases": [], "nodes": [{"id": "local", "transport": "local"}],
     }
 
@@ -43,7 +49,7 @@ def load_config(path: str | Path) -> dict:
     value = json.loads(p.read_text(encoding="utf-8-sig"))
     config = defaults(value["data_dir"], value.get("roots", []))
     for k, v in value.items():
-        if k in ("resource", "extraction", "semantic", "indexing"):
+        if k in ("resource", "extraction", "semantic", "indexing", "scheduler"):
             if not isinstance(v, dict):
                 raise ValueError(f"{k} must be an object")
             config[k].update(v)
@@ -97,6 +103,23 @@ def load_config(path: str | Path) -> dict:
             raise ValueError(f'semantic.{key} must be an integer from 1 to {maximum}')
     if not isinstance(config['semantic']['enabled'],bool):
         raise ValueError('semantic.enabled must be boolean')
+    for key, minimum, maximum in (('segment_size',256,50000), ('max_segments_per_sync',1,32)):
+        number = config['semantic'][key]
+        if isinstance(number,bool) or not isinstance(number,int) or not minimum <= number <= maximum:
+            raise ValueError(f'semantic.{key} must be an integer from {minimum} to {maximum}')
+    ratio = config['semantic']['compact_deleted_ratio']
+    if isinstance(ratio,bool) or not isinstance(ratio,(int,float)) or not math.isfinite(ratio) or not 0 < ratio <= 1:
+        raise ValueError('semantic.compact_deleted_ratio must be greater than 0 and at most 1')
+    for key, maximum in (('metadata_batch_size',2000),('metadata_items_per_tick',100000),
+                         ('directories_per_tick',10000),('files_per_tick',1000),
+                         ('embedding_batches_per_tick',1000),('journal_events_per_tick',4096)):
+        number = config['scheduler'][key]
+        if isinstance(number,bool) or not isinstance(number,int) or not 1 <= number <= maximum:
+            raise ValueError(f'scheduler.{key} must be an integer from 1 to {maximum}')
+    for key in ('phase_seconds','tick_seconds'):
+        number = config['scheduler'][key]
+        if isinstance(number,bool) or not isinstance(number,(int,float)) or not math.isfinite(number) or not .05 <= number <= 60:
+            raise ValueError(f'scheduler.{key} must be between 0.05 and 60 seconds')
     if not isinstance(config['extraction']['max_chars'],int):
         raise ValueError('extraction.max_chars must be an integer')
     if config["scan_interval_seconds"] < 1 or config["reconcile_interval_seconds"] < 1:

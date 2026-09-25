@@ -126,6 +126,32 @@ def disk_bytes(directory):
     return sum(path.stat().st_size for path in directory.rglob('*') if path.is_file())
 
 
+def sync_until_ready(vectors, expected_count, *, timeout_seconds=3600, max_passes=1000):
+    """Each worker pass is bounded; timing covers the complete publication."""
+    deadline = time.monotonic() + timeout_seconds
+    passes = []
+    aggregate = {'rebuilt':False, 'added':0, 'removed':0, 'count':0}
+    for number in range(max_passes):
+        if time.monotonic() >= deadline:
+            raise RuntimeError('Benchmark ANN publication exceeded its deadline')
+        started = time.perf_counter()
+        vectors.sync(cancelled=lambda: time.monotonic() >= deadline)
+        status = vectors.status()
+        summary = dict(vectors.last_sync)
+        aggregate['rebuilt'] = aggregate['rebuilt'] or summary['rebuilt']
+        aggregate['added'] += summary['added']
+        aggregate['removed'] += summary['removed']
+        aggregate['count'] = summary['count']
+        passes.append({'pass':number+1, 'seconds':round(time.perf_counter()-started,3),
+                       'sync':summary, 'pending':status['pending'], 'segments':status.get('segments')})
+        print(f"ANN pass {number+1}: {summary['count']}/{expected_count} published; pending={status['pending']}", file=sys.stderr, flush=True)
+        if not status['pending']:
+            if summary['count'] != expected_count:
+                raise RuntimeError(f"Incomplete ANN benchmark: expected {expected_count}, published {summary['count']}")
+            return aggregate, passes
+    raise RuntimeError('Benchmark ANN publication exceeded its bounded pass limit')
+
+
 def run(args):
     directory = args.output.expanduser().resolve()
     if directory.exists() and (not directory.is_dir() or any(directory.iterdir())):
@@ -140,7 +166,7 @@ def run(args):
     generator = np.random.default_rng(args.seed)
     query_generator = np.random.default_rng(args.seed + 1)
     report = {
-        'schema_version': 1,
+        'schema_version': 2,
         'timestamp_utc': datetime.now(timezone.utc).isoformat(),
         'scope': 'local SQLite filename/FTS query kernels and random-vector ANN; NOT end-to-end semantic search',
         'synthetic_vectors': True,
@@ -162,6 +188,10 @@ def run(args):
             'storage_type': 'not automatically verified; record SSD/HDD separately',
         },
         'limits': {'memory_mb': args.memory_mb, 'disk_mb': args.disk_mb},
+        'ann_configuration': {key:config['semantic'][key] for key in
+                              ('segment_size','max_segments_per_sync','compact_deleted_ratio')},
+        'ann_worker_controls': {key:config['resource'][key] for key in
+                                ('worker_memory_mb','worker_cpu_percent')},
         'timing_boundary': {
             'filename': 'Fixed paths trigram/LIKE SQL kernel, doc metadata, max 60 candidates; excludes Engine adaptive expansion/ordering, filesystem checks and MCP response.',
             'keyword': 'Fixed FTS5/bm25 candidate SQL with tokenization, max 100 candidates; excludes Engine adaptive expansion, evidence formatting and coverage calculation.',
@@ -173,6 +203,9 @@ def run(args):
             'Random vectors measure index mechanics and latency, never semantic relevance or embedding model quality.',
             'RSS samples include this process and its ANN worker; full daemon plus parser/model workloads are separate.',
             'Fixed query mix covers exact identifiers, common topics and no-match terms; different distributions can change latency.',
+            'Initial and incremental ANN times include every bounded pass until pending is false and the published count is verified.',
+            'The v0.3 schema adds short Chinese path postings and durable embedding queues; build/disk comparisons include these schema changes.',
+            'Host load is not controlled between historical runs; single-run timing differences are observations, not isolated causal speedup measurements.',
         ],
     }
     try:
@@ -184,9 +217,12 @@ def run(args):
             store.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
             report['text_and_vector_source_build_seconds'] = round(time.perf_counter() - started, 3)
             started = time.perf_counter()
-            vectors.sync()
+            summary, passes = sync_until_ready(vectors, args.documents)
             report['initial_ann_build_seconds'] = round(time.perf_counter() - started, 3)
-            report['initial_ann_sync'] = dict(vectors.last_sync)
+            report['initial_ann_sync'] = summary
+            report['initial_ann_passes'] = passes
+            initial_manifest = json.loads(vectors.meta.read_text(encoding='utf-8'))
+            initial_segments = {segment['snapshot'] for segment in initial_manifest.get('segments',[])}
         report['build_peak_rss_mb'] = round(build_peak.peak / 1048576, 2)
         report['initial_disk_mb'] = round(disk_bytes(directory) / 1048576, 2)
         sample_ids = query_generator.integers(1, args.documents + 1, size=args.queries)
@@ -228,9 +264,14 @@ def run(args):
                 store.db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
                 report['incremental_source_update_seconds'] = round(time.perf_counter() - started, 3)
                 started = time.perf_counter()
-                vectors.sync()
+                summary, passes = sync_until_ready(vectors, args.documents)
                 report['incremental_ann_sync_seconds'] = round(time.perf_counter() - started, 3)
-                report['incremental_ann_sync'] = dict(vectors.last_sync)
+                report['incremental_ann_sync'] = summary
+                report['incremental_ann_passes'] = passes
+                final_manifest = json.loads(vectors.meta.read_text(encoding='utf-8'))
+                final_segments = {segment['snapshot'] for segment in final_manifest.get('segments',[])}
+                report['incremental_segment_reuse'] = {'initial':len(initial_segments),
+                    'unchanged_reused':len(initial_segments & final_segments), 'new':len(final_segments-initial_segments)}
             report['incremental_peak_rss_mb'] = round(update_peak.peak / 1048576, 2)
         report['final_disk_mb'] = round(disk_bytes(directory) / 1048576, 2)
         report['disk_files'] = {path.name: path.stat().st_size for path in directory.iterdir() if path.is_file()}

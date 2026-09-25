@@ -1,0 +1,42 @@
+{
+  "versions": {
+    "postgres": "PostgreSQL 17.11 on x86_64-windows, compiled by msvc-19.44.35228, 64-bit",
+    "mysql": "8.4.11"
+  },
+  "unit_exit_code": 0,
+  "checks": {
+    "postgres": {
+      "keyset_page_size": 2,
+      "full_rows": 4,
+      "timestamp_microseconds_preserved": true,
+      "equal_watermark_tie_breaker": true,
+      "worker_restart_checkpoint": true,
+      "incremental_update_insert": true,
+      "same_timestamp_update": true,
+      "delete_retained_until_full_reconcile": true,
+      "read_only_account": true
+    },
+    "mysql": {
+      "keyset_page_size": 2,
+      "full_rows": 4,
+      "timestamp_microseconds_preserved": true,
+      "equal_watermark_tie_breaker": true,
+      "worker_restart_checkpoint": true,
+      "incremental_update_insert": true,
+      "same_timestamp_update": true,
+      "delete_retained_until_full_reconcile": true,
+      "read_only_account": true
+    }
+  },
+  "version": "0.3.0",
+  "synthetic_only": true,
+  "scope": "Loopback isolated MySQL and PostgreSQL servers with randomly generated temporary accounts; no business database",
+  "adapter_tests": {
+    "passed": 61,
+    "seconds": 2.04
+  },
+  "cleanup": {
+    "servers_stopped": true,
+    "temporary_password_file_removed": true
+  }
+}

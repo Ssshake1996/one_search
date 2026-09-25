@@ -1,4 +1,4 @@
-# one_search v0.2 安装、设置与接入
+# one_search v0.3 安装、设置与接入
 
 本版先交付单机服务。每台机器使用独立 `node_id`，协议保留节点标识；远程认证、传输与跨机汇总尚未实现。新安装默认发现本机文件范围，传入目录参数可限制范围；重装保留现有设置。
 
@@ -6,14 +6,14 @@
 
 | 形式 | 文件或入口 | 前提 |
 |---|---|---|
-| Windows 原生运行时包 | `one-search-0.2.0-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
-| Windows Python bootstrap 包 | `one-search-0.2.0-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
+| Windows 原生运行时包 | `one-search-0.3.0-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
+| Windows Python bootstrap 包 | `one-search-0.3.0-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
 | 源码 | 仓库中的 `scripts/install.ps1` / `scripts/install.sh` | Python 3.11+、venv/pip；安装依赖需要网络或匹配 wheelhouse |
-| 项目 wheel | `data_search-0.2.0-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
+| 项目 wheel | `data_search-0.3.0-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
 
 本轮发行目标为 Windows amd64，实测主机是 Windows 11、内核 10.0.22631；其他 Windows 版本/ARM64 不作为已验收平台。Linux 有源码安装脚本，尚无本轮 Linux 免 Python 二进制，也未完成 Linux 主机安装验收。源码最低 Python 版本与 bootstrap 包的固定小版本要求不同，安装器会检查包的 `RELEASE_MANIFEST.json` 并拒绝不匹配解释器。
 
-最终发行目录为 `dist/release-v0.2.0`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
+最终发行目录为 `dist/release-v0.3.0`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
 
 模型不在默认 ZIP 内。首次安装默认下载固定版本本地 embedding 模型；可以指定已校验的离线模型目录，或先关闭语义功能。推理始终在本机。
 
@@ -25,7 +25,7 @@
 .\scripts\install.ps1
 ```
 
-原生包还可双击 `Install.cmd`。安装器识别包类型，原生包复制随附运行时；bootstrap 包建立隔离 venv 并使用随包 wheelhouse。随后初始化配置、准备模型、注册当前用户登录启动项、隐藏启动服务，并生成 MCP 配置。原生分支不调用系统 Python。
+原生包还可双击 `Install.cmd`。安装器识别包类型，原生包校验并暂存随附运行时；bootstrap 包建立隔离 venv 并使用随包 wheelhouse。随后初始化配置、准备模型、注册当前用户登录启动项、隐藏启动服务，并生成 MCP 配置。原生分支不调用系统 Python。
 
 默认目录：
 
@@ -82,15 +82,21 @@ bootstrap 指定解释器示例：
 - 在本机范围和指定目录之间切换；通过“添加目录”选择路径。
 - 为正文和语义分别设置 `all` / `directories` / `none`、目录和扩展名；留空扩展名表示不额外筛选。
 - 通过表单添加 SQLite/MySQL/PostgreSQL，或编辑 JSON 以配置多个表、TLS 和同步预算。
+- 点击“测试数据库”，检查当前待保存的连接及授权结构。
+- 在“资源预算”设置进程树内存预算、最低可用内存、worker 内存/CPU 限额、索引与模型磁盘预算、最低空闲空间。
 - 保存并启动、刷新状态、暂停/恢复索引、停止服务、下载模型。
 
-保存前验证配置和目录，随后停止旧服务、原子保存并启动；**保存不会验证远程数据库连接、表权限或唯一键**，实际结果需看同步状态/错误。窗口保留未编辑的高级配置；内存和磁盘预算目前在 `resource` JSON 中设置，没有完整图形预算编辑器。密码仅填环境变量名，没有图形凭据保险箱。
+数据库测试由用户点击触发，在独立子进程中执行有时限的只读检查：连接、允许字段读取权限、持续索引使用的稳定单列唯一键及非空水位。检查报告不返回数据库正文或密码；默认每个来源最多 8 秒、整次测试最多 30 秒。大表的检查可能超时，此时配置不会激活，应核查必要索引和连接条件。
+
+更改数据库配置后，必须测试同一份待保存内容并全部通过，才能“保存并启动”；编辑内容后需要重新测试。只修改文件范围或预算、保留原数据库配置时不自动联网。保存先验证配置，再停止旧服务、原子保存并启动；启动失败会恢复此前配置并尝试重启原服务。预检通过只证明测试当时和当前进程环境有效，不能保证稍后的网络、权限或登录环境不变。
+
+状态页展示已发现文件/记录、待处理正文、已知语义覆盖、持久化队列、预算限制和来源错误，并保留完整 JSON 详情。首次发现尚未完成时，不把已知计数换算成全机完成百分比。窗口保留未编辑的高级配置；密码仅填环境变量名，没有图形凭据保险箱。CPU 硬限额和 worker 提交内存限额只在 Windows Job 可用时生效，回退原因可在状态中查看。
 
 新安装 `scope: "machine"` 在 Windows 发现当前账号可访问的固定本地磁盘，跳过网络/可移动卷、目录链接、程序/数据/模型目录与排除项，不提升权限。Linux 使用本地挂载发现并排除远程、虚拟文件系统和 `/proc`、`/sys`、`/dev`、`/run`；实现仍需 Linux 实机验收。`scope: "directories"` 使用 `roots`。旧配置未写 `scope` 时沿用旧目录范围，升级不会扩大为整机。
 
 正文/语义进一步受 `indexing.content_scope`、`indexing.semantic_scope`、各自的 `*_roots`、`*_extensions` 约束。语义只处理已经提取的正文。数据库正文由自己的 `index` 控制；文件目录/扩展名过滤不限制数据库，`semantic_scope: "none"` 也会关闭数据库嵌入。示例见 [项目说明](../README.md)。
 
-整机范围使用周期遍历。Windows 指定目录模式最多 32 个有效根时尝试监听，失败回退周期遍历；Linux 当前也采用周期遍历。看 `file_scope`、`coverage` 和 `database_sync` 判断实际覆盖，不能将“服务正在运行”理解为“所有资料已索引完成”。
+首次文件发现通过持久化队列分批进行，正文和语义随后按预算处理。Windows 可读取当前账号有权限的既有 NTFS USN 日志以加速变更发现；不会创建日志、申请管理员权限或枚举 MFT 来替代首次发现。日志不可用、重置、回卷或路径无法可靠解析时触发核对。指定目录模式最多 32 个有效根时还会尝试监听；周期核对继续兜底。Linux 当前采用周期发现。看 `file_scope`、`coverage`、`scheduler` 和 `database_sync` 判断实际覆盖，不能将“服务正在运行”理解为“所有资料已索引完成”。
 
 ## Linux 源码安装
 
@@ -134,21 +140,32 @@ bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 
 ```powershell
 .\scripts\install.ps1 -Root 'D:\docs' `
-  -PackagePath '.\wheelhouse\data_search-0.2.0-py3-none-any.whl' `
+  -PackagePath '.\wheelhouse\data_search-0.3.0-py3-none-any.whl' `
   -Wheelhouse '.\wheelhouse' -ModelDir 'D:\models\bge-small-zh-v1.5'
 ```
 
 开发者在已安装项目开发依赖的环境构建：
 
 ```powershell
-python scripts/build_release.py --output dist/release-v0.2.0 --native
+python -m pip install -e . --no-deps
+python scripts/build_release.py --output dist/release-v0.3.0 --native
 ```
 
 `--native` 仅接受 64 位 Windows，使用 PyInstaller 生成完整运行时目录，同时生成 bootstrap 包；不传该参数只构建 bootstrap。`--wheelhouse PATH` 可复用构建/依赖 wheel。输出包目录已存在会拒绝覆盖；另选空输出目录。不要混用 Windows/Linux、不同架构或不同 CPython 小版本的原生依赖。当前没有打包 Linux 原生运行时。
 
 ## MCP 与 DSH 接入
 
-读取 `<InstallDir>/mcp.json`，把 `mcpServers.data-search` 条目加入宿主支持的 MCP 配置。安装器已写入绝对路径；根据 DSH 实际版本选择配置容器。本版不自动改写 DSH 或 Codex 全局配置。
+DeepSeek Harness 使用随包的 `plugins/deepseek-harness` Cordis bundle。在完整解压的发行目录执行：
+
+```powershell
+$env:ONE_SEARCH_RELEASE_DIR = (Get-Location).Path
+dsh plugin --profile web add ./plugins/deepseek-harness
+dsh --profile web
+```
+
+`plugin add` 安装并注册 bundle；首次启动该 profile 才安装缺失的后台服务、连接官方 MCP 客户端。已有后台会复用，退出 DSH 不会停止后台。插件包注册不依赖 `postinstall`；依赖安装需要 npm 网络或已有 pnpm 缓存。自定义安装目录、只检索指定目录、复用已有服务和版本条件见 [DSH bundle 说明](../plugins/deepseek-harness/README.md)。更新 DSH 插件包本身不会升级后台，应另运行新发行包安装器。
+
+其他支持标准 `mcpServers` JSON 的宿主可读取 `<InstallDir>/mcp.json`，把其中 `data-search` 条目加入自己的配置。DSH 的 Cordis 配置不是这种 JSON 容器。安装器生成绝对路径，但不会自行改写未知宿主或 Codex 的全局配置。
 
 原生安装示意：
 
@@ -163,7 +180,16 @@ python scripts/build_release.py --output dist/release-v0.2.0 --native
 }
 ```
 
-bootstrap 的 `command` 指向 `<InstallDir>/venv/Scripts/data-search.exe`；Linux 指向 `<InstallDir>/venv/bin/data-search`。Codex 格式副本位于 `<InstallDir>/plugin`，`.mcp.json` 同样已绑定绝对路径。源码 `plugins/data-search` 是待安装的外壳，空 MCP 文件不代表已经运行。插件商店生命周期安装与 marketplace 分发尚未验收。
+bootstrap 的 `command` 指向 `<InstallDir>/venv/Scripts/data-search.exe`；Linux 指向 `<InstallDir>/venv/bin/data-search`。Codex 格式副本位于 `<InstallDir>/plugin`，`.mcp.json` 同样已绑定绝对路径。源码 `plugins/data-search` 是待安装的外壳，空 MCP 文件不代表已经运行；Codex marketplace 分发未验收。
+
+标准 JSON 宿主也可显式指定配置路径，让辅助模块合并条目。它保留其他设置，原子替换前保存原文件备份；已有同名但不同的条目默认拒绝覆盖，确认要替换时加 `--replace`。例如源码/bootstrap 环境：
+
+```powershell
+python -m data_search.host_integration --host-config 'D:\Host\mcp.json' `
+  --mcp-config "$env:LOCALAPPDATA\data-search\app\mcp.json"
+```
+
+原生包将 `python -m data_search.host_integration` 替换为 `data-search.exe --internal-module data_search.host_integration`。此辅助模块仅支持明确指定的 JSON 文件，不推测 DSH/Codex 配置路径，也不保存新密码。
 
 MCP 使用 stdio，后台 HTTP 仅在 loopback 监听并验证本机 token。远程端口转发不是已支持的多机协议。数据在本机解析和嵌入；返回给宿主的片段后续如何处理，取决于宿主自身部署。
 
@@ -183,7 +209,16 @@ data-search start --config CONFIG
 
 `scan` 请求后台调度，不表示扫描同步完成。`status` 包含文件覆盖、源错误、数据库扫描进度、ANN 是否正在构建/等待发布、worker 实际控制及回退原因。
 
-升级可用新包向相同程序/数据路径重新运行安装器。它先停止现有实例，更新程序，再启动；保留搜索范围、数据库、预算与语义设置，并确保安装目录排除。再次传 `Root` 不覆盖旧范围；改范围应使用设置窗口，或 `stop` 后编辑配置再 `start`。旧配置缺少新字段时由配置加载器补默认值。
+升级时完整解压新包，向相同程序/数据路径重新运行安装器。Windows 原生分支按以下顺序执行：
+
+1. 校验包内运行时的逐文件 SHA-256 和完整文件清单，检查暂存及备份所需空间，将新运行时复制到独立暂存目录。此阶段失败不停止原服务。
+2. 停止服务并取得实例锁，复制迁移前数据与配置快照。快照包含 SQLite 及可能存在的 WAL、文件目录/队列、向量缓存和 ANN 分段；不复制通过固定哈希校验的模型文件、锁和临时服务状态/日志。模型目录中的其他文件仍会备份。
+3. 保留旧运行时，再启用新运行时，执行安装续步并检查服务健康。配置、数据库授权、预算与原检索范围保持不变。
+4. 若本次启动失败，先确认新实例停止且实例锁可用，再恢复旧运行时、配置和索引快照；此前正在运行的服务会尝试重启。若服务仍持锁，拒绝覆盖正在使用的数据，保留恢复材料并明确报错。
+
+每次事务目录为 `<InstallDir>/.upgrade-<ID>`，包括 `transaction.json`、`activation.log`、`data-snapshot`、`app-snapshot` 及适用时的 `previous-runtime`。成功后也保留这些材料，不自动清理。升级前应预留约“当前索引与配置大小 + 新运行时大小 + 64 MiB”的额外空间；已有备份另占空间，文件复制及首次迁移耗时取决于索引大小。**这是安装当次失败的恢复机制，不是长期自动降级**；新版本投入使用后，旧快照不包含后续索引更新。确认新版本稳定且不需该备份后，才清理对应事务目录；不要删除仍在进行的事务或恢复受阻的备份。
+
+Python bootstrap 和 Linux 源码安装暂未使用上述运行时事务；升级前应停止服务并自行备份数据/配置，再重装。各安装形式都会保留搜索范围、数据库、预算与语义设置；再次传 `Root` 不覆盖旧范围，改范围应使用设置窗口，或 `stop` 后编辑配置再 `start`。旧配置缺少新字段时由加载器补默认值。
 
 新写入向量为 float16，旧 float32 缓存仍可读取；FTS external-content 结构会按需要迁移。要转换旧向量并回收 SQLite 空间，可停服务后维护：
 
