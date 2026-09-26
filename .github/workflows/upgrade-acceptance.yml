@@ -113,21 +113,9 @@ jobs:
           const file = path.join(process.env.ACCEPTANCE_DSH, 'package.json');
           const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
           if (pkg.name !== '@deepseek-ai/dsh' || pkg.version !== '0.1.5-rc.1') throw Error('Unexpected DSH package');
-          // The installed reference host has CLI rc.1 and every dsh-* component rc.2.
-          // Pin declared components, then record the complete resolved dependency graph.
-          const pins = {};
-          for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
-            for (const name of Object.keys(pkg[section] || {})) {
-              if (name.startsWith('@deepseek-ai/dsh-')) pins[name] = '0.1.5-rc.2';
-            }
-          }
-          Object.assign(pins, {
-            '@deepseek-ai/cordis': '4.0.2', '@deepseek-ai/cordis-plugin-group': '1.0.2',
-            '@deepseek-ai/cordis-plugin-hmr': '1.0.17', '@deepseek-ai/cordis-plugin-include': '1.0.7',
-            '@deepseek-ai/cordis-plugin-loader': '1.0.3', '@deepseek-ai/cordis-plugin-timer': '1.1.4',
-            '@deepseek-ai/cosmokit': '1.8.3', '@deepseek-ai/node-addon-system': '0.1.2',
-            '@deepseek-ai/schemastery': '3.18.2'
-          });
+          // Include transitive peers: a newer prerelease must not enter this graph.
+          const pins = JSON.parse(fs.readFileSync('scripts/acceptance/v051/dsh-pins.json', 'utf8'));
+          if (pins['@deepseek-ai/dsh-scope'] !== '0.1.5-rc.2') throw Error('Incomplete reference host pins');
           for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
             for (const name of Object.keys(pkg[section] || {})) {
               if (pins[name]) pkg[section][name] = pins[name];
