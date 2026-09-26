@@ -1,12 +1,16 @@
 name: Windows native upgrade acceptance
 
 on:
-  push:
-    branches: [codex/coordinated-upgrade]
-    paths:
-      - .github/workflows/upgrade-acceptance.yml
-      - scripts/acceptance/v051/**
   workflow_dispatch:
+    inputs:
+      candidate_asset_id:
+        description: Numeric asset ID of a published v0.5.1 native ZIP in this repository
+        required: true
+        type: string
+      candidate_sha256:
+        description: Expected SHA256 of that ZIP from the release checksums
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -18,10 +22,6 @@ concurrency:
 jobs:
   windows-native:
     runs-on: windows-2022
-    # GitHub requires push access to read an unpublished draft release asset.
-    # This trusted branch job only reads releases; no publication occurs here.
-    permissions:
-      contents: write
     timeout-minutes: 60
     defaults:
       run:
@@ -30,8 +30,8 @@ jobs:
       PYTHONUTF8: '1'
       PYTHONIOENCODING: utf-8
       DSH_TELEMETRY_DISABLED: '1'
-      CANDIDATE_ASSET_ID: '589990731'
-      CANDIDATE_SHA256: 240de589cbf5aa6947bd3733f08ba1efc907f6e557d91a2fd53345ef1fd4730f
+      CANDIDATE_ASSET_ID: ${{ inputs.candidate_asset_id }}
+      CANDIDATE_SHA256: ${{ inputs.candidate_sha256 }}
       OLD_SHA256: b938f14af308a533d75e3c6da006ad55e870eca5d470d9a9d0e7a64883e024ae
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -64,7 +64,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          import hashlib, json, os, pathlib, subprocess, zipfile
+          import hashlib, json, os, pathlib, re, subprocess, zipfile
+          if not os.environ['CANDIDATE_ASSET_ID'].isdigit():
+              raise ValueError('Expected a numeric release asset ID')
+          if not re.fullmatch('[a-f0-9]{64}', os.environ['CANDIDATE_SHA256']):
+              raise ValueError('Expected a lowercase SHA256 digest')
           repo = pathlib.Path.cwd()
           downloads = repo / 'dist' / 'acceptance-v051'
           downloads.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "version": "0.5.1",
+  "runtime_source_commit": "efeff0ff123209b89d056fa41719737d08294992",
+  "checked_at_utc": "2026-09-26T05:03:27.046141+00:00",
+  "python": {
+    "passed": 526,
+    "skipped": 5,
+    "failed": 0,
+    "seconds": 136.166
+  },
+  "node": {
+    "passed": 62,
+    "failed": 0,
+    "skipped": 0
+  },
+  "new_coverage": [
+    "Runtime process ownership and real Windows executable lock",
+    "Multi-profile maintenance gate and registration contention",
+    "Management lifetime including timed-out settings saves",
+    "Interrupted activation and repeated snapshot recovery",
+    "Missing or truncated install/data identity recovery",
+    "Malformed maintenance marker remains blocked",
+    "First-install model worker cancelled before rollback",
+    "Windows bootstrap fails before mutation when busy"
+  ]
+}

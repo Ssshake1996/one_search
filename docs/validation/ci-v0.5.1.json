@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "version": "0.5.1",
+  "source_commit": "efeff0ff123209b89d056fa41719737d08294992",
+  "run_id": 36219474264,
+  "run_url": "https://github.com/Ssshake1996/one_search/actions/runs/36219474264",
+  "event": "push",
+  "status": "completed",
+  "conclusion": "success",
+  "created_at_utc": "2026-09-26T04:59:58Z",
+  "completed_at_utc": "2026-09-26T05:06:27Z",
+  "verified_at_utc": "2026-09-26T05:08:36.546327+00:00",
+  "platforms": {
+    "windows": {
+      "job_id": 108341878436,
+      "job_url": "https://github.com/Ssshake1996/one_search/actions/runs/36219474264/job/108341878436",
+      "runner_label": "windows-latest",
+      "runner_image": "windows-2025-vs2026",
+      "conclusion": "success",
+      "completed_at_utc": "2026-09-26T05:06:27Z",
+      "pytest": {
+        "passed": 525,
+        "skipped": 6,
+        "elapsed_seconds": 309.31,
+        "skip_reasons": [
+          "SKIPPED [1] tests\\test_change_journal.py:314: Non-Windows fallback only",
+          "SKIPPED [2] tests\\test_databases.py:222: Isolated engine fixture not configured",
+          "SKIPPED [2] tests\\test_databases.py:268: Set explicit isolated test database config to run service onboarding",
+          "SKIPPED [1] tests\\test_product_workflows.py:309: The active environment has no installed console launcher"
+        ]
+      },
+      "node": {
+        "total": 62,
+        "passed": 62,
+        "skipped": 0,
+        "failed": 0,
+        "skip_reasons": []
+      },
+      "linux_installer_smoke_step": "skipped_by_runner_os_condition"
+    },
+    "linux": {
+      "job_id": 108341878354,
+      "job_url": "https://github.com/Ssshake1996/one_search/actions/runs/36219474264/job/108341878354",
+      "runner_label": "ubuntu-24.04",
+      "runner_image": "ubuntu-24.04",
+      "conclusion": "success",
+      "completed_at_utc": "2026-09-26T05:02:08Z",
+      "pytest": {
+        "passed": 499,
+        "skipped": 32,
+        "elapsed_seconds": 42.79,
+        "skip_reasons": [
+          "SKIPPED [1] tests/test_bootstrap_preflight.py:70: Windows bootstrap installer",
+          "SKIPPED [2] tests/test_bootstrap_preflight.py:79: Windows bootstrap installer",
+          "SKIPPED [1] tests/test_bootstrap_preflight.py:94: Windows bootstrap installer",
+          "SKIPPED [1] tests/test_bootstrap_preflight.py:108: Windows bootstrap installer",
+          "SKIPPED [1] tests/test_bootstrap_preflight.py:117: Windows bootstrap installer",
+          "SKIPPED [1] tests/test_credentials.py:14: Windows Credential Manager requires a real Windows login",
+          "SKIPPED [1] tests/test_database_ui.py:51: Real Tk dialog smoke runs on the validated Windows host",
+          "SKIPPED [1] tests/test_database_ui.py:91: Real Tk dialog smoke runs on the validated Windows host",
+          "SKIPPED [2] tests/test_databases.py:222: Isolated engine fixture not configured",
+          "SKIPPED [2] tests/test_databases.py:268: Set explicit isolated test database config to run service onboarding",
+          "SKIPPED [1] tests/test_packaging.py:90: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_product_ui.py:59: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:118: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:153: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:172: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:197: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:217: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [2] tests/test_product_ui.py:235: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_workflows.py:301: Windows installer continuation",
+          "SKIPPED [1] tests/test_resources.py:26: Windows Job Object integration",
+          "SKIPPED [1] tests/test_resources.py:58: Windows kill-on-job-close integration",
+          "SKIPPED [1] tests/test_runtime_use.py:177: Windows executable locking",
+          "SKIPPED [1] tests/test_service.py:104: Windows read handles deny delete sharing",
+          "SKIPPED [2] tests/test_settings_revisions.py:54: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_settings_revisions.py:75: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_settings_revisions.py:91: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_upgrade_lifecycle.py:163: Windows directory rename sharing rules"
+        ]
+      },
+      "node": {
+        "total": 62,
+        "passed": 59,
+        "skipped": 3,
+        "failed": 0,
+        "skip_reasons": [
+          "activation provisions a missing Windows backend with JSON arguments, then starts it",
+          "installer failure prevents MCP activation and cleans its temporary request",
+          "old managed backend upgrades through the verified installer then preserves config"
+        ]
+      },
+      "installer_smoke": {
+        "ok": true,
+        "platform": "linux",
+        "python": "3.11.16",
+        "cases": [
+          "headless_install",
+          "no_model_basic",
+          "repeat_preserves_config",
+          "diagnose",
+          "paused_refresh",
+          "export",
+          "index_relocation",
+          "preserve_uninstall",
+          "reinstall",
+          "delete_managed_only"
+        ],
+        "user_files_accessed": false,
+        "autostart_tested": false,
+        "semantic_model_tested": false
+      }
+    }
+  }
+}

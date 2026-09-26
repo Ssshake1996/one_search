@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "tested_at_utc": "2026-09-26T04:56:01.238816+00:00",
+  "synthetic_only": true,
+  "runtime": "source",
+  "default_dsh_profile_modified": false,
+  "native_release_acceptance": false,
+  "model_requests": 0,
+  "maintenance": {
+    "two_original_profiles_acknowledged": 2,
+    "mcp_tools_released": true,
+    "web_status_maintenance": true,
+    "web_mutation_blocked": true,
+    "resume_while_marker_exists_stays_blocked": true,
+    "third_profile_no_mcp": true,
+    "shared_daemon_unchanged": true
+  },
+  "resumed": {
+    "profiles": 3,
+    "tools_per_profile": 11,
+    "all_searches_succeeded": true,
+    "one_profile_disposal_keeps_daemon_and_other_profiles": true,
+    "configuration_unchanged": true
+  },
+  "plugin_sha256": {
+    "index.mjs": "66595fd6196bb68ec8c344d7a275e8fb3a9672d70a94e59595b824da28afcdb6",
+    "bootstrap.mjs": "6c5f2b24fb1a0e3ec42b521cacc45f74f14c0a853c23e89e75277f363ed3d763",
+    "upgrade-coordinator.mjs": "7cc494413d2101c82c279f81be1fead25749d6ecda6da6aa955515213d7f6d11",
+    "web-host.mjs": "de7bb019fc658d399c637f175fc02906a3750cda7ce79495b6be0fe2349a9ff5",
+    "package.json": "968336552f5a6d0d38c31448fe0be5463ff30d1c0e9e910aea3acbb8b78dddb2"
+  },
+  "success": true,
+  "profile_cleanup_failures": [],
+  "synthetic_daemon_stopped": true,
+  "host_registrations_removed": true,
+  "scope_note": "Source lifecycle validation. These exact plugin hashes precede the final safe-error logging and incoming-installer minimum-version checks; this is not acceptance of the final release archive."
+}

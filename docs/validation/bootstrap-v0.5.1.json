@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "version": "0.5.1",
+  "checked_at": "2026-09-26T05:03:05.305189+00:00",
+  "synthetic_only": true,
+  "whole_machine_scan_performed": false,
+  "shell": "Windows PowerShell 5.1",
+  "status": "passed_with_async_retry",
+  "archive": "one-search-0.5.1-windows-amd64-py311-bootstrap.zip",
+  "archive_sha256": "c91c7ff371c60d28c1438c9ed6a8c24f229b75993011dc308c83185bf19fa29d",
+  "zip_integrity": true,
+  "per_file_checksums": true,
+  "source_hashes_match_working_and_HEAD": true,
+  "fresh_install": true,
+  "install_seconds": 36.0,
+  "model_download_not_required": true,
+  "isolated_scope": true,
+  "keyword_search": true,
+  "daemon_active_reinstall_blockers": 2,
+  "active_daemon_rejected_before_stop_or_configuration_change": true,
+  "mcp_only_reinstall_blockers": 2,
+  "active_mcp_rejected_with_daemon_stopped": true,
+  "no_dsh_or_user_instance_touched": true,
+  "manual_reinstall_after_clients_and_daemon_closed": true,
+  "configuration_preserved": true,
+  "document_and_instance_identity_preserved": true,
+  "keyword_search_after_reinstall": true,
+  "initial_optional_model_attempt_error": null,
+  "asynchronous_offline_model_import_first_attempt": false,
+  "asynchronous_offline_model_import_exact_retry_passed": true,
+  "semantic_search_passed": true,
+  "mcp_tools_exercised": 11,
+  "synthetic_sqlite_and_file_roundtrip": true,
+  "synthetic_managed_installation_and_data_removed": true,
+  "source_documents_preserved": true,
+  "finished_at": "2026-09-26T05:09:16.929322+00:00",
+  "observation": "First detached model-import became interrupted. The same fixture later saw a CLI return nonzero with empty output and PowerShell CLR HRESULT 80004005. No root cause established. Foreground worker was used only for diagnosis; a fresh isolated configuration then passed a bounded retry using the unchanged ordinary CLI and original hidden-process flags. stderr capture also showed a separate asynchronous worker exit 0. No product files changed.",
+  "diagnostic_evidence": {
+    "exact-async-retry.json": {
+      "init_returncode": 0,
+      "start_returncode": 0,
+      "started": {
+        "schema_version": 1,
+        "job_id": "8de9ceecb40c2ec172288908",
+        "state": "queued",
+        "model_id": "Xenova/bge-small-zh-v1.5@75c43b069aac4d136ba6bc1122f995fedcfd2781:cls-l2-512:qint8",
+        "model_dir": "F:\\data_search\\.packaging-smoke\\bootstrap-v051-02\\exact-async-retry\\models\\bge-small-zh-v1.5",
+        "started_at": 1790399277.813129,
+        "updated_at": 1790399277.813129,
+        "progress": {},
+        "error": null,
+        "operation": "import",
+        "ready": false,
+        "pid": 37552,
+        "reused": false
+      },
+      "status_returncode": 0,
+      "state": {
+        "schema_version": 1,
+        "model_id": "Xenova/bge-small-zh-v1.5@75c43b069aac4d136ba6bc1122f995fedcfd2781:cls-l2-512:qint8",
+        "model_dir": "F:\\data_search\\.packaging-smoke\\bootstrap-v051-02\\exact-async-retry\\models\\bge-small-zh-v1.5",
+        "state": "ready",
+        "basic_search_available_without_model": true,
+        "progress": {
+          "asset": "config.json",
+          "asset_index": 3,
+          "assets_total": 3,
+          "phase": "complete",
+          "bytes_done": 716,
+          "bytes_total": 716
+        },
+        "job_id": "8de9ceecb40c2ec172288908",
+        "started_at": 1790399277.813129,
+        "updated_at": 1790399278.0775223,
+        "error": null,
+        "operation": "import",
+        "pid": 31952,
+        "completed_at": 1790399278.0775223,
+        "asset_signatures": {
+          "model.onnx": [
+            24010842,
+            1790399278059472000
+          ],
+          "tokenizer.json": [
+            439125,
+            1790399278074048000
+          ],
+          "config.json": [
+            716,
+            1790399278076517800
+          ],
+          "manifest.json": [
+            537,
+            1790399278076517800
+          ]
+        },
+        "ready": true,
+        "enabled": true,
+        "verification": "verified_by_job",
+        "recommended_action": null
+      },
+      "stderr": ""
+    }
+  },
+  "archive_scope": "Tested candidate archive before final documentation and generic plugin version metadata refresh; final archive checksum is supplied in release SHA256SUMS.txt. Tested wheel bytes are unchanged.",
+  "runtime_source_commit": "efeff0ff123209b89d056fa41719737d08294992",
+  "tested_wheel_sha256": "dc9d4bb6f798b5a39c8485bf62f99c7e985036d6bad88e696275f30deecd3d6c"
+}

@@ -74,6 +74,8 @@ dsh --profile web
 
 ## 失败与中断恢复
 
+先读取本次安装器退出码及 `event=installation_result, ok=false` 记录中的 `error.code`。PowerShell 安装脚本错误通常附带 `stage`，原生事务错误不保证有该字段；已建立事务时，`<InstallDir>/.upgrade-<ID>/transaction.json` 的 `phase` 记录事务阶段。前置拒绝可能尚未创建事务目录。不要将旧的成功 `install-result.json` 当成本次结果。
+
 | 本次错误/状态 | 处理方式 |
 |---|---|
 | `runtime_in_use` | 查看返回的 PID、进程角色，正常关闭对应旧 MCP 宿主/原生设置窗口或等待命令结束，再重试；不强杀进程，不删除运行时文件 |

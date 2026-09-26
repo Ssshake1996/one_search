@@ -49,7 +49,7 @@ bootstrap 的 `$searchCli` 是 `<InstallDir>\venv\Scripts\data-search.exe`。默
   -InstallDir 'D:\apps\one-search' -DataDir 'D:\app-data\one-search'
 ```
 
-安装脚本退出 `0` 表示运行时和基础检索探测成功，`1` 表示安装/启动/验收失败；Linux 参数或平台前提错误可返回 `2`。PowerShell 参数绑定错误发生在脚本执行前，也可能没有结构化结果。正常日志可有多条 JSON/提示，**`<DataDir>/install-result.json` 是本次成功安装的完整验收结果**；失败时输出 `event=installation_result, ok=false, stage, error.code`，不要把旧的成功文件当作本次结果。
+安装脚本退出 `0` 表示运行时和基础检索探测成功，`1` 表示安装/启动/验收失败；Linux 参数或平台前提错误可返回 `2`。PowerShell 参数绑定错误发生在脚本执行前，也可能没有结构化结果。正常日志可有多条 JSON/提示，**`<DataDir>/install-result.json` 是本次成功安装的完整验收结果**；失败时检查本次退出码和 `event=installation_result, ok=false, error.code`，不要把旧的成功文件当作本次结果。`stage` 不是所有错误记录都有的字段；原生升级已建立事务时，可在保留的 `transaction.json` 中查看 `phase`，详见[升级排障](docs/UPGRADE.md#失败与中断恢复)。
 
 安装结果分别显示 `runtime_installed`、`daemon_running`、`basic_search_ready`、`semantic.state` 和 `dsh_connection`。`dsh_connection=not_checked` 只表示尚未由宿主验证。`indexing_complete=null` 表示该安装探测没有认证全机索引完成；检索不到结果时继续检查覆盖、排除项和积压，不应声称电脑没有这份资料。
 

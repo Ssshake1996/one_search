@@ -19,13 +19,21 @@ requires that old archive's SHA-256 to be
 The workflow must verify the candidate archive's expected hash before extraction;
 the reports also record its executable hash.
 
-This acceptance run pins the existing candidate ZIP SHA-256
+The original pre-release acceptance run used the candidate ZIP SHA-256
 `240de589cbf5aa6947bd3733f08ba1efc907f6e557d91a2fd53345ef1fd4730f`
 and native executable SHA-256
 `cacff5988147dd4e2081658462ab06fabb53d1677bd2e83f77380630ce366bd6`.
 The runtime was built from commit `efeff0ff123209b89d056fa41719737d08294992`.
 Reports distinguish that build commit from the later commit containing the test
 helpers/workflow. Do not substitute a newly built executable for this candidate.
+The published ZIP has refreshed documentation and may have a different archive
+hash; its native executable bytes must still match the value above.
+
+The `Windows native upgrade acceptance` workflow can be run manually after
+publication with the published native ZIP's numeric GitHub release asset ID and
+lowercase SHA-256. It has read-only repository permissions and checks both that
+archive digest and the pinned executable digest. The initial pre-release run used
+an unpublished staging asset; that temporary asset is not needed for later runs.
 
 From the repository root, run sequentially, replacing `DSH_PACKAGE` with the
 absolute path to the installed `@deepseek-ai/dsh` package directory:
