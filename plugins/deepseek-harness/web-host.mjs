@@ -169,8 +169,8 @@ function validateRequest(request) {
   return request;
 }
 
-export function createWebBridge(connection, { manage = runManagement, now = Date.now } = {}) {
-  const backend = preparedBackend(connection);
+export function createWebBridge(connection, { manage = runManagement, now = Date.now,
+  runRuntime = (callback) => callback(), maintenanceStatus = () => null } = {}) {
   const active = new Set();
   let disposed = false;
   let cached;
@@ -178,14 +178,34 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
   let generation = 0;
   let queue = Promise.resolve();
   let queued = 0;
-  async function status() {
+  let previousConnection;
+  let wasMaintenance = false;
+  function invalidate() { generation++; cached = undefined; inflight = undefined; }
+  function maintenance() {
+    const snapshot = maintenanceStatus();
+    const blocked = snapshot?.maintenance === true;
+    if (blocked !== wasMaintenance) { invalidate(); wasMaintenance = blocked; }
+    if (!blocked) return null;
+    return { service: { status: 'maintenance' }, upgrade: { maintenance: true,
+      state: ['starting', 'ready', 'maintenance', 'failed', 'disposed'].includes(snapshot.state) ? snapshot.state : 'maintenance' } };
+  }
+  function backend() {
+    const current = typeof connection === 'function' ? connection() : connection;
+    if (!current) throw unavailable();
+    if (current !== previousConnection) { invalidate(); previousConnection = current; }
+    return preparedBackend(current);
+  }
+  function requireAvailable() {
+    if (maintenance()) throw new BridgeError('upgrade_in_progress', '正在升级 one_search，请等待升级完成后重试。');
+  }
+  async function readStatus(prepared) {
     if (cached && now() - cached.at < 1000) return cached.value;
     if (inflight) return inflight;
     const controller = new AbortController();
     const startedGeneration = generation;
     active.add(controller);
     const task = (async () => {
-      const state = await readState(backend);
+      const state = await readState(prepared);
       const health = await daemonCall(state, '_health', {}, controller.signal, 3000);
       if (health.service_id !== state.service_id || health.pid !== state.pid || health.status !== 'running') throw unavailable();
       const index = await daemonCall(state, 'index_status', {}, controller.signal);
@@ -201,7 +221,19 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
   }
   async function perform(request, externalSignal, trackCompletion = () => {}) {
     if (disposed || externalSignal?.aborted) throw new BridgeError('cancelled', '操作已取消。');
-    if (request.action === 'status') return { ok: true, result: await status() };
+    const upgrading = maintenance();
+    if (request.action === 'status') {
+      if (upgrading) return { ok: true, result: upgrading };
+      try {
+        const result = await runRuntime(() => readStatus(backend()));
+        return { ok: true, result: maintenance() || result };
+      } catch (error) {
+        if (error?.code !== 'upgrade_in_progress') throw error;
+        invalidate();
+        return { ok: true, result: maintenance() || { service: { status: 'maintenance' }, upgrade: { maintenance: true, state: 'maintenance' } } };
+      }
+    }
+    requireAvailable();
     const controller = new AbortController();
     const cancel = () => controller.abort();
     // Once accepted, saving may be between stopping the old runtime and
@@ -210,26 +242,35 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
     if (!shieldSave) { externalSignal?.addEventListener('abort', cancel, { once: true }); active.add(controller); }
     try {
       if (MANAGE_ACTIONS.has(request.action)) {
-        const operation = manage(backend, request, {
-          signal: controller.signal,
-          timeoutMs: request.action === 'settings_save' ? 120000 : request.action === 'settings_preview' ? 60000 : 30000,
+        return await runRuntime(() => {
+          requireAvailable();
+          const operation = manage(backend(), request, {
+            signal: controller.signal,
+            timeoutMs: request.action === 'settings_save' ? 120000 : request.action === 'settings_preview' ? 60000 : 30000,
+          });
+          if (shieldSave && operation.closed) trackCompletion(operation.closed);
+          // Preserve the actual process lifetime for coordinator.prepare(), even
+          // when the response times out before an accepted save has finished.
+          return operation;
         });
-        if (shieldSave && operation.closed) trackCompletion(operation.closed);
-        return await operation;
       }
-      const state = await readState(backend);
-      const result = await daemonCall(state, request.action, request.params, controller.signal, request.action === 'refresh_path' ? 30000 : 12000);
+      const result = await runRuntime(async () => {
+        requireAvailable();
+        const state = await readState(backend());
+        return daemonCall(state, request.action, request.params, controller.signal, request.action === 'refresh_path' ? 30000 : 12000);
+      });
       return { ok: true, result };
     } finally {
       active.delete(controller);
       externalSignal?.removeEventListener('abort', cancel);
-      if (!READ_ACTIONS.has(request.action)) { generation++; cached = undefined; inflight = undefined; }
+      if (!READ_ACTIONS.has(request.action)) invalidate();
     }
   }
   return {
     async request(input, signal) {
       try {
         const request = validateRequest(input);
+        if (!disposed && !signal?.aborted && request.action !== 'status') requireAvailable();
         // Management calls share a bounded queue even for reads, avoiding CLI storms.
         if (MANAGE_ACTIONS.has(request.action) || !READ_ACTIONS.has(request.action)) {
           if (queued >= 4) return failed('busy', '已有管理操作正在执行，请稍后重试。');
@@ -241,6 +282,10 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
         }
         return await perform(request, signal);
       } catch (error) {
+        if (error?.code === 'upgrade_in_progress') {
+          invalidate();
+          return failed('upgrade_in_progress', '正在升级 one_search，请等待升级完成后重试。');
+        }
         return error instanceof BridgeError ? failed(error.code, error.message) : failed('operation_failed', '操作未完成，请刷新状态后重试。');
       }
     },
@@ -296,9 +341,9 @@ export function webRpcHandler(webCtx, bridge) {
 }
 
 /** Optional connection injection keeps terminal/headless MCP activation unchanged. */
-export function registerWebHost(ctx, connection) {
+export function registerWebHost(ctx, connection, options = {}) {
   ctx.inject(['connection', 'webServer'], (webCtx) => {
-    const bridge = createWebBridge(connection);
+    const bridge = createWebBridge(connection, options);
     webCtx.effect(() => {
       const unregister = webCtx.webServer.register({ kind: 'prefix', path: '/one-search', handler: webRpcHandler(webCtx, bridge) });
       return async () => { bridge.dispose(); await unregister(); };

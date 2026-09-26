@@ -5,12 +5,17 @@ import { constants } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
+// Keep the immediately previous runtime usable after an upgrade rollback.
+// Maintenance coordination belongs to this Node bundle and the incoming installer.
 const requiredBackendVersion = '0.5.0';
+const requiredInstallerVersion = '0.5.1';
 export function backendCompatible(version) {
   const parts = typeof version === 'string' && version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
-  return Boolean(parts && Number(parts[1]) === 0 && Number(parts[2]) >= 5);
+  return Boolean(parts && Number(parts[1]) === 0 &&
+    Number(parts[2]) >= 5);
 }
 const exists = async (path) => {
   try { await access(path, constants.F_OK); return true; } catch { return false; }
@@ -81,26 +86,52 @@ export async function findRelease(explicit, starts = [moduleDir, process.cwd()])
 }
 
 export function runProcess(command, args, { timeoutMs = 900000 } = {}) {
-  return new Promise((fulfill, reject) => {
-    const child = spawn(command, args, { windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+  let markClosed;
+  const closed = new Promise((fulfill) => { markClosed = fulfill; });
+  const result = new Promise((fulfill, reject) => {
+    let child;
+    try { child = spawn(command, args, { windowsHide: true, shell: false, stdio: ['ignore', 'pipe', 'pipe'] }); }
+    catch (error) { markClosed(); reject(error); return; }
     let output = '';
+    let stdout = '';
     const collect = (chunk) => { output = (output + chunk.toString('utf8')).slice(-16384); };
-    child.stdout.on('data', collect);
+    child.stdout.on('data', (chunk) => { stdout = (stdout + chunk.toString('utf8')).slice(-16384); collect(chunk); });
     child.stderr.on('data', collect);
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error('one_search setup command timed out; inspect its installation before retrying'));
     }, timeoutMs);
-    child.on('error', (error) => { clearTimeout(timer); reject(error); });
+    child.on('error', (error) => { markClosed(); clearTimeout(timer); reject(error); });
     child.on('close', (code) => {
+      markClosed();
       clearTimeout(timer);
       if (code === 0) fulfill(output);
-      else reject(new Error(`one_search setup command failed (${code}): ${output.slice(-2000)}`));
+      else {
+        const error = new Error(`one_search setup command failed (${code}): ${output.slice(-2000)}`);
+        // Parse stdout independently from diagnostics so callers can distinguish
+        // a bounded retryable backend failure without guessing from log text.
+        try {
+          const result = JSON.parse(stdout);
+          if (result.ok === false && /^[A-Za-z0-9_]{1,80}$/.test(result.error?.code) &&
+              /^[a-z-]{1,80}$/.test(result.operation)) {
+            error.backendCode = result.error.code;
+            error.operation = result.operation;
+          }
+        } catch { /* Non-JSON shell/installer errors are never automatically retried. */ }
+        reject(error);
+      }
     });
   });
+  result.closed = closed;
+  return result;
+}
+export function installerCompatible(version) {
+  const parts = typeof version === 'string' && version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  return Boolean(parts && Number(parts[1]) === 0 &&
+    (Number(parts[2]) > 5 || (Number(parts[2]) === 5 && Number(parts[3]) >= 1)));
 }
 
-async function installedCommand(options) {
+export async function installedCommand(options) {
   const candidates = options.platform === 'win32'
     ? [join(options.installDir, 'runtime', 'data-search.exe'), join(options.installDir, 'venv', 'Scripts', 'data-search.exe')]
     : [join(options.installDir, 'venv', 'bin', 'data-search')];
@@ -110,7 +141,7 @@ async function installedCommand(options) {
 
 async function install(options, run) {
   const release = await findRelease(options.releaseDir);
-  if (!backendCompatible(release.manifest.version)) throw new Error('backend_update_required: use a verified one_search release >= ' + requiredBackendVersion);
+  if (!installerCompatible(release.manifest.version)) throw new Error('backend_update_required: automatic setup requires a verified one_search installer release >= ' + requiredInstallerVersion);
   if (options.platform === 'win32') {
     const directory = await mkdtemp(join(tmpdir(), 'one-search-dsh-'));
     const requestPath = join(directory, 'install.json');
@@ -134,16 +165,20 @@ async function install(options, run) {
   }
 }
 
-export async function prepareService(config = {}, run = runProcess) {
+export async function prepareService(config = {}, run = runProcess, { runRuntime = (callback) => callback() } = {}) {
   const options = settings(config);
+  const runtime = (command, args, request) => runRuntime(() => run(command, args, request));
   let command = options.command || await installedCommand(options);
   if (options.command) {
     if (!await exists(command) || !await exists(options.configPath)) {
       throw new Error('Explicit executable/configuration does not exist; one_search will not overwrite it');
     }
     let info;
-    try { info = JSON.parse(await run(command, [...options.commandArgs, 'version', '--config', options.configPath], options)); }
-    catch { throw new Error('backend_update_required: update the explicitly configured backend with the matching release installer; then retry DSH'); }
+    try { info = JSON.parse(await runtime(command, [...options.commandArgs, 'version', '--config', options.configPath], options)); }
+    catch (error) {
+      if (error.code === 'upgrade_in_progress') throw error;
+      throw new Error('backend_update_required: update the explicitly configured backend with the matching release installer; then retry DSH');
+    }
     if (!backendCompatible(info.version)) throw new Error('backend_update_required: the explicitly configured backend must be >= ' + requiredBackendVersion);
   } else if (!command || !await exists(options.configPath)) {
     await install(options, run);
@@ -163,9 +198,20 @@ export async function prepareService(config = {}, run = runProcess) {
   }
   // start is idempotent. Existing configuration, search scope, and model settings
   // remain owned by the backend; profile activation never rewrites them.
-  await run(command, [...options.commandArgs, 'start', '--config', options.configPath], options);
-  await run(command, [...options.commandArgs, 'register-client', options.clientId, '--label', options.clientLabel,
-    '--kind', 'dsh', '--config', options.configPath], options);
+  await runtime(command, [...options.commandArgs, 'start', '--config', options.configPath], options);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await runtime(command, [...options.commandArgs, 'register-client', options.clientId, '--label', options.clientLabel,
+        '--kind', 'dsh', '--config', options.configPath], options);
+      break;
+    } catch (error) {
+      // Concurrent profile resumes contend for the short, nonblocking clients
+      // registry lock in both v0.5.0 and v0.5.1. This idempotent operation alone
+      // retries; each new child must pass maintenance admission again.
+      if (attempt >= 4 || error.operation !== 'register-client' || error.backendCode !== 'ServiceError') throw error;
+      await delay(100 * (attempt + 1));
+    }
+  }
   return {
     transport: 'stdio', serverName: options.serverName, command,
     args: [...options.commandArgs, 'mcp', '--config', options.configPath],

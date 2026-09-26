@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1
+
+- Windows native upgrades coordinate with compatible running DSH profiles before replacing the runtime. A Node-owned loopback controller stops MCP reconnects, disposes the MCP scope, waits for active management children to close, and reconnects after successful activation or rollback. The Web panel remains available and reports maintenance while runtime operations are gated.
+- Runtime preflight reports structured `runtime_in_use` details for uncoordinated MCP clients, native settings windows and other blockers. It does not kill user processes or replace a runtime that remains in use. Every connected DSH profile must support the new protocol for an unattended upgrade; the first migration from v0.5.0 or older requires closing the old hosts.
+- A durable upgrade marker prevents newly starting profiles from loading the runtime during maintenance. Retrying the same installer recovers an interrupted native transaction before proceeding; live host registrations and maintenance state are excluded from snapshots. Lost resume notifications can recover through marker polling, while an existing marker always keeps admission closed.
+- README and the new [upgrade guide](docs/UPGRADE.md) distinguish backend upgrade coordination from updating DSH plugin code. Windows bootstrap and Linux upgrades continue to require stopped hosts/services and do not claim the native transaction guarantees. The v0.5.1 bundle retains backend v0.5.0 compatibility so rollback can restore the MCP connection; automatic maintenance requires the new incoming installer and host bundle.
+
 ## 0.5.0
 
 - DSH Web adds a one_search sidebar button and a shared-runtime React panel for indexing overview, search scope, resource policy and database onboarding. The browser uses DSH's authenticated RPC bridge; local daemon tokens and database secrets remain server-side.

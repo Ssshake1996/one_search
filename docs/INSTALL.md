@@ -1,6 +1,6 @@
 # one_search 安装、设置与接入
 
-用户和 Agent 的主安装合同在 [README 的安装与接入](../README.md#安装与接入给用户和-agent-的执行入口)，包括同版本包选择、校验、参数、状态含义和失败恢复。本文补充各平台维护细节。v0.4 的模型准备已经独立于基础服务启动；下文使用 v0.5 包名，下载时保持版本一致。
+用户和 Agent 的主安装合同在 [README 的安装与接入](../README.md#安装与接入给用户和-agent-的执行入口)，包括同版本包选择、校验、参数、状态含义和失败恢复。本文补充各平台维护细节。v0.4 的模型准备已经独立于基础服务启动；下文使用 v0.5.1 包名，下载时保持版本一致。
 
 本版先交付单机服务。每台机器使用独立 `node_id`，协议保留节点标识；远程认证、传输与跨机汇总尚未实现。新安装默认发现本机文件范围，传入目录参数可限制范围；重装保留现有设置。
 
@@ -8,20 +8,20 @@
 
 | 形式 | 文件或入口 | 前提 |
 |---|---|---|
-| Windows 原生运行时包 | `one-search-0.5.0-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
-| Windows Python bootstrap 包 | `one-search-0.5.0-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
+| Windows 原生运行时包 | `one-search-0.5.1-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
+| Windows Python bootstrap 包 | `one-search-0.5.1-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
 | 源码 | 仓库中的 `scripts/install.ps1` / `scripts/install.sh` | Python 3.11+、venv/pip；安装依赖需要网络或匹配 wheelhouse |
-| 项目 wheel | `data_search-0.5.0-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
+| 项目 wheel | `data_search-0.5.1-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
 
 本轮发行目标为 Windows amd64，实测主机是 Windows 11、内核 10.0.22631；其他 Windows 版本/ARM64 不作为已验收平台。Linux 已在 Ubuntu 24.04 CI 完成无界面、手动启动模式的安装、重装、检索、迁移和卸载；尚无 Linux 免 Python 二进制，systemd 用户服务与目标服务器仍待验收。源码最低 Python 版本与 bootstrap 包的固定小版本要求不同，安装器会检查包的 `RELEASE_MANIFEST.json` 并拒绝不匹配解释器。
 
-最终发行目录为 `dist/release-v0.5.0`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
+最终发行目录为 `dist/release-v0.5.1`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
 
 模型不在默认 ZIP 内。首次安装先启动基础检索，再启动后台任务准备固定版本本地 embedding 模型；可以指定离线模型目录，在后台校验，或先关闭语义功能。推理始终在本机。网络失败只改变模型任务状态，安装不等待下载完成。
 
 ## Windows 安装
 
-安装并接入 DSH Web 后，侧栏 **one_search** 是设置与索引进度入口。后台与 DSH bundle 均需 0.5.0；升级后台后请用新包重新注册 bundle，并重启对应 profile。详见 [Web 面板说明](DSH-WEB.md)。
+安装并接入 DSH Web 后，侧栏 **one_search** 是设置与索引进度入口。建议后台与 bundle 成套使用 v0.5.1；新 bundle 仍兼容 v0.5.0 后台，以支持升级失败后的恢复连接。从旧版迁移须先阅读 [升级说明](UPGRADE.md)。本次更新 bundle 后，用新包重新注册并重启对应 profile。详见 [Web 面板说明](DSH-WEB.md)。
 
 完整解压 ZIP，在解压目录运行：
 
@@ -44,7 +44,7 @@
   -InstallDir 'D:\apps\data-search' -DataDir 'D:\app-data\data-search'
 ```
 
-安装目录与数据目录须独立且不嵌套，首次安装要求空目录；已有安装需有本程序的管理清单。原始资料应放在这两个目录之外，安装目录、索引与模型目录会被排除。
+安装目录与数据目录须独立且不嵌套，首次安装使用空目录；DSH 自动安装预先写入的宿主协调注册目录由安装器识别。已有安装需有本程序的管理清单。原始资料应放在这两个目录之外，安装目录、索引与模型目录会被排除。
 
 bootstrap 指定解释器示例：
 
@@ -157,7 +157,7 @@ bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 
 ```powershell
 .\scripts\install.ps1 -Root 'D:\docs' `
-  -PackagePath '.\wheelhouse\data_search-0.5.0-py3-none-any.whl' `
+  -PackagePath '.\wheelhouse\data_search-0.5.1-py3-none-any.whl' `
   -Wheelhouse '.\wheelhouse' -ModelDir 'D:\models\bge-small-zh-v1.5'
 ```
 
@@ -165,7 +165,7 @@ bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 
 ```powershell
 python -m pip install -e . --no-deps
-python scripts/build_release.py --output dist/release-v0.5.0 --native
+python scripts/build_release.py --output dist/release-v0.5.1 --native
 ```
 
 `--native` 仅接受 64 位 Windows，使用 PyInstaller 生成完整运行时目录，同时生成 bootstrap 包；不传该参数只构建 bootstrap。`--wheelhouse PATH` 可复用构建/依赖 wheel。输出包目录已存在会拒绝覆盖；另选空输出目录。不要混用 Windows/Linux、不同架构或不同 CPython 小版本的原生依赖。当前没有打包 Linux 原生运行时。
@@ -180,7 +180,7 @@ node ./plugins/deepseek-harness/register.mjs ./dsh-register.json
 dsh --profile web
 ```
 
-注册脚本先把插件按内容校验复制到 DSH 用户目录所在卷，解决 DSH/pnpm 的跨盘 file 依赖问题，再调用官方 `plugin add`；首次启动 profile 才安装缺失的后台服务、连接 MCP。缺少后台版本或版本旧于 0.4 时，需要匹配发行目录来升级；显式配置的外部运行时只报告升级要求。退出 DSH 不会停止后台。插件包注册不依赖 `postinstall`；依赖安装需要 npm 网络或已有 pnpm 缓存。自定义范围、资源档位、离线模型和连接诊断见 [DSH bundle 说明](../plugins/deepseek-harness/README.md)。
+注册脚本先把插件按内容校验复制到 DSH 用户目录所在卷，解决 DSH/pnpm 的跨盘 file 依赖问题，再调用官方 `plugin add`；首次启动 profile 才安装缺失的后台服务、连接 MCP。缺少兼容后台或版本低于 0.5.0 时，需要匹配发行目录来升级；显式配置的外部运行时只报告升级要求。已有旧 bundle 的首次迁移先停止旧宿主，不能依靠新协议去关闭旧连接。自动维护需要 v0.5.1 或更新兼容的安装器和 DSH bundle，旧安装器不会因为后台已更新而获得新能力。退出 DSH 不会停止后台。插件包注册不依赖 `postinstall`；依赖安装需要 npm 网络或已有 pnpm 缓存。自定义范围、资源档位、离线模型和连接诊断见 [DSH bundle 说明](../plugins/deepseek-harness/README.md)。
 
 其他支持标准 `mcpServers` JSON 的宿主可读取 `<InstallDir>/mcp.json`，把其中 `data-search` 条目加入自己的配置。DSH 的 Cordis 配置不是这种 JSON 容器。安装器生成绝对路径，但不会自行改写未知宿主或 Codex 的全局配置。
 
@@ -226,16 +226,21 @@ data-search start --config CONFIG
 
 `scan` 请求后台调度，不表示扫描同步完成。`status` 包含文件覆盖、源错误、数据库扫描进度、ANN 是否正在构建/等待发布、worker 实际控制及回退原因。
 
-升级时完整解压新包，向相同程序/数据路径重新运行安装器。Windows 原生分支按以下顺序执行：
+升级和重装都应把新包完整解压到现有程序、数据目录之外，再向**原有**程序/数据路径运行新安装器。只停止后台服务不能关闭 MCP 桥接进程或其自动重连。旧版 DSH bundle、其他 MCP 客户端和原生设置窗口应先关闭；全部 DSH profiles 已使用 v0.5.1 或更新兼容 bundle 时，Windows 原生后台升级可自动协调，DSH Web 页面可以保持打开。具体命令见 [升级说明](UPGRADE.md)。
 
-1. 校验包内运行时的逐文件 SHA-256 和完整文件清单，检查暂存及备份所需空间，将新运行时复制到独立暂存目录。此阶段失败不停止原服务。
-2. 停止服务并取得实例锁，复制迁移前数据与配置快照。快照包含 SQLite 及可能存在的 WAL、文件目录/队列、向量缓存和 ANN 分段；不复制通过固定哈希校验的模型文件、锁和临时服务状态/日志。模型目录中的其他文件仍会备份。
+Windows 原生分支按以下顺序执行：
+
+1. 校验包内运行时的逐文件 SHA-256 和完整文件清单，建立持久维护标记并通知已注册 DSH profiles 停止 MCP 重连、关闭连接、等待管理进程退出。检查其他运行时占用；遇到 `runtime_in_use` 在替换与停止原服务前拒绝，不强杀进程。随后检查暂存/备份空间并将新运行时复制到独立暂存目录。
+2. 停止服务并取得实例锁，再检查运行时进程已经退出，复制迁移前数据与配置快照。快照包含 SQLite 及可能存在的 WAL、文件目录/队列、向量缓存和 ANN 分段；不复制通过固定哈希校验的模型文件、锁、临时服务状态/日志和 `host-clients` 宿主注册/升级维护状态。模型目录中的其他文件仍会备份。
 3. 保留旧运行时，再启用新运行时，执行安装续步并检查服务健康。配置、数据库授权、预算与原检索范围保持不变。
 4. 若本次启动失败，先确认新实例停止且实例锁可用，再恢复旧运行时、配置和索引快照；此前正在运行的服务会尝试重启。若服务仍持锁，拒绝覆盖正在使用的数据，保留恢复材料并明确报错。
+5. 成功激活或完成安全回滚后移除维护标记，通知 DSH 恢复连接；通知丢失时，宿主也会低频检查标记并恢复。标记仍存在时，新启动的 profile 进入待机，不加载 runtime。
 
 每次事务目录为 `<InstallDir>/.upgrade-<ID>`，包括 `transaction.json`、`activation.log`、`data-snapshot`、`app-snapshot` 及适用时的 `previous-runtime`。成功后也保留这些材料，不自动清理。升级前应预留约“当前索引与配置大小 + 新运行时大小 + 64 MiB”的额外空间；已有备份另占空间，文件复制及首次迁移耗时取决于索引大小。**这是安装当次失败的恢复机制，不是长期自动降级**；新版本投入使用后，旧快照不包含后续索引更新。确认新版本稳定且不需该备份后，才清理对应事务目录；不要删除仍在进行的事务或恢复受阻的备份。
 
-Python bootstrap 和 Linux 源码安装暂未使用上述运行时事务；升级前应停止服务并自行备份数据/配置，再重装。各安装形式都会保留搜索范围、数据库、预算与语义设置；再次传 `Root` 不覆盖旧范围，改范围应使用设置窗口，或 `stop` 后编辑配置再 `start`。旧配置缺少新字段时由加载器补默认值。
+升级进程意外中断时，`<DataDir>/upgrade-state.json` 保持维护态。保留该文件和事务快照，修复错误原因后重跑同一解压包的安装命令：安装器先核对并恢复中断的事务，再尝试升级。恢复身份无法确认、运行时仍被占用或快照不完整时会拒绝并保持维护。不要手工删除标记、覆盖 runtime，或清理仍待恢复的 `.upgrade-*` 目录。
+
+Python bootstrap 和 Linux 源码安装暂未使用上述运行时事务；升级前应先停止所有 MCP 宿主与设置窗口，再停止服务并自行备份数据/配置，然后重装。各安装形式都会保留搜索范围、数据库、预算与语义设置；再次传 `Root` 不覆盖旧范围，改范围应使用设置窗口，或 `stop` 后编辑配置再 `start`。旧配置缺少新字段时由加载器补默认值。
 
 新写入向量为 float16，旧 float32 缓存仍可读取；FTS external-content 结构会按需要迁移。要转换旧向量并回收 SQLite 空间，可停服务后维护：
 

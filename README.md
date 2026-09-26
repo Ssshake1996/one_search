@@ -1,6 +1,6 @@
 # one_search
 
-面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.5 提供 DSH Web 侧栏设置与进度面板、README 驱动安装、共享后台服务、11 个 MCP 工具和 Windows 自带运行时的安装包；文件解析、正文索引与语义计算在本机进行。
+面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.5.1 增加 Windows 原生升级的 DSH 连接协调，保留 Web 侧栏设置与进度面板、README 驱动安装、共享后台服务和 11 个 MCP 工具；文件解析、正文索引与语义计算在本机进行。
 
 新安装默认发现当前账号可访问的本地磁盘；可以改为指定目录。当前交付单机，接口已保留 `node_id`；多机传输、认证与跨机结果合并尚未实现。项目名是 `one_search`，Python 包 `data_search`、命令及 MCP 条目 `data-search` 保持兼容。
 
@@ -10,7 +10,7 @@
 
 1. 查看 [GitHub Releases](https://github.com/Ssshake1996/one_search/releases)，选择目标平台的同一版本资源。Windows x64 优先 `windows-amd64-native.zip`，自带 Python 和依赖。`py311-bootstrap.zip` 需要 CPython **3.11 x64**、venv/pip；项目 wheel 单独使用仍需依赖。Linux 当前使用 Python 3.11+ 源码安装，真实主机验收状态见 [验证报告](docs/VALIDATION.md)。不要将 Windows wheelhouse 用于 Linux。
 2. 同时下载 `SHA256SUMS.txt`，核对 ZIP 的 SHA-256 后完整解压。原生安装器进一步验证包内逐文件清单。校验失败应重新获取同一发行资源，不能跳过校验。
-3. 检查已有 `%LOCALAPPDATA%\data-search\app\install-manifest.json` 和对应 `config.json`。首次安装默认检索当前账号可访问的整机本地磁盘；仅在用户要求目录范围时传 `-Root`。现有配置会保留，重装参数不会静默改写旧范围、数据库或模型设置。
+3. 检查已有 `%LOCALAPPDATA%\data-search\app\install-manifest.json` 和对应 `config.json`。**已有安装先执行下方“升级或重装”的连接检查；从 v0.5.0 或更旧插件首次迁移时须先停止对应 DSH 服务端。** 首次安装默认检索当前账号可访问的整机本地磁盘；仅在用户要求目录范围时传 `-Root`。现有配置会保留，重装参数不会静默改写旧范围、数据库或模型设置。
 4. 在完整解压目录执行安装；检查退出码，再读取数据目录的 `install-result.json`。随后接入 DSH，并通过宿主工具实际验证连接。后台全机发现和语义索引可继续进行，不必等待它们全部完成才使用搜索。
 
 Windows 默认安装（不需要管理员权限）：
@@ -93,7 +93,32 @@ bash scripts/install.sh --root /srv/docs --install-dir "$HOME/.local/share/data-
 
 默认注册 systemd 用户服务；不可用时明确失败，不自动申请 root 或启用 linger。`--no-autostart` 安装后启动一次，重启机器后需要执行 `<InstallDir>/venv/bin/data-search start --config <DataDir>/config.json`。Linux 对应参数为 `--model-dir/--skip-model/--python/--package-path/--wheelhouse`，验收文件与 Windows 相同。
 
-原生升级继续运行新包安装器：校验、暂存、保留迁移前快照、启动失败回滚。v0.3 文件索引升级后需要按预算重新核对文件身份并处理正文，期间旧文件 ID 会被拒绝，不会悄悄指向新文件。遇到中断，先用同一配置执行 `status`、`model-status`、`installation-status`；按错误阶段修复下载/依赖/空间/路径后重试同一命令。不要用重新初始化配置替代修复。具体服务维护、回滚边界、卸载保留数据及平台限制见 [安装说明](docs/INSTALL.md)。
+## 升级或重装
+
+**从 v0.5.0 或更旧的 DSH 插件迁移到 v0.5.1：先停止所有连接该实例的 DSH 服务端/profile，再运行安装器。** 终端运行的 DSH 可用 `Ctrl+C` 正常退出；仅关闭浏览器标签页不会断开 MCP。其他 MCP 宿主也须断开该 server，并关闭 `Settings.vbs` 打开的原生设置窗口。只执行 `data-search stop` 会留下 MCP 桥接进程及宿主自动重连。
+
+已运行 **v0.5.1 或更新兼容 bundle** 的全部 DSH profiles，可在 Windows 原生后台升级时保持打开。新安装器先让它们停止 MCP 重连、释放桥接与管理进程，再停止后台、保留快照并替换运行时；健康检查或成功回滚后恢复连接。DSH Web 页面可保持打开，维护期间显示升级状态。任一旧插件、其他未参与协调的 MCP 客户端或原生设置窗口仍需先关闭。
+
+校验 v0.5.1 原生 ZIP 并完整解压到**现有程序和数据目录之外**。在新解压目录，用原路径运行：
+
+```powershell
+# 默认安装示例；自定义安装须使用原 install-manifest.json 中的路径。
+Set-Location 'D:\Downloads\one-search-0.5.1-windows-amd64-native'
+$searchApp = Join-Path $env:LOCALAPPDATA 'data-search\app'
+$searchData = Join-Path $env:LOCALAPPDATA 'data-search\data'
+.\scripts\install.ps1 -InstallDir $searchApp -DataDir $searchData
+if ($LASTEXITCODE -ne 0) { throw 'Upgrade failed; inspect this run before retrying' }
+$searchConfig = Join-Path $searchData 'config.json'
+$searchCli = Join-Path $searchApp 'runtime\data-search.exe'
+& $searchCli version --config $searchConfig
+& $searchCli installation-status --config $searchConfig --install-dir $searchApp
+```
+
+本次同时更新 DSH bundle 时，继续使用上面的 `register.mjs` 命令为每个相关 profile 注册新包，再重启这些 profile 使新插件代码生效。随后在 DSH 实际调用 `index_status` 和一次 `search`。后台升级自动协调不等于 DSH 插件代码能够热替换。
+
+`runtime_in_use` 表示仍有进程占用运行时：安装器在替换前拒绝，不强杀进程；按返回的 PID/角色关闭对应宿主或设置窗口后重试。升级进程意外中断时，保留 `<DataDir>/upgrade-state.json` 和 `.upgrade-*` 快照，修复报错原因后**重跑同一解压包的安装命令**，由安装器恢复中断事务；不要手工删除维护标记强行重连。
+
+Windows bootstrap 与 Linux 安装尚无这套自动事务升级：先停止所有 MCP 宿主和原生设置窗口，再停止后台、备份数据与配置，按原安装方式重装。详细迁移步骤、错误处理与恢复边界见 [升级说明](docs/UPGRADE.md)，平台安装细节见 [安装说明](docs/INSTALL.md)。
 
 
 ## 在 DSH Web 中打开设置与进度
@@ -109,7 +134,7 @@ bash scripts/install.sh --root /srv/docs --install-dir "$HOME/.local/share/data-
 
 首次扫描尚不知道整机文件总数，页面显示已知文件数和待遍历目录，不显示虚构的全机百分比。语义比例仅针对已知可处理片段；新文件加入后分母会增加。页面可见时约每 2 秒更新，底层部分计数最多缓存 5 秒；关闭面板不停止后台工作。
 
-此 Web 面板需要 **one_search 后台与 DSH 插件均为 0.5.0 或更新兼容版本**。从旧版升级时先运行新 Release 的安装器，再按上述注册命令更新插件并重启 DSH。若没有按钮，检查是否更新了正确 profile 的插件，以及后台版本是否兼容。原有 Windows `Settings.vbs` 和 CLI 继续可用。完整操作和状态含义见 [Web 面板说明](docs/DSH-WEB.md)。
+建议后台与 DSH bundle 成套升级到 **v0.5.1**。新 bundle 保持对 v0.5.0 后台的兼容，以便失败回滚后恢复连接；自动升级协调要求使用 v0.5.1 或更新兼容的安装器及所有已连接 profiles 的 bundle。若没有按钮，检查是否更新了正确 profile。原有 Windows `Settings.vbs` 和 CLI 继续可用，但原生设置窗口在升级前须关闭。完整操作和状态含义见 [Web 面板说明](docs/DSH-WEB.md)。
 
 ## 能检索什么
 

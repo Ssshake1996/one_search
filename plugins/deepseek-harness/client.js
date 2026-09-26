@@ -12,7 +12,7 @@ window.__ModuleLoader__.load({
     const date = value => value ? new Date(typeof value === 'number' ? value * 1000 : value).toLocaleString('zh-CN') : '—';
     const mb = value => Number.isFinite(value) ? `${number(Math.round(value))} MB` : '—';
     const labels = {
-      paused: '已暂停', waiting: '等待资源', indexing: '正在扫描与建索引', needs_attention: '需要关注',
+      maintenance: '升级维护中', paused: '已暂停', waiting: '等待资源', indexing: '正在扫描与建索引', needs_attention: '需要关注',
       up_to_date: '当前已知任务已处理', user_pause: '手动暂停', system_busy: '电脑繁忙，稍后继续',
       memory_budget_exceeded: '达到内存预算', system_memory_pressure: '可用内存不足',
       disk_budget_exceeded: '达到索引空间预算', disk_free_space_low: '磁盘可用空间不足',
@@ -149,6 +149,7 @@ window.__ModuleLoader__.load({
       const progress = index.progress;
       const model = index.semantic?.lifecycle || {};
       const policy = progress?.runtime_policy || index.runtime_policy || {};
+      if (status?.service?.status === 'maintenance') return h('p', { className: 'os-muted' }, '扫描与索引进度将在升级完成、后台重新连接后继续显示。');
       if (!progress) return h('div', { className: 'os-loading' }, status ? '进度尚不可用。请检查后台服务状态或升级 one_search。' : '正在读取后台状态…');
       const content = progress.content || {}, semantic = progress.semantic || {}, discovery = progress.discovery || {};
       const errors = progress.error_summary || {};
@@ -344,6 +345,8 @@ window.__ModuleLoader__.load({
       const [editorEpoch, setEditorEpoch] = useState(0);
       const mounted = useRef(true), lock = useRef(false), poller = useRef(null), draftRef = useRef(null);
       draftRef.current = draft;
+      const maintenance = status?.service?.status === 'maintenance';
+      const controlsDisabled = Boolean(busy) || maintenance;
       const dirty = Boolean(draft && !same(draft.values, draft.original));
       useEffect(() => {
         mounted.current = true;
@@ -359,7 +362,7 @@ window.__ModuleLoader__.load({
       }, [dirty, dbDirty]);
       const update = (key, value) => { setDraft(current => ({ ...current, values: { ...current.values, [key]: value } })); setPreview(null); setNotice(null); };
       async function task(title, operation) {
-        if (lock.current) return;
+        if (lock.current || maintenance) return;
         lock.current = true; setBusy(title); setNotice(null);
         try { const message = await operation(); if (mounted.current) { setNotice({ text: typeof message === 'string' ? message : `${title}已完成。`, error: false }); poller.current?.refresh(); } }
         catch (error) { if (mounted.current) { if (error.code === 'revision_conflict') setConflict(true); setNotice({ text: error.message, error: true }); } }
@@ -377,21 +380,22 @@ window.__ModuleLoader__.load({
       return h('div', { className: 'os-panel' }, h('style', null, css), h('div', { className: 'os-body' },
         h('header', { className: 'os-head' }, h('div', null, h('h1', null, 'one_search'), h('p', { className: 'os-subtitle' }, '本地资料，随时可找。')), h('span', { className: 'os-state', 'data-state': connectionError ? 'needs_attention' : status?.index?.progress?.overall?.state }, h('span', { className: 'os-dot' }), connectionError ? '状态连接中断' : label(status?.index?.progress?.overall?.state || status?.service?.status || '连接中'))),
         h('div', { className: 'os-tabs', role: 'tablist', 'aria-label': 'one_search 设置' }, tabs.map(([key,text], index) => h('button', { key, type: 'button', className: 'os-tab', role: 'tab', id: `os-tab-${key}`, 'aria-controls': `os-content-${key}`, 'aria-selected': tab === key, tabIndex: tab === key ? 0 : -1, onClick: () => setTab(key), onKeyDown: event => { let next; if (event.key === 'ArrowRight') next = (index + 1) % tabs.length; if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length; if (event.key === 'Home') next = 0; if (event.key === 'End') next = tabs.length - 1; if (next !== undefined) { event.preventDefault(); setTab(tabs[next][0]); event.currentTarget.parentElement.children[next].focus(); } } }, text))),
+        maintenance && h('div', { className: 'os-alert', role: 'status' }, h('strong', null, '正在升级或恢复 one_search'), h('p', null, '完成后会自动恢复连接。本页未保存的编辑仍保留，设置操作暂时不可用。'), h('p', null, '如果安装程序已意外退出，请重新运行同一安装命令完成恢复。')),
         connectionError && h('div', { className: 'os-alert os-error', role: 'status' }, connectionError, h(Button, { onClick: () => poller.current?.refresh(), style: { marginLeft: 12 } }, '立即重试')),
         h('div', { role: 'status', 'aria-live': 'polite' }, busy ? h('div', { className: 'os-alert' }, `${busy}中…`) : notice && h('div', { className: `os-alert${notice.error ? ' os-error' : ''}` }, notice.text)),
-        h('div', { id: 'os-content-overview', role: 'tabpanel', 'aria-labelledby': 'os-tab-overview', hidden: tab !== 'overview' }, h(Overview, { status, run, busy: Boolean(busy) })),
-        !draft && tab !== 'overview' && h('div', { className: 'os-loading' }, settingsError || '正在读取设置…', settingsError && h(Button, { onClick: reload, disabled: Boolean(busy) }, '重新读取')),
-        draft && h('fieldset', { className: 'os-fields', disabled: Boolean(busy) },
+        h('div', { id: 'os-content-overview', role: 'tabpanel', 'aria-labelledby': 'os-tab-overview', hidden: tab !== 'overview' }, h(Overview, { status, run, busy: controlsDisabled })),
+        !draft && tab !== 'overview' && h('div', { className: 'os-loading' }, settingsError || '正在读取设置…', settingsError && h(Button, { onClick: reload, disabled: controlsDisabled }, '重新读取')),
+        draft && h('fieldset', { className: 'os-fields', disabled: controlsDisabled },
           h('div', { id: 'os-content-scope', role: 'tabpanel', 'aria-labelledby': 'os-tab-scope', hidden: tab !== 'scope' }, h(Scope, { values: draft.values, update })),
           h('div', { id: 'os-content-resources', role: 'tabpanel', 'aria-labelledby': 'os-tab-resources', hidden: tab !== 'resources' }, h(Resources, { values: draft.values, update, status, settings })),
-          h('div', { id: 'os-content-databases', role: 'tabpanel', 'aria-labelledby': 'os-tab-databases', hidden: tab !== 'databases' }, h(Databases, { key: editorEpoch, values: draft.values, update, request, task, busy: Boolean(busy), onDirty: setDbDirty }))),
+          h('div', { id: 'os-content-databases', role: 'tabpanel', 'aria-labelledby': 'os-tab-databases', hidden: tab !== 'databases' }, h(Databases, { key: editorEpoch, values: draft.values, update, request, task, busy: controlsDisabled, onDirty: setDbDirty }))),
         preview && h('div', { className: 'os-alert' }, h('strong', null, preview.can_apply ? '设置可应用' : '请修正预检问题'),
           h('p', null, preview.scope?.available === false ? '当前无法估算范围影响。' : `已知文件撤销：${number(preview.scope?.known_files_revoked)}；已知正文缓存撤销：${number(preview.scope?.known_content_caches_revoked)}。`),
           preview.databases_changed && h('p', null, `数据库只读预检：${preview.preflight?.ok ? '通过' : '未通过'}`), h(Details, { title: '查看预览详情', value: preview })),
         conflict && h('div', { className: 'os-alert os-error' }, '设置已在其他位置修改。你的编辑仍保留；请复制需要保留的内容，再重新加载最新设置。'),
-        discard && h('div', { className: 'os-alert' }, h('p', null, '重新加载会放弃本页未保存的设置与数据库编辑。'), h('div', { className: 'os-actions' }, h(Button, { onClick: reload, disabled: Boolean(busy) }, '放弃并重新加载'), h(Button, { onClick: () => setDiscard(false), disabled: Boolean(busy) }, '继续编辑'))),
+        discard && h('div', { className: 'os-alert' }, h('p', null, '重新加载会放弃本页未保存的设置与数据库编辑。'), h('div', { className: 'os-actions' }, h(Button, { onClick: reload, disabled: controlsDisabled }, '放弃并重新加载'), h(Button, { onClick: () => setDiscard(false), disabled: controlsDisabled }, '继续编辑'))),
         draft && (tab !== 'overview' || dirty || dbDirty) && h('footer', { className: 'os-save' }, h('div', null, h('strong', { style: { fontSize: 13 } }, dbDirty ? '数据库尚在编辑' : dirty ? '有未保存的修改' : '设置已同步'), h('p', null, dbDirty ? '先完成或放弃数据库编辑。' : '保存后应用到后台服务；索引会逐步更新。')),
-          h('div', { className: 'os-actions' }, h(Button, { onClick: () => dirty || dbDirty ? setDiscard(true) : reload(), disabled: Boolean(busy) }, '重新加载'), h(Button, { onClick: previewSettings, disabled: Boolean(busy) || !dirty || dbDirty || conflict }, '预览影响'), h(Button, { primary: true, onClick: save, disabled: Boolean(busy) || !dirty || dbDirty || conflict || preview?.can_apply === false }, '保存并应用'))),
+          h('div', { className: 'os-actions' }, h(Button, { onClick: () => dirty || dbDirty ? setDiscard(true) : reload(), disabled: controlsDisabled }, '重新加载'), h(Button, { onClick: previewSettings, disabled: controlsDisabled || !dirty || dbDirty || conflict }, '预览影响'), h(Button, { primary: true, onClick: save, disabled: controlsDisabled || !dirty || dbDirty || conflict || preview?.can_apply === false }, '保存并应用'))),
         h('p', { className: 'os-note', style: { marginTop: 20 } }, `状态更新：${date(status?.index?.progress?.sampled_at)} · 页面可见时每 2 秒刷新 · 关闭页面不停止后台`)));
     }
 

@@ -53,8 +53,57 @@ After installation, the release directory environment variable is optional.
 
 The daemon remains available when DSH exits. Unloading this bundle disconnects
 MCP and removes its tools; use the installed one_search uninstaller to remove the
-background service. Updating the npm bundle alone does not upgrade the backend:
-run the newer release installer for a transactional backend upgrade.
+background service. Updating the npm bundle alone does not upgrade the backend.
+Use the newer release installer and the migration rules below.
+
+## Upgrade and reinstall
+
+For the first migration from a v0.5.0 or older bundle, stop every DSH server/profile
+connected to that backend before running the v0.5.1 installer. Closing its browser
+tab is insufficient; a terminal-launched DSH can exit normally with `Ctrl+C`.
+Disconnect other MCP hosts from this server and close native `Settings.vbs`
+windows too. `data-search stop` only stops the daemon, leaving MCP processes and
+the host's reconnect policy active.
+
+With **all connected DSH profiles running v0.5.1 or a newer compatible bundle**,
+Windows native backend upgrades can keep those profiles and Web pages open. The
+Node-owned controller registers before any runtime startup. The external updater
+sets a durable marker, requests maintenance, and waits for the MCP scope and
+active management children to close before replacing the runtime. The MCP scope
+is recreated after successful activation or rollback. The Web route stays alive
+and reports maintenance; runtime operations return `upgrade_in_progress`.
+An older bundle or an unrelated MCP client does not gain this capability simply
+because another connected profile supports it.
+
+Verify and extract `one-search-0.5.1-windows-amd64-native.zip` outside the existing
+application and data directories. From the new extracted directory, for a default
+installation:
+
+```powershell
+.\scripts\install.ps1 `
+  -InstallDir (Join-Path $env:LOCALAPPDATA 'data-search\app') `
+  -DataDir (Join-Path $env:LOCALAPPDATA 'data-search\data')
+if ($LASTEXITCODE -ne 0) { throw 'Inspect this upgrade failure before retrying' }
+```
+
+Use the original manifest's paths for a custom installation. If this release also
+updates the DSH bundle, run `register.mjs` above for each affected profile and
+restart those profiles to load its new code. Backend maintenance coordination is
+not a guarantee of live DSH plugin-code replacement. Verify `index_status` and
+`search` from the actual profile afterward.
+
+`runtime_in_use` identifies a remaining process by safe PID/role information. The
+installer rejects before replacing the runtime and does not kill it. After an
+updater crash, retain `DataDir/upgrade-state.json` and the `.upgrade-*` snapshots;
+rerun the same extracted installer to recover before retrying. Never remove the
+marker manually to force reconnection. An existing or unreadable marker keeps
+runtime admission closed; missing resume notifications can recover through polling
+after the installer removes the marker.
+
+Windows Python bootstrap and Linux upgrades do not implement the native upgrade
+transaction: stop MCP hosts and settings windows, stop the service, back up
+configuration/data, and reinstall using the original paths. See the complete
+[upgrade guide](../../docs/UPGRADE.md) and [README installation contract](../../README.md).
 
 ## Configure scope or reuse an existing backend
 
@@ -95,7 +144,10 @@ For a source environment, `command` can point to the venv Python and
 and never installs or rewrites it. Optional `serverName` defaults to `one_search`;
 `timeoutMs` bounds each setup command (default 15 minutes).
 
-The v0.5 bundle requires backend >=0.5.0. When an older managed installation is
+The v0.5.1 bundle retains compatibility with backend v0.5.0 so a failed upgrade can
+restore its MCP connection after rollback. Prefer matching v0.5.1 components;
+automatic maintenance requires the v0.5.1 (or newer compatible) incoming installer
+and bundle in every connected DSH profile. When an older incompatible managed installation is
 found and `ONE_SEARCH_RELEASE_DIR`/`releaseDir` points to a compatible extracted
 release, activation runs its verified installer and preserves existing settings.
 Otherwise it reports `backend_update_required` with the README action. An
@@ -106,6 +158,12 @@ an explicit ID, one stable registration represents the DSH home/server name;
 the plugin does not invent a profile identity. Registrations record clients that
 use the service, not currently live connections. Unloading keeps registration;
 `data-search remove-client ID --config CONFIG` removes an obsolete registration.
+
+Upgrade coordination also writes a separate, live registration with a random
+instance ID for **each active plugin instance**, so profiles sharing a persistent
+client ID still drain independently. These transient `DataDir/host-clients` records
+are removed on normal unload and excluded from upgrade snapshots. Their local
+control tokens stay in the host/installer and are never returned to the browser.
 
 DSH tool names use `mcp__one_search__` followed by `search`, `fetch`,
 `inspect_source`, `query_database`, `index_status`, `diagnose_path`, `read_context`,

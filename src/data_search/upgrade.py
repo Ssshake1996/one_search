@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -19,14 +20,18 @@ import time
 import uuid
 
 from .service import InstanceLock
+from .config import atomic_json
+from .runtime_use import assert_runtime_available
+from .upgrade_hosts import UpgradeCoordinationError, UpgradeSession
 
 
 APP_FILES = ("install-manifest.json", "mcp.json", "Settings.vbs", "launch-hidden.vbs", "uninstall.ps1", "plugin")
 TRANSIENT_DATA = {"service.lock", "service.json", "daemon.log", "daemon.previous.log",
-                  ".one-search-index.lock", "model-job/manager.lock", "model-job/worker.lock"}
+                  ".one-search-index.lock", "model-job/manager.lock", "model-job/worker.lock",
+                  "upgrade.lock", "upgrade-state.json", "host-clients"}
 
 
-def _validate_target(path, marker, expected):
+def _validate_target(path, marker, expected, *, recovery=False):
     if path == Path(path.anchor) or path == Path.home().resolve():
         raise ValueError("Upgrade target must be a dedicated application directory")
     for ancestor in [path, *path.parents]:
@@ -36,11 +41,55 @@ def _validate_target(path, marker, expected):
         return
     marker_path = path / marker
     if marker_path.exists():
-        actual = json.loads(marker_path.read_text(encoding="utf-8-sig"))
+        try:
+            actual = json.loads(marker_path.read_text(encoding="utf-8-sig"))
+            if not isinstance(actual, dict):
+                raise ValueError("Managed directory marker must be an object")
+        except (OSError, ValueError):
+            if recovery:
+                return
+            raise
         if any(actual.get(key) != value for key, value in expected.items()):
+            if recovery:
+                return
             raise ValueError("Existing managed directory marker does not match the upgrade target")
-    elif any(path.iterdir()):
-        raise ValueError("Upgrade refuses a nonempty unmanaged directory")
+    elif any(path.iterdir()) and not (marker == ".data-search-data.json" and
+            all(item.name == "host-clients" and item.is_dir() and not item.is_symlink() and
+                all(child.is_file() and not child.is_symlink() and child.name.endswith((".json", ".json.tmp")) for child in item.iterdir())
+                for item in path.iterdir())):
+        if not recovery:
+            raise ValueError("Upgrade refuses a nonempty unmanaged directory")
+
+
+def _recovery_identity(install, data):
+    """Prove ownership from complete snapshots if activation damaged a marker."""
+    try:
+        marker_path = data / "upgrade-state.json"
+        if marker_path.is_symlink() or marker_path.stat().st_size > 65536:
+            return False
+        marker = json.loads(marker_path.read_text(encoding="utf-8"))
+        if marker.get("install_dir") != str(install) or marker.get("data_dir") != str(data):
+            return False
+        transaction = _target_path(marker["transaction"])
+        if transaction.parent != install or not re.fullmatch(r"\.upgrade-[0-9a-f]{32}", transaction.name):
+            return False
+        journal = json.loads((transaction / "transaction.json").read_text(encoding="utf-8"))
+        if (journal.get("product") != "data-search-upgrade" or journal.get("install_dir") != str(install) or
+                journal.get("data_dir") != str(data) or journal.get("phase") not in
+                {"swapping", "activating", "rolling_back", "restored", "rollback_blocked"}):
+            return False
+        for relative, expected in (("app-snapshot/install-manifest.json", {
+                "product": "data-search", "install_dir": str(install), "data_dir": str(data)}),
+                ("data-snapshot/.data-search-data.json", {"product": "data-search", "data_dir": str(data)})):
+            path = _target_path(transaction / relative)
+            if not path.is_relative_to(transaction):
+                return False
+            saved = json.loads(path.read_text(encoding="utf-8-sig"))
+            if any(saved.get(key) != value for key, value in expected.items()):
+                return False
+        return True
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return False
 
 
 def _target_path(value):
@@ -54,6 +103,11 @@ def _target_path(value):
 def _digest(path):
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def _runtime_identity(directory):
+    inventory = {path.relative_to(directory).as_posix(): _digest(path) for path in _files(directory)}
+    return hashlib.sha256(json.dumps(inventory, sort_keys=True).encode()).hexdigest()
 
 
 def _verified_model_files(directory):
@@ -74,6 +128,8 @@ def _verified_model_files(directory):
 def _files(root: Path, excluded: tuple[Path, ...] = ()):
     if not root.exists():
         return []
+    if root.is_symlink() or (os.name == "nt" and root.lstat().st_file_attributes & 0x400):
+        raise ValueError("Upgrade snapshot root must not be a directory link")
     result = []
     for base, directories, files in os.walk(root, followlinks=False):
         for name in list(directories):
@@ -156,13 +212,28 @@ def _restore_startup(name, previous):
 
 
 def _restore_files(source: Path, destination: Path, current_files):
-    # Every removal is an exact file within an explicitly managed target, never a shell glob.
+    # Replace originals atomically before deleting additional migration artifacts.
+    # An interrupted restore must not erase the managed-directory identity markers.
     root = destination.resolve()
+    restored = set()
+    for path in _files(source):
+        target = destination / path.relative_to(source)
+        if not target.resolve().is_relative_to(root):
+            raise ValueError("Rollback target escaped the managed directory")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target.with_name(target.name + ".restore-" + uuid.uuid4().hex + ".tmp")
+        try:
+            shutil.copy2(path, temporary)
+            os.replace(temporary, target)
+        finally:
+            temporary.unlink(missing_ok=True)
+        restored.add(target)
+    # Every removal is an exact file within a validated managed destination.
     for path in current_files:
         if not path.resolve().is_relative_to(root):
             raise ValueError("Rollback target escaped the managed directory")
-        path.unlink()
-    _copy_files(_files(source), source, destination)
+        if path not in restored:
+            path.unlink()
 
 
 def _rename_runtime(source: Path, destination: Path, *, timeout=5):
@@ -183,7 +254,169 @@ def _rename_runtime(source: Path, destination: Path, *, timeout=5):
             time.sleep(min(0.1, remaining))
 
 
+def _wait_runtime_free(install, data, *, timeout=5):
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            assert_runtime_available(install, data, allow_service_workers=False)
+            return
+        except Exception:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.1)
+
+
+def _rollback_configuration(previous_config, data, index):
+    if previous_config is not None:
+        return previous_config
+    # A failed first installation can already have queued a model worker.
+    # Its new, verified instance configuration must be quiesced too, before
+    # restoring the empty pre-install snapshot and removing the new runtime.
+    path = data / "config.json"
+    if not path.exists():
+        return None
+    from .config import load_config
+    config = load_config(path)
+    if _target_path(config["data_dir"]) != data or _target_path(config.get("index_dir") or data) != index:
+        raise ValueError("Activated configuration does not match the recovery instance")
+    return config
+
+
+def _recover_interrupted(previous, session, *, runner=subprocess.run):
+    """Retry the same installer to recover a killed updater before a new upgrade.
+
+    The journal is written before either runtime rename. Restoring the immutable
+    snapshots is repeatable, including after a second interruption during restore.
+    No incomplete activation is opened to reconnecting clients.
+    """
+    from .maintenance import IndexDirectoryLease, MaintenanceGuard, _index_files
+    from .service import stop_service
+
+    install, data = session.install, session.data
+    transaction_name = previous.get("transaction")
+    if not transaction_name and previous.get("phase") == "preparing":
+        session.safe = True
+        return
+    try:
+        transaction = _target_path(transaction_name)
+        if transaction.parent != install or not re.fullmatch(r"\.upgrade-[0-9a-f]{32}", transaction.name):
+            raise ValueError("Invalid retained transaction location")
+        journal = transaction / "transaction.json"
+        record = json.loads(journal.read_text(encoding="utf-8"))
+        if (record.get("product") != "data-search-upgrade" or record.get("install_dir") != str(install) or
+                record.get("data_dir") != str(data)):
+            raise ValueError("Retained transaction does not match the instance")
+        phase = record["phase"]
+        if phase in {"complete", "rolled_back"}:
+            session.safe = True
+            return
+        old_cli = _target_path(record.get("old_cli", install / "runtime/data-search.exe"))
+        if not old_cli.is_relative_to(install):
+            raise ValueError("Previous executable is outside the installation")
+        options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
+
+        def restart():
+            if record.get("was_running"):
+                result = runner([str(old_cli), "start", "--config", str(data / "config.json")],
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, **options)
+                if result.returncode:
+                    raise ValueError("Previous runtime was restored but could not restart")
+
+        if phase in {"staging", "snapshot_complete", "failed_before_activation"}:
+            assert_runtime_available(install, data)
+            restart()
+            record["phase"] = "failed_before_activation"
+            atomic_json(journal, record)
+            session.safe = True
+            return
+        if phase not in {"swapping", "activating", "rolling_back", "rollback_blocked", "restored"}:
+            raise ValueError("Unknown interrupted upgrade phase")
+        snapshot, app_snapshot, index_snapshot = (transaction / name for name in
+            ("data-snapshot", "app-snapshot", "index-snapshot"))
+        if not snapshot.is_dir() or not app_snapshot.is_dir():
+            raise ValueError("Retained snapshots are missing")
+        index = _target_path(record["index_dir"])
+        if index != data and any(index.is_relative_to(path) or path.is_relative_to(index) for path in (data, install)):
+            raise ValueError("Invalid external index snapshot destination")
+        config_file = snapshot / "config.json"
+        config = json.loads(config_file.read_text(encoding="utf-8-sig")) if record.get("had_config") else None
+        if config is not None:
+            if _target_path(config["data_dir"]) != data or _target_path(config.get("index_dir") or data) != index:
+                raise ValueError("Snapshot configuration does not match the instance")
+            config["config_path"] = str(data / "config.json")
+        excluded = []
+        for relative in record.get("excluded_data", []):
+            path = _target_path(data / relative)
+            if not path.is_relative_to(data):
+                raise ValueError("Snapshot exclusion escaped the instance")
+            excluded.append(path)
+        excluded.extend(data / name for name in TRANSIENT_DATA)
+        assert_runtime_available(install, data)
+        # The incoming updater can stop either old or new daemon through its
+        # authenticated instance endpoint even if the swapped CLI cannot start.
+        stop_service(config or {"data_dir": str(data), "config_path": str(data / "config.json")})
+        record["phase"] = "rolling_back"
+        atomic_json(journal, record)
+        session.update("rolling_back", transaction=transaction, safe=False)
+        guard_config = _rollback_configuration(config, data, index)
+        with ExitStack() as guards:
+            guards.enter_context(MaintenanceGuard(guard_config) if guard_config else InstanceLock(data / "service.lock"))
+            if guard_config:
+                guards.enter_context(IndexDirectoryLease(guard_config, directory=index))
+            _wait_runtime_free(install, data)
+            runtime, old_runtime = install / "runtime", transaction / "previous-runtime"
+            if old_runtime.exists():
+                if runtime.exists():
+                    _rename_runtime(runtime, transaction / ("failed-runtime-" + uuid.uuid4().hex))
+                _rename_runtime(old_runtime, runtime)
+            elif record.get("had_runtime"):
+                # Either the first rename had not happened, or a previous
+                # recovery restored the runtime before being interrupted again.
+                if not (runtime / "data-search.exe").is_file() or _runtime_identity(runtime) != record.get("old_runtime_identity"):
+                    raise ValueError("Cannot establish the identity of the previous runtime")
+            elif runtime.exists():
+                _rename_runtime(runtime, transaction / ("failed-runtime-" + uuid.uuid4().hex))
+            _restore_files(snapshot, data, _files(data, tuple(excluded)))
+            if index != data:
+                if not index_snapshot.is_dir():
+                    raise ValueError("Retained external index snapshot is missing")
+                _restore_files(index_snapshot, index, _index_files(index))
+            _restore_files(app_snapshot, install, _app_files(install))
+            _restore_startup(record["startup_name"], record.get("startup_state"))
+        record["phase"] = "restored"
+        atomic_json(journal, record)
+        restart()
+        record["phase"] = "rolled_back"
+        atomic_json(journal, record)
+        session.safe = True
+    except Exception as error:
+        raise UpgradeCoordinationError("upgrade_recovery_required",
+            "Interrupted upgrade could not be safely restored. Close remaining runtime users and retry this installer; keep the maintenance marker and retained transaction") from error
+
+
 def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, disk_usage=shutil.disk_usage):
+    install, data, runtime = (_target_path(request[key]) for key in ("InstallDir", "DataDir", "RuntimeDir"))
+    if install == data or install.is_relative_to(data) or data.is_relative_to(install):
+        raise ValueError("Install and data directories must be independent")
+    if runtime.is_relative_to(install):
+        raise ValueError("Run the upgrade from a separately extracted release bundle")
+    if runtime.is_relative_to(data) or data.is_relative_to(runtime) or install.is_relative_to(runtime):
+        raise ValueError("The incoming runtime must be independent of the installation and its data")
+    recovery = _recovery_identity(install, data)
+    _validate_target(install, "install-manifest.json", {"product": "data-search", "install_dir": str(install), "data_dir": str(data)}, recovery=recovery)
+    _validate_target(data, ".data-search-data.json", {"product": "data-search", "data_dir": str(data)}, recovery=recovery)
+    verify_runtime(runtime)
+    # Registration precedes native startup, including on a fresh DSH install.
+    data.mkdir(parents=True, exist_ok=True)
+    if not (data / ".data-search-data.json").exists() and not recovery:
+        atomic_json(data / ".data-search-data.json", {"product": "data-search", "schema_version": 1, "data_dir": str(data)})
+    with UpgradeSession(install, data, recover=lambda record, session:
+            _recover_interrupted(record, session, runner=runner)) as session:
+        assert_runtime_available(install, data)
+        return _upgrade_native(request, session=session, runner=runner, copy=copy, disk_usage=disk_usage)
+
+
+def _upgrade_native(request: dict, *, session, runner=subprocess.run, copy=shutil.copy2, disk_usage=shutil.disk_usage):
     from .maintenance import IndexDirectoryLease, MaintenanceGuard, _index_files
     install, data, runtime = (_target_path(request[key]) for key in ("InstallDir", "DataDir", "RuntimeDir"))
     if install == data or install.is_relative_to(data) or data.is_relative_to(install):
@@ -242,11 +475,17 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
         index_snapshot.mkdir()
     record = {"product": "data-search-upgrade", "phase": "staging", "install_dir": str(install),
         "data_dir": str(data), "index_dir": str(index), "backup_bytes": sum(path.stat().st_size for path in data_files + index_files),
+        "startup_name": startup_name, "startup_state": startup_state,
+        "excluded_data": [str(path.relative_to(data)) for path in excluded],
+        "had_runtime": (install / "runtime").exists(), "had_config": previous_config is not None,
+        "old_runtime_identity": _runtime_identity(install / "runtime") if (install / "runtime").is_dir() else None,
         "policy": "Immediate failed-start rollback only; no automatic later downgrade. Model files are excluded."}
     journal = transaction / "transaction.json"
     def mark(phase):
         record["phase"] = phase
-        journal.write_text(json.dumps(record, indent=2), encoding="utf-8")
+        atomic_json(journal, record)
+        session.update(phase, transaction=transaction, safe=phase in {
+            "staging", "snapshot_complete", "complete", "rolled_back", "failed_before_activation"})
     mark("staging")
     # Copy and verify completely before stopping the previous service.
     _copy_files(_files(runtime), runtime, stage, copy)
@@ -271,6 +510,8 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
         return result
     old_existed = old_cli.is_file()
     was_running = old_existed and command([old_cli, "status", "--config", config_path], check=False).returncode == 0
+    record.update(old_cli=str(old_cli), was_running=was_running)
+    mark("staging")
     swapped = False
     snapshot_ready = False
     try:
@@ -280,6 +521,7 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
             guards.enter_context(MaintenanceGuard(previous_config) if previous_config else InstanceLock(data / "service.lock"))
             if previous_config:
                 guards.enter_context(IndexDirectoryLease(previous_config, directory=index))
+            _wait_runtime_free(install, data)
             # Re-enumerate after stopping, including any final WAL/catalog writes.
             data_files = _files(data, excluded)
             index_files = _index_files(index) if index != data else []
@@ -292,6 +534,7 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
                 _copy_files(index_files, index, index_snapshot, copy)
             snapshot_ready = True
             mark("snapshot_complete")
+            mark("swapping")
             if new_cli.parent.exists():
                 _rename_runtime(new_cli.parent, old_runtime)
             _rename_runtime(stage, new_cli.parent)
@@ -308,13 +551,16 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
                 "rollback_snapshot_retained": True, "message": "Native installation passed health checks; previous runtime and pre-migration snapshot retained"}
     except Exception:
         if swapped or old_runtime.exists():
+            mark("rolling_back")
             if new_cli.exists():
                 command([new_cli, "stop", "--config", config_path], check=False)
             try:
+                guard_config = _rollback_configuration(previous_config, data, index)
                 with ExitStack() as guards:
-                    guards.enter_context(MaintenanceGuard(previous_config) if previous_config else InstanceLock(data / "service.lock"))
-                    if previous_config:
-                        guards.enter_context(IndexDirectoryLease(previous_config, directory=index))
+                    guards.enter_context(MaintenanceGuard(guard_config) if guard_config else InstanceLock(data / "service.lock"))
+                    if guard_config:
+                        guards.enter_context(IndexDirectoryLease(guard_config, directory=index))
+                    _wait_runtime_free(install, data)
                     if new_cli.parent.exists():
                         _rename_runtime(new_cli.parent, transaction / "failed-runtime")
                     if old_runtime.exists():
@@ -326,7 +572,7 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
                         current_app = _app_files(install)
                         _restore_files(app_snapshot, install, current_app)
                     _restore_startup(startup_name, startup_state)
-                mark("rolled_back")
+                mark("restored")
             except Exception as rollback_error:
                 mark("rollback_blocked")
                 raise RuntimeError(f"Upgrade failed; automatic restore could not safely complete. Retained recovery snapshot: {transaction}") from rollback_error
@@ -334,6 +580,8 @@ def upgrade_native(request: dict, *, runner=subprocess.run, copy=shutil.copy2, d
             mark("failed_before_activation")
         if was_running:
             command([old_cli, "start", "--config", config_path])
+        if record["phase"] == "restored":
+            mark("rolled_back")
         raise
 
 
@@ -346,7 +594,9 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=True))
         return 0
     except Exception as error:
-        print(json.dumps({"ok": False, "error": str(error)[:700]}, ensure_ascii=True), file=sys.stderr)
+        print(json.dumps({"schema_version": 1, "event": "installation_result", "ok": False,
+            "error": {"code": getattr(error, "code", "installation_failed"), "message": str(error)[:700],
+                      "processes": getattr(error, "details", [])}}, ensure_ascii=True))
         return 1
 
 

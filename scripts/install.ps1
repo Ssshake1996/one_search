@@ -21,11 +21,14 @@ $OutputEncoding = [Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = $OutputEncoding
 $installStage = 'preflight'
 $installLocks = [Collections.Generic.List[IO.FileStream]]::new()
+$upgradeReportedFailure = $false
+$bootstrapFailure = $null
 trap {
     for ($i = $installLocks.Count - 1; $i -ge 0; $i--) { $installLocks[$i].Dispose() }
     $failure = @{schema_version=1; event='installation_result'; ok=$false; stage=$installStage;
         error=@{code='installation_failed'; message='Installation did not complete. Inspect stderr and retry the same command; existing native installs use transactional rollback.'}}
-    $failure | ConvertTo-Json -Depth 8 -Compress | Write-Output
+    if ($bootstrapFailure) { $failure.error = $bootstrapFailure }
+    if (-not $upgradeReportedFailure) { $failure | ConvertTo-Json -Depth 8 -Compress | Write-Output }
     Write-Error -Message $_.Exception.Message -ErrorAction Continue
     exit 1
 }
@@ -54,6 +57,15 @@ function Run-Checked([string]$Command, [string[]]$Arguments) {
 function Write-Json([string]$Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 24), [Text.UTF8Encoding]::new($false))
 }
+function Test-OnlyHostRegistrations([string]$Path) {
+    foreach ($entry in @(Get-ChildItem -LiteralPath $Path -Force)) {
+        if ($entry.Name -ne 'host-clients' -or -not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
+        foreach ($child in @(Get-ChildItem -LiteralPath $entry.FullName -Force)) {
+            if ($child.PSIsContainer -or ($child.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $child.Name -notmatch '\.json(\.tmp)?$') { return $false }
+        }
+    }
+    return $true
+}
 function Lock-InstallFile([string]$Path) {
     New-Item -ItemType Directory -Path (Split-Path -Parent $Path) -Force | Out-Null
     $handle = [IO.File]::Open($Path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
@@ -62,6 +74,45 @@ function Lock-InstallFile([string]$Path) {
         $handle.Lock(0, 1)
         return $handle
     } catch { $handle.Dispose(); throw 'The instance is busy; retry installation after maintenance completes.' }
+}
+function Stop-BootstrapPreflight([string]$Code, [string]$Message, $Processes = @()) {
+    $script:bootstrapFailure = @{code=$Code; message=$Message; processes=@($Processes)}
+    throw $Message
+}
+function Test-InstalledExecutable([string]$Executable, [string]$Directory) {
+    if (-not $Executable -or -not [IO.Path]::IsPathRooted($Executable)) { return $false }
+    try { $full = Full-Path $Executable } catch { return $false }
+    return $full.StartsWith($Directory.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)
+}
+function Assert-BootstrapIdle([string]$Directory, [string]$StateDirectory) {
+    $retry = 'Stop the MCP host, one_search background service and settings windows, then retry from an independent PowerShell. Bootstrap upgrades require a manual maintenance window.'
+    try { $marker = Test-Path -LiteralPath (Join-Path $StateDirectory 'upgrade-state.json') -ErrorAction Stop }
+    catch { Stop-BootstrapPreflight 'upgrade_in_progress' 'Unable to verify the installation maintenance state. Wait for the current installer or recover its maintenance state before retrying.' }
+    if ($marker) { Stop-BootstrapPreflight 'upgrade_in_progress' 'An installation maintenance marker is present. Wait for that upgrade or recover its maintenance state before retrying.' }
+    try { $snapshot = @(Get-CimInstance -ClassName Win32_Process -Property ProcessId,Name,ExecutablePath,CommandLine -ErrorAction Stop) }
+    catch { Stop-BootstrapPreflight 'runtime_in_use' "Unable to verify runtime process ownership. $retry" }
+    $possibleNames = @('data-search.exe')
+    if (Test-Path -LiteralPath (Join-Path $Directory 'venv')) { $possibleNames += @('python.exe', 'pythonw.exe') }
+    $blocking = @()
+    foreach ($process in $snapshot) {
+        $executable = [string]$process.ExecutablePath
+        $commandLine = [string]$process.CommandLine
+        $launcher = ''
+        # A Windows venv launcher may report the shared base Python as its image.
+        # Only the exact first executable token provides an alternate identity;
+        # arbitrary config paths and query text never establish runtime ownership.
+        if ($commandLine -match '^\s*(?:"([^"]+)"|([^\s"]+))') {
+            $launcher = if ($Matches[1]) { $Matches[1] } else { $Matches[2] }
+        }
+        $owned = (Test-InstalledExecutable $executable $Directory) -or (Test-InstalledExecutable $launcher $Directory)
+        $uncertain = ($possibleNames -contains [string]$process.Name) -and
+            (-not $executable -or (([string]$process.Name -in @('python.exe','pythonw.exe')) -and -not $commandLine))
+        if ($owned -or $uncertain) {
+            # Do not emit complete command lines, config paths or credentials.
+            $blocking += @{pid=[int]$process.ProcessId; name=[string]$process.Name}
+        }
+    }
+    if ($blocking.Count) { Stop-BootstrapPreflight 'runtime_in_use' "The installed runtime is still in use. $retry" $blocking }
 }
 
 if ($NativeTransactionChild) {
@@ -105,6 +156,7 @@ Assert-ManagedTarget $DataDir
 if ($DataDir -eq $InstallDir -or $DataDir.StartsWith($InstallDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or $InstallDir.StartsWith($DataDir.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase)) {
     throw 'DataDir must be outside InstallDir so uninstall can preserve data.'
 }
+if (-not $RuntimeDir) { Assert-BootstrapIdle $InstallDir $DataDir }
 $configPath = Join-Path $DataDir 'config.json'
 $manifestPath = Join-Path $InstallDir 'install-manifest.json'
 $dataMarkerPath = Join-Path $DataDir '.data-search-data.json'
@@ -112,7 +164,7 @@ if (Test-Path -LiteralPath $DataDir) {
     if (Test-Path -LiteralPath $dataMarkerPath) {
         $dataMarker = Get-Content -LiteralPath $dataMarkerPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($dataMarker.product -ne 'data-search' -or $dataMarker.data_dir -ne $DataDir) { throw 'Invalid data directory marker.' }
-    } elseif (@(Get-ChildItem -LiteralPath $DataDir -Force).Count -gt 0) {
+    } elseif (@(Get-ChildItem -LiteralPath $DataDir -Force).Count -gt 0 -and -not (Test-OnlyHostRegistrations $DataDir)) {
         throw 'DataDir must be empty or an existing installer-managed data-search directory.'
     }
 }
@@ -138,9 +190,6 @@ if ($ModelDir) {
     }
 }
 if ($RuntimeDir -and -not $NativeTransactionChild) {
-    if (Test-Path -LiteralPath (Join-Path $DataDir 'model-job\status.json')) {
-        Run-Checked (Join-Path $RuntimeDir 'data-search.exe') @('--internal-module', 'data_search.model_manager', 'quiesce', '--config', $configPath)
-    }
     $requestPath = Join-Path ([IO.Path]::GetTempPath()) ('data-search-upgrade-' + [Guid]::NewGuid().ToString('N') + '.json')
     $request = @{InstallDir=$InstallDir; DataDir=$DataDir; RuntimeDir=$RuntimeDir; Root=@($resolvedRoots);
         Exclude=@($Exclude); Preset=$Preset;
@@ -148,7 +197,8 @@ if ($RuntimeDir -and -not $NativeTransactionChild) {
         Installer=$PSCommandPath; PowerShell=[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName}
     try {
         Write-Json $requestPath $request
-        Run-Checked (Join-Path $RuntimeDir 'data-search.exe') @('--internal-module', 'data_search.upgrade', '--request', $requestPath)
+        & (Join-Path $RuntimeDir 'data-search.exe') '--internal-module' 'data_search.upgrade' '--request' $requestPath
+        if ($LASTEXITCODE -ne 0) { $upgradeReportedFailure = $true; throw 'Native upgrade did not complete; see its structured installation_result above.' }
     } finally {
         if (Test-Path -LiteralPath $requestPath) { Remove-Item -LiteralPath $requestPath -Force }
     }

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { backendCompatible, findRelease, prepareService, settings } from '../bootstrap.mjs';
+import { backendCompatible, findRelease, installerCompatible, prepareService, runProcess, settings } from '../bootstrap.mjs';
 import { registerBundle, stageBundle } from '../register.mjs';
 
 test('DSH manifest registers a bundle patch, without blocked install lifecycle scripts', async () => {
@@ -73,7 +73,7 @@ test('existing source backend starts idempotently and preserves configuration', 
   await writeFile(path, original);
   const calls = [];
   const request = { command: process.execPath, configPath: path, commandArgs: ['module'], roots: [resolve('other-root')] };
-  const runner = async (...args) => { calls.push(args); return JSON.stringify({ version: '0.5.0' }); };
+  const runner = async (...args) => { calls.push(args); return JSON.stringify({ version: '0.5.1' }); };
   const first = await prepareService(request, runner);
   await prepareService(request, runner);
   assert.equal(calls.length, 6);
@@ -85,6 +85,64 @@ test('existing source backend starts idempotently and preserves configuration', 
   assert.deepEqual(first.args, ['module', 'mcp', '--config', path]);
   assert.equal(first.cwd, dir);
   assert.equal(first.failOnStartupError, true);
+});
+
+test('structured command errors stay distinguishable from stderr and retain actual close lifetime', async () => {
+  const operation = runProcess(process.execPath, ['-e', "process.stderr.write('diagnostic before result\\n'); console.log(JSON.stringify({ok:false,operation:'register-client',error:{code:'ServiceError',message:'busy'}})); process.exitCode=1;"]);
+  await assert.rejects(operation, { operation: 'register-client', backendCode: 'ServiceError' });
+  await operation.closed;
+});
+
+test('concurrent profile registry contention retries only registration, without replaying startup', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'one-search-register-contention-'));
+  const configPath = join(dir, 'config.json');
+  await writeFile(configPath, '{}');
+  const operations = [];
+  let registrations = 0;
+  await prepareService({ command: process.execPath, configPath }, async (_command, args) => {
+    operations.push(args[0]);
+    if (args[0] === 'version') return JSON.stringify({ version: '0.5.0' });
+    if (args[0] === 'register-client' && ++registrations < 3) {
+      throw Object.assign(new Error('Busy registry'), { operation: 'register-client', backendCode: 'ServiceError' });
+    }
+  });
+  assert.deepEqual(operations, ['version', 'start', 'register-client', 'register-client', 'register-client']);
+});
+
+test('registration retry is bounded and permanent failures are returned immediately', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'one-search-register-bound-'));
+  const configPath = join(dir, 'config.json');
+  await writeFile(configPath, '{}');
+  for (const [backendCode, expected] of [['ServiceError', 5], ['ValueError', 1]]) {
+    let registrations = 0;
+    await assert.rejects(prepareService({ command: process.execPath, configPath }, async (_command, args) => {
+      if (args[0] === 'version') return JSON.stringify({ version: '0.5.0' });
+      if (args[0] === 'register-client') {
+        registrations++;
+        throw Object.assign(new Error('Registration failed'), { operation: 'register-client', backendCode });
+      }
+    }), { backendCode });
+    assert.equal(registrations, expected);
+  }
+});
+
+test('maintenance starting during registration backoff prevents the next executable launch', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'one-search-register-maintenance-'));
+  const configPath = join(dir, 'config.json');
+  await writeFile(configPath, '{}');
+  let registrations = 0;
+  let maintenance = false;
+  await assert.rejects(prepareService({ command: process.execPath, configPath }, async (_command, args) => {
+    if (args[0] === 'version') return JSON.stringify({ version: '0.5.0' });
+    if (args[0] === 'register-client') {
+      registrations++; maintenance = true;
+      throw Object.assign(new Error('Busy registry'), { operation: 'register-client', backendCode: 'ServiceError' });
+    }
+  }, { runRuntime(callback) {
+    if (maintenance) throw Object.assign(new Error('Upgrading'), { code: 'upgrade_in_progress' });
+    return callback();
+  } }), { code: 'upgrade_in_progress' });
+  assert.equal(registrations, 1);
 });
 
 test('missing explicit backend is never replaced by an automatic install', async () => {
@@ -103,6 +161,20 @@ test('release locator supports installed package copies via explicit release dir
   await assert.rejects(findRelease(join(dir, 'missing'), []), /runtime is not installed/);
 });
 
+test('rollback backend remains compatible while old incoming installers are rejected before execution', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'one-search-old-installer-'));
+  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
+  let called = false;
+  await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async () => {
+    called = true;
+  }), /installer release >= 0\.5\.1/);
+  assert.equal(called, false);
+  assert.equal(backendCompatible('0.5.0'), true);
+  assert.equal(installerCompatible('0.5.0'), false);
+  assert.equal(installerCompatible('0.5.1'), true);
+  assert.equal(installerCompatible('0.6.0'), true);
+});
+
 test('activation provisions a missing Windows backend with JSON arguments, then starts it', { skip: process.platform !== 'win32' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-provision-test-'));
   const releaseDir = join(dir, 'release with spaces');
@@ -111,7 +183,7 @@ test('activation provisions a missing Windows backend with JSON arguments, then 
   const root = join(dir, "corpus quote ' and spaces");
   await mkdir(releaseDir);
   await mkdir(root);
-  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
+  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.1' }));
   const calls = [];
   let requestPath;
   const runner = async (command, args) => {
@@ -148,7 +220,7 @@ test('explicit profile client identities remain distinct and reject control char
 
 test('installer failure prevents MCP activation and cleans its temporary request', { skip: process.platform !== 'win32' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-install-fail-test-'));
-  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
+  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.1' }));
   let requestPath;
   let calls = 0;
   await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async (_command, args) => {
@@ -170,7 +242,9 @@ test('old explicit backend fails with an upgrade action before start/register', 
   }), /backend_update_required/);
   assert.equal(calls.length, 1);
   assert.equal(calls[0][1][0], 'version');
+  assert.equal(backendCompatible('0.5.1'), true);
   assert.equal(backendCompatible('0.5.0'), true);
+  assert.equal(backendCompatible('0.4.9'), false);
   assert.equal(backendCompatible('0.3.0'), false);
 });
 
@@ -187,11 +261,11 @@ test('old managed backend upgrades through the verified installer then preserves
   await writeFile(path, original);
   await writeFile(join(app, 'runtime', 'data-search.exe'), 'mock runtime');
   await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.3.0' }));
-  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
+  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.1' }));
   const calls = [];
   await prepareService({ installDir: app, dataDir: data, releaseDir: release }, async (...args) => {
     calls.push(args);
-    if (calls.length === 1) await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.5.0' }));
+    if (calls.length === 1) await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.5.1' }));
   });
   assert.equal(calls.length, 3);
   assert.ok(calls[0][1].includes('-NonInteractive'));

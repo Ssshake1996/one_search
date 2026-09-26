@@ -221,3 +221,26 @@ test('revision conflict retains edited values and prevents blind overwrite', asy
   assert.match(textOf(tree), /你的编辑仍保留/);
   harness.dispose();
 });
+
+test('maintenance keeps edits, disables settings actions and recovers through status polling', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let maintenance = false, saves = 0;
+  const request = async action => {
+    if (action === 'settings_get') return { revision: 'before-upgrade', values: { roots: ['D:/original'], indexing: {}, databases: [] } };
+    if (action === 'status') return { service: { status: maintenance ? 'maintenance' : 'running' }, index: {} };
+    if (action === 'settings_save') saves++;
+  };
+  harness.render(Panel, { request }); await tick(); let tree = harness.render(Panel, { request });
+  all(tree, node => node.type?.name === 'Scope')[0].props.update('roots', ['D:/mine']);
+  maintenance = true; clock.fire(); await tick(); tree = harness.render(Panel, { request });
+  assert.match(textOf(tree), /正在升级或恢复 one_search/);
+  assert.equal(all(tree, node => node.type === 'fieldset')[0].props.disabled, true);
+  const save = all(tree, node => textOf(node) === '保存并应用' && node.props.onClick)[0];
+  assert.equal(save.props.disabled, true); await save.props.onClick(); assert.equal(saves, 0);
+  assert.deepEqual(Array.from(all(tree, node => node.type?.name === 'Scope')[0].props.values.roots), ['D:/mine']);
+  maintenance = false; clock.fire(); await tick(); tree = harness.render(Panel, { request });
+  assert.equal(all(tree, node => node.type === 'fieldset')[0].props.disabled, false);
+  assert.deepEqual(Array.from(all(tree, node => node.type?.name === 'Scope')[0].props.values.roots), ['D:/mine']);
+  harness.dispose();
+});

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createWebBridge, preparedBackend, registerWebHost, runManagement, webRpcHandler } from '../web-host.mjs';
+import { createUpgradeCoordinator } from '../upgrade-coordinator.mjs';
 
 async function fixture(t, override) {
   const directory = await mkdtemp(join(tmpdir(), 'one-search-web-host-'));
@@ -212,4 +213,131 @@ test('HTTP adapter checks host authentication before accepting bounded DSH RPC e
   assert.equal((await fetch(url, { method: 'POST', body: 'x'.repeat(140000), headers: { Cookie: 'test-session' } })).status, 413);
   assert.equal((await fetch(url, { method: 'POST', body: '{}', headers: { Cookie: 'test-session' } })).status, 400);
   assert.equal(calls.length, 1);
+});
+
+test('maintenance status is public and does not resolve the backend, read files or spawn', async () => {
+  const bridge = createWebBridge(() => { throw new Error('Backend must not be resolved during maintenance'); }, {
+    maintenanceStatus: () => ({ maintenance: true, state: 'private-state-secret', token: 'private-token', config: 'private-path' }),
+    runRuntime: () => { throw new Error('Runtime must not be admitted'); },
+    manage: () => { throw new Error('No child is allowed'); },
+  });
+  assert.deepEqual(await bridge.request({ action: 'status', params: {} }), {
+    ok: true, result: { service: { status: 'maintenance' }, upgrade: { maintenance: true, state: 'maintenance' } },
+  });
+  for (const action of ['settings_get', 'settings_save', 'db_discover', 'pause', 'scan', 'diagnose_path']) {
+    const params = action === 'diagnose_path' ? { path: join(tmpdir(), 'fixture') } : {};
+    assert.equal((await bridge.request({ action, params })).error.code, 'upgrade_in_progress');
+  }
+  bridge.dispose();
+});
+
+test('runtime gate closes a new-marker race before any backend access', async () => {
+  let attempts = 0;
+  const bridge = createWebBridge(() => { throw new Error('Provider was accessed after gate refusal'); }, {
+    runRuntime: () => { attempts++; throw Object.assign(new Error('private rejection details'), { code: 'upgrade_in_progress' }); },
+  });
+  assert.equal((await bridge.request({ action: 'status', params: {} })).result.service.status, 'maintenance');
+  for (const action of ['settings_get', 'pause', 'diagnose_path']) {
+    const result = await bridge.request({ action, params: action === 'diagnose_path' ? { path: join(tmpdir(), 'fixture') } : {} });
+    assert.equal(result.error.code, 'upgrade_in_progress');
+    assert.equal(JSON.stringify(result).includes('private'), false);
+  }
+  assert.equal(attempts, 4);
+});
+
+test('maintenance transitions and replacement connection invalidate a fresh cached status', async (t) => {
+  const a = await fixture(t);
+  const b = await fixture(t);
+  let current = a.connection;
+  let maintenance = false;
+  const bridge = createWebBridge(() => current, { now: () => 1000,
+    maintenanceStatus: () => ({ maintenance, state: maintenance ? 'maintenance' : 'ready' }) });
+  t.after(() => bridge.dispose());
+  await bridge.request({ action: 'status', params: {} });
+  assert.equal(a.calls.length, 2);
+  maintenance = true;
+  assert.equal((await bridge.request({ action: 'status', params: {} })).result.service.status, 'maintenance');
+  assert.equal(a.calls.length, 2);
+  maintenance = false;
+  await bridge.request({ action: 'status', params: {} });
+  assert.equal(a.calls.length, 4);
+  current = b.connection;
+  await bridge.request({ action: 'status', params: {} });
+  assert.equal(b.calls.length, 2);
+});
+
+test('queued management rechecks maintenance at execution and never launches its child', async (t) => {
+  const f = await fixture(t);
+  let maintenance = false;
+  let release;
+  let launched = 0;
+  const bridge = createWebBridge(f.connection, {
+    maintenanceStatus: () => ({ maintenance, state: 'maintenance' }),
+    manage: () => { launched++; return new Promise((resolve) => { release = () => resolve({ ok: true, result: {} }); }); },
+  });
+  const first = bridge.request({ action: 'settings_save', params: {} });
+  const second = bridge.request({ action: 'settings_get', params: {} });
+  await delay(0);
+  maintenance = true;
+  release();
+  assert.equal((await first).ok, true);
+  assert.equal((await second).error.code, 'upgrade_in_progress');
+  assert.equal(launched, 1);
+});
+
+test('real coordinator drains a timed-out save until its actual child closes', async (t) => {
+  const f = await fixture(t);
+  const script = join(f.directory, 'coordinated-save.mjs');
+  const marker = join(f.directory, 'saved.txt');
+  await writeFile(script, `import {writeFile} from 'node:fs/promises';
+    let raw=''; for await (const c of process.stdin) raw+=c;
+    const request=JSON.parse(raw); await new Promise(r=>setTimeout(r,350));
+    await writeFile(request.params.marker,'committed'); console.log(JSON.stringify({ok:true,result:{saved:true}}));`);
+  const coordinator = await createUpgradeCoordinator({ dataDir: f.directory, configPath: f.configPath, clientId: 'web-test' }, { pollMs: 60000 });
+  t.after(() => coordinator.dispose());
+  let launched = 0;
+  const bridge = createWebBridge(f.connection, { runRuntime: coordinator.runRuntime, maintenanceStatus: coordinator.status,
+    manage: (_backend, request, options) => { launched++; return runManagement(
+      { command: process.execPath, commandArgs: [script], configPath: f.configPath }, request, { ...options, timeoutMs: 35 }); } });
+  t.after(() => bridge.dispose());
+  const save = await bridge.request({ action: 'settings_save', params: { marker } });
+  assert.equal(save.error.code, 'operation_timeout');
+  const queued = bridge.request({ action: 'settings_get', params: {} });
+  await writeFile(join(f.directory, 'upgrade-state.json'), JSON.stringify({ transaction_id: 'fixture-upgrade' }));
+  let drained = false;
+  const preparation = coordinator.prepare('fixture-upgrade').then(() => { drained = true; });
+  await delay(25);
+  assert.equal(drained, false);
+  assert.equal((await bridge.request({ action: 'status', params: {} })).result.service.status, 'maintenance');
+  await preparation;
+  assert.equal(await readFile(marker, 'utf8'), 'committed');
+  assert.equal((await queued).error.code, 'upgrade_in_progress');
+  assert.equal(launched, 1);
+  assert.equal(f.calls.length, 0);
+});
+
+test('coordinator waits for an accepted direct RPC before allowing runtime replacement', async (t) => {
+  let release;
+  let entered;
+  const started = new Promise((resolve) => { entered = resolve; });
+  const f = await fixture(t, async () => {
+    entered();
+    await new Promise((resolve) => { release = resolve; });
+    return { paused: true };
+  });
+  const coordinator = await createUpgradeCoordinator({ dataDir: f.directory, configPath: f.configPath, clientId: 'web-rpc-test' }, { pollMs: 60000 });
+  t.after(() => coordinator.dispose());
+  const bridge = createWebBridge(f.connection, { runRuntime: coordinator.runRuntime, maintenanceStatus: coordinator.status });
+  t.after(() => bridge.dispose());
+  const pause = bridge.request({ action: 'pause', params: {} });
+  await started;
+  await writeFile(join(f.directory, 'upgrade-state.json'), JSON.stringify({ transaction_id: 'fixture-rpc' }));
+  let drained = false;
+  const preparation = coordinator.prepare('fixture-rpc').then(() => { drained = true; });
+  await delay(10);
+  assert.equal(drained, false);
+  release();
+  assert.equal((await pause).ok, true);
+  await preparation;
+  assert.equal(drained, true);
 });
