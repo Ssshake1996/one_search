@@ -1,0 +1,85 @@
+{
+  "version": "0.5.0",
+  "source_commit": "fb350e29597049983446611a2f3644663dcc1ff1",
+  "run_url": "https://github.com/Ssshake1996/one_search/actions/runs/36216762144",
+  "conclusion": "success",
+  "platforms": {
+    "windows": {
+      "job_url": "https://github.com/Ssshake1996/one_search/actions/runs/36216762144/job/108334137234",
+      "conclusion": "success",
+      "pytest": {
+        "passed": 488,
+        "skipped": 6,
+        "elapsed_seconds": 126.1,
+        "skip_reasons": [
+          "SKIPPED [1] tests\\test_change_journal.py:314: Non-Windows fallback only",
+          "SKIPPED [2] tests\\test_databases.py:222: Isolated engine fixture not configured",
+          "SKIPPED [2] tests\\test_databases.py:268: Set explicit isolated test database config to run service onboarding",
+          "SKIPPED [1] tests\\test_product_workflows.py:309: The active environment has no installed console launcher"
+        ]
+      },
+      "node": {
+        "passed": 39,
+        "skipped": 0,
+        "failed": 0
+      }
+    },
+    "linux": {
+      "job_url": "https://github.com/Ssshake1996/one_search/actions/runs/36216762144/job/108334137042",
+      "conclusion": "success",
+      "pytest": {
+        "passed": 469,
+        "skipped": 25,
+        "elapsed_seconds": 32.39,
+        "skip_reasons": [
+          "SKIPPED [1] tests/test_credentials.py:14: Windows Credential Manager requires a real Windows login",
+          "SKIPPED [1] tests/test_database_ui.py:51: Real Tk dialog smoke runs on the validated Windows host",
+          "SKIPPED [1] tests/test_database_ui.py:91: Real Tk dialog smoke runs on the validated Windows host",
+          "SKIPPED [2] tests/test_databases.py:222: Isolated engine fixture not configured",
+          "SKIPPED [2] tests/test_databases.py:268: Set explicit isolated test database config to run service onboarding",
+          "SKIPPED [1] tests/test_packaging.py:90: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_product_ui.py:59: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:118: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:153: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:172: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:197: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_ui.py:217: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [2] tests/test_product_ui.py:235: Tk workflow acceptance uses the validated Windows host",
+          "SKIPPED [1] tests/test_product_workflows.py:301: Windows installer continuation",
+          "SKIPPED [1] tests/test_resources.py:26: Windows Job Object integration",
+          "SKIPPED [1] tests/test_resources.py:58: Windows kill-on-job-close integration",
+          "SKIPPED [1] tests/test_service.py:104: Windows read handles deny delete sharing",
+          "SKIPPED [2] tests/test_settings_revisions.py:54: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_settings_revisions.py:75: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_settings_revisions.py:91: No X display is configured for Tk",
+          "SKIPPED [1] tests/test_upgrade_lifecycle.py:163: Windows directory rename sharing rules"
+        ]
+      },
+      "node": {
+        "passed": 36,
+        "skipped": 3,
+        "failed": 0
+      },
+      "installer_smoke": {
+        "ok": true,
+        "platform": "linux",
+        "python": "3.11.16",
+        "cases": [
+          "headless_install",
+          "no_model_basic",
+          "repeat_preserves_config",
+          "diagnose",
+          "paused_refresh",
+          "export",
+          "index_relocation",
+          "preserve_uninstall",
+          "reinstall",
+          "delete_managed_only"
+        ],
+        "user_files_accessed": false,
+        "autostart_tested": false,
+        "semantic_model_tested": false
+      }
+    }
+  }
+}
