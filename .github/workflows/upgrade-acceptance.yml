@@ -1,0 +1,211 @@
+name: Windows native upgrade acceptance
+
+on:
+  push:
+    branches: [codex/coordinated-upgrade]
+    paths:
+      - .github/workflows/upgrade-acceptance.yml
+      - scripts/acceptance/v051/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-acceptance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-native:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+      DSH_TELEMETRY_DISABLED: '1'
+      CANDIDATE_ASSET_ID: '589990731'
+      CANDIDATE_SHA256: 240de589cbf5aa6947bd3733f08ba1efc907f6e557d91a2fd53345ef1fd4730f
+      OLD_SHA256: b938f14af308a533d75e3c6da006ad55e870eca5d470d9a9d0e7a64883e024ae
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24.11.1'
+
+      - name: Prepare the isolated acceptance interpreter and package manager
+        run: |
+          python -m venv .venv
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          .venv/Scripts/python.exe -m pip install psutil==7.2.2
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $toolsDir = Join-Path $env:RUNNER_TEMP 'one-search-tools'
+          npm install --prefix $toolsDir --no-audit --no-fund pnpm@10.24.0
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          (Join-Path $toolsDir 'node_modules/.bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          New-Item -ItemType Directory -Force '.packaging-smoke/acceptance-v051-reports' | Out-Null
+
+      - name: Download and verify the exact candidate and previous release
+        id: candidate
+        shell: python
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          import hashlib, json, os, pathlib, subprocess, zipfile
+          repo = pathlib.Path.cwd()
+          downloads = repo / 'dist' / 'acceptance-v051'
+          downloads.mkdir(parents=True, exist_ok=True)
+          candidate = downloads / 'one-search-0.5.1-windows-amd64-native.zip'
+          # Binary stdout goes directly to a file; PowerShell text redirection is not used.
+          with candidate.open('wb') as output:
+              subprocess.run(['gh', 'api', f"repos/{os.environ['GITHUB_REPOSITORY']}/releases/assets/{os.environ['CANDIDATE_ASSET_ID']}",
+                              '-H', 'Accept: application/octet-stream'], stdout=output, check=True)
+          old_dir = repo / 'dist' / 'release-v0.5.0'
+          old_dir.mkdir(parents=True, exist_ok=True)
+          subprocess.run(['gh', 'release', 'download', 'v0.5.0', '--repo', os.environ['GITHUB_REPOSITORY'],
+                          '--pattern', 'one-search-0.5.0-windows-amd64-native.zip', '--dir', str(old_dir)], check=True)
+          old = old_dir / 'one-search-0.5.0-windows-amd64-native.zip'
+          verified = {}
+          for path, expected in [(candidate, os.environ['CANDIDATE_SHA256']), (old, os.environ['OLD_SHA256'])]:
+              with path.open('rb') as source:
+                  actual = hashlib.file_digest(source, 'sha256').hexdigest()
+              if actual != expected:
+                  raise RuntimeError(f'Archive checksum mismatch: {path.name}')
+              verified[path.name] = {'sha256': actual, 'bytes': path.stat().st_size}
+          with zipfile.ZipFile(candidate) as archive:
+              for name in archive.namelist():
+                  if not (downloads / name).resolve().is_relative_to(downloads.resolve()):
+                      raise RuntimeError('Unsafe archive entry')
+              archive.extractall(downloads)
+          bundle = downloads / 'one-search-0.5.1-windows-amd64-native'
+          assert (bundle / 'runtime' / 'data-search.exe').is_file()
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as output:
+              output.write(f'ACCEPTANCE_BUNDLE={bundle}\n')
+          (repo / '.packaging-smoke/acceptance-v051-reports/archives.json').write_text(
+              json.dumps(verified, indent=2) + '\n', encoding='utf-8')
+
+      - name: Install the matching DSH CLI and pinned DeepSeek components
+        id: dsh
+        run: |
+          $hostRoot = Join-Path $env:RUNNER_TEMP 'one-search-dsh'
+          New-Item -ItemType Directory -Force $hostRoot | Out-Null
+          npm pack @deepseek-ai/dsh@0.1.5-rc.1 --pack-destination $hostRoot --silent
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          tar -xzf (Join-Path $hostRoot 'deepseek-ai-dsh-0.1.5-rc.1.tgz') -C $hostRoot
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $env:ACCEPTANCE_DSH = Join-Path $hostRoot 'package'
+          @'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const file = path.join(process.env.ACCEPTANCE_DSH, 'package.json');
+          const pkg = JSON.parse(fs.readFileSync(file, 'utf8'));
+          if (pkg.name !== '@deepseek-ai/dsh' || pkg.version !== '0.1.5-rc.1') throw Error('Unexpected DSH package');
+          // The installed reference host has CLI rc.1 and every dsh-* component rc.2.
+          // Pin declared components, then record the complete resolved dependency graph.
+          const pins = {};
+          for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+            for (const name of Object.keys(pkg[section] || {})) {
+              if (name.startsWith('@deepseek-ai/dsh-')) pins[name] = '0.1.5-rc.2';
+            }
+          }
+          Object.assign(pins, {
+            '@deepseek-ai/cordis': '4.0.2', '@deepseek-ai/cordis-plugin-group': '1.0.2',
+            '@deepseek-ai/cordis-plugin-hmr': '1.0.17', '@deepseek-ai/cordis-plugin-include': '1.0.7',
+            '@deepseek-ai/cordis-plugin-loader': '1.0.3', '@deepseek-ai/cordis-plugin-timer': '1.1.4',
+            '@deepseek-ai/cosmokit': '1.8.3', '@deepseek-ai/node-addon-system': '0.1.2',
+            '@deepseek-ai/schemastery': '3.18.2'
+          });
+          for (const section of ['dependencies', 'devDependencies', 'optionalDependencies']) {
+            for (const name of Object.keys(pkg[section] || {})) {
+              if (pins[name]) pkg[section][name] = pins[name];
+            }
+          }
+          pkg.overrides = {...pkg.overrides, ...pins};
+          fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
+          '@ | node
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm install --prefix $env:ACCEPTANCE_DSH --omit=dev --no-audit --no-fund
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "ACCEPTANCE_DSH=$env:ACCEPTANCE_DSH" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          @'
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          const host = process.env.ACCEPTANCE_DSH;
+          const pkg = JSON.parse(fs.readFileSync(path.join(host, 'package.json'), 'utf8'));
+          const lockBytes = fs.readFileSync(path.join(host, 'package-lock.json'));
+          const lock = JSON.parse(lockBytes);
+          const resolved = Object.entries(lock.packages).filter(([name, value]) => name.includes('node_modules/@deepseek-ai/') && !value.dev)
+            .map(([name, value]) => ({path: name, version: value.version}));
+          for (const dep of resolved) {
+            const name = dep.path.slice(dep.path.lastIndexOf('node_modules/') + 'node_modules/'.length);
+            if (pkg.overrides[name] && dep.version !== pkg.overrides[name]) throw Error('DSH pin mismatch: ' + name);
+          }
+          if (!fs.existsSync(path.join(host, 'node_modules/@deepseek-ai/dsh-launch-environment/lib/index.js'))) throw Error('Unexpected package layout');
+          const report = {cli: pkg.version, node: process.version, pnpm: '10.24.0',
+            components: resolved, package_lock_sha256: crypto.createHash('sha256').update(lockBytes).digest('hex'),
+            third_party_dependencies: 'Resolved by npm; exact installed graph identified by the package-lock SHA256',
+            profile_dependencies: 'Isolated profile packages are installed online by DSH; the bundle pins its MCP client'};
+          fs.writeFileSync('.packaging-smoke/acceptance-v051-reports/dsh-environment.json', JSON.stringify(report, null, 2) + '\n');
+          '@ | node
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Real native upgrade, rollback, interruption recovery and reconnection
+        timeout-minutes: 25
+        run: |
+          .venv/Scripts/python.exe -u scripts/acceptance/v051/verify_upgrade_v051.py "$env:ACCEPTANCE_BUNDLE" .packaging-smoke/upgrade-v051-ci-native --dsh "$env:ACCEPTANCE_DSH" --include-gui
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Fresh DSH managed installation and first connection
+        if: ${{ !cancelled() && steps.candidate.outcome == 'success' && steps.dsh.outcome == 'success' }}
+        timeout-minutes: 12
+        run: |
+          .venv/Scripts/python.exe -u scripts/acceptance/v051/verify_dsh_managed_install_v051.py "$env:ACCEPTANCE_BUNDLE" .packaging-smoke/upgrade-v051-ci-managed --dsh "$env:ACCEPTANCE_DSH"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Collect bounded reports without profile state or credentials
+        if: always()
+        shell: python
+        run: |
+          import json, pathlib, re
+          root = pathlib.Path('.packaging-smoke')
+          reports = root / 'acceptance-v051-reports'
+          reports.mkdir(parents=True, exist_ok=True)
+          def clean(value):
+              if isinstance(value, dict):
+                  return {key: ('[redacted]' if re.search(r'(token|secret|password|authorization|credential)', key, re.I) else clean(item))
+                          for key, item in value.items()}
+              if isinstance(value, list):
+                  return [clean(item) for item in value]
+              if isinstance(value, str):
+                  value = re.sub(r'(?i)Bearer\s+[^\s"\x27]+', 'Bearer [redacted]', value)
+                  value = re.sub(r'(?i)((?:token|secret|password|authorization)["\x27]?\s*[:=]\s*["\x27]?)[^\s,"\x27}]+', r'\1[redacted]', value)
+                  return value
+              return value
+          for name in ('native', 'managed'):
+              source = root / f'upgrade-v051-ci-{name}' / 'report.json'
+              if source.is_file():
+                  if source.stat().st_size > 262144:
+                      raise RuntimeError('Acceptance report exceeds the upload bound')
+                  (reports / f'{name}.json').write_text(json.dumps(clean(json.loads(source.read_text(encoding='utf-8'))), indent=2) + '\n', encoding='utf-8')
+
+      - name: Upload only the acceptance reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-upgrade-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .packaging-smoke/acceptance-v051-reports/archives.json
+            .packaging-smoke/acceptance-v051-reports/dsh-environment.json
+            .packaging-smoke/acceptance-v051-reports/native.json
+            .packaging-smoke/acceptance-v051-reports/managed.json
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 14
