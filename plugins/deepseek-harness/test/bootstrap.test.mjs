@@ -73,7 +73,7 @@ test('existing source backend starts idempotently and preserves configuration', 
   await writeFile(path, original);
   const calls = [];
   const request = { command: process.execPath, configPath: path, commandArgs: ['module'], roots: [resolve('other-root')] };
-  const runner = async (...args) => { calls.push(args); return JSON.stringify({ version: '0.4.0' }); };
+  const runner = async (...args) => { calls.push(args); return JSON.stringify({ version: '0.5.0' }); };
   const first = await prepareService(request, runner);
   await prepareService(request, runner);
   assert.equal(calls.length, 6);
@@ -111,7 +111,7 @@ test('activation provisions a missing Windows backend with JSON arguments, then 
   const root = join(dir, "corpus quote ' and spaces");
   await mkdir(releaseDir);
   await mkdir(root);
-  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.4.0' }));
+  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
   const calls = [];
   let requestPath;
   const runner = async (command, args) => {
@@ -148,7 +148,7 @@ test('explicit profile client identities remain distinct and reject control char
 
 test('installer failure prevents MCP activation and cleans its temporary request', { skip: process.platform !== 'win32' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-install-fail-test-'));
-  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.4.0' }));
+  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
   let requestPath;
   let calls = 0;
   await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async (_command, args) => {
@@ -170,7 +170,7 @@ test('old explicit backend fails with an upgrade action before start/register', 
   }), /backend_update_required/);
   assert.equal(calls.length, 1);
   assert.equal(calls[0][1][0], 'version');
-  assert.equal(backendCompatible('0.4.0'), true);
+  assert.equal(backendCompatible('0.5.0'), true);
   assert.equal(backendCompatible('0.3.0'), false);
 });
 
@@ -187,11 +187,11 @@ test('old managed backend upgrades through the verified installer then preserves
   await writeFile(path, original);
   await writeFile(join(app, 'runtime', 'data-search.exe'), 'mock runtime');
   await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.3.0' }));
-  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.4.0' }));
+  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
   const calls = [];
   await prepareService({ installDir: app, dataDir: data, releaseDir: release }, async (...args) => {
     calls.push(args);
-    if (calls.length === 1) await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.4.0' }));
+    if (calls.length === 1) await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.5.0' }));
   });
   assert.equal(calls.length, 3);
   assert.ok(calls[0][1].includes('-NonInteractive'));

@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "release_version": "0.5.0",
+  "candidate": "candidate-1",
+  "source_commit": "39d0605621f4d08074624615b17bdeaa5ab488c3",
+  "checked_at": "2026-09-26T03:56:09.059251+00:00",
+  "platform": "Windows x64; PowerShell 5.1; Python 3.11 bootstrap",
+  "runtime_sha256": "7bacf7bc033b17662b593aac7c03362dbf83f1cd2aece2c9479fa3db2ff7d561",
+  "bootstrap_wheel_sha256": "4f43f26f8df1208065a2e7395aeadb74186b04e80677ce35fe6c3152a6603e76",
+  "installation_workflows": {
+    "schema_version": 1,
+    "checked_at": "2026-09-26T03:53:43.890702+00:00",
+    "synthetic_only": true,
+    "real_machine_scan_performed": false,
+    "version": "0.5.0",
+    "unicode_and_spaced_paths": true,
+    "installer_shell": "Windows PowerShell 5.1",
+    "installations": [
+      {
+        "artifact": "one-search-0.5.0-windows-amd64-native.zip",
+        "kind": "windows-native",
+        "zip_integrity": true,
+        "per_file_checksums": true,
+        "source_hashes_match": true,
+        "committed_source_hashes_match": true,
+        "status": "passed",
+        "clean_basic_install": true,
+        "no_model_required": true,
+        "model_network_not_required": true,
+        "install_seconds": 10.906,
+        "isolated_scope": true,
+        "autostart": "disabled_for_test",
+        "repeat_preserves_scope_and_configuration": true,
+        "web_management": {
+          "stdin_json_command": true,
+          "settings_get": true,
+          "scope_and_resource_preset_save_restart": true,
+          "status_progress_schema": 1,
+          "new_scope_search_available": true,
+          "stale_revision_rejected": true,
+          "original_settings_restored": true,
+          "backend_token_not_returned": true
+        },
+        "asynchronous_offline_model_import_and_semantic_search": true,
+        "mcp_tools_exercised": 11,
+        "relocation_preserves_evidence_and_instance_identity": true,
+        "native_reinstall_snapshots_external_index": true,
+        "uninstall_default_preserves_data_and_external_index": true,
+        "reinstall_after_preserve_uninstall": true,
+        "managed_app_data_external_index_removed_without_source_deletion": true
+      },
+      {
+        "artifact": "one-search-0.5.0-windows-amd64-py311-bootstrap.zip",
+        "kind": "python-bootstrap",
+        "zip_integrity": true,
+        "per_file_checksums": true,
+        "source_hashes_match": true,
+        "committed_source_hashes_match": true,
+        "status": "passed",
+        "clean_basic_install": true,
+        "no_model_required": true,
+        "model_network_not_required": true,
+        "install_seconds": 37.484,
+        "isolated_scope": true,
+        "autostart": "disabled_for_test",
+        "repeat_preserves_scope_and_configuration": true,
+        "web_management": {
+          "stdin_json_command": true,
+          "settings_get": true,
+          "scope_and_resource_preset_save_restart": true,
+          "status_progress_schema": 1,
+          "new_scope_search_available": true,
+          "stale_revision_rejected": true,
+          "original_settings_restored": true,
+          "backend_token_not_returned": true
+        },
+        "asynchronous_offline_model_import_and_semantic_search": true,
+        "mcp_tools_exercised": 11,
+        "relocation_preserves_evidence_and_instance_identity": true,
+        "uninstall_default_preserves_data_and_external_index": true,
+        "reinstall_after_preserve_uninstall": true,
+        "managed_app_data_external_index_removed_without_source_deletion": true
+      }
+    ],
+    "method": "README documented install parameters, generated installation result, CLI model operations and operations guide; separate synthetic MCP runtime probe",
+    "linux_runtime_installation_tested": false
+  },
+  "upgrade_workflows": {
+    "checked_at": "2026-09-26T03:53:45.886409+00:00",
+    "synthetic_only": true,
+    "real_machine_scan_performed": false,
+    "from_version": "0.4.0",
+    "to_version": "0.5.0",
+    "autostart": "disabled_for_test",
+    "source_database": "synthetic SQLite only",
+    "injected_startup_failure": {
+      "real_new_daemon_start_attempted": true,
+      "incompatible_index_and_config_mutation_restored": true,
+      "previous_executable_restored": true,
+      "old_schema_restored": true,
+      "old_service_restart_and_search": true,
+      "transaction_phase": "rolled_back",
+      "recovery_material_retained": true
+    },
+    "real_v04_to_v05": {
+      "configuration_preserved_byte_for_byte": true,
+      "shared_index_document_identity_preserved": true,
+      "native_metadata_matches": true,
+      "pre_migration_schema_and_chunks_retained": true,
+      "existing_file_identity_and_chunking_preserved": true,
+      "keyword_and_real_model_semantic_search": true,
+      "embedded_chunks": 4
+    },
+    "repeated_native_upgrade": {
+      "configuration_and_scope_preserved": true,
+      "health_and_search": true
+    },
+    "native_preflight_and_host_helper": {
+      "sqlite_read_only_preflight": true,
+      "row_content_not_returned": true,
+      "explicit_synthetic_host_backup_and_merge": true
+    },
+    "managed_test_installation_removed": true
+  },
+  "web_management_acceptance": "Native and bootstrap packaged CLI web-manage consumes stdin JSON; settings get/save, scope and preset activation/restart, new-scope search, truthful progress, stale revision rejection and original settings restoration passed. Actual DSH Web rendering/authentication is verified separately.",
+  "not_claimed": [
+    "No whole-machine or production corpus scan was performed; every probe used explicit synthetic directories and SQLite fixtures.",
+    "No physical 8GB/16GB memory, battery hardware or long-duration stability claim is derived from these functional tests.",
+    "Model import used an existing verified local embedding model; no live model download or DSH chat-model call was required.",
+    "Login autostart and real reboot were disabled in these isolated installations; Linux behavior requires separate evidence.",
+    "Checks exercised README installation and maintenance commands plus synthetic protocol probes; this is not a blinded human usability study."
+  ]
+}

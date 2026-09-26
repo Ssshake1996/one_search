@@ -1,5 +1,6 @@
 import * as mcpClient from '@deepseek-ai/dsh-mcp-client';
 import { prepareService } from './bootstrap.mjs';
+import { registerWebHost } from './web-host.mjs';
 
 export const name = 'one-search';
 export const inject = ['tools'];
@@ -8,4 +9,5 @@ export const inject = ['tools'];
 export async function apply(ctx, config = {}) {
   const connection = await prepareService(config);
   await mcpClient.apply(ctx, connection);
+  registerWebHost(ctx, connection);
 }

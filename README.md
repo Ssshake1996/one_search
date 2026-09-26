@@ -1,6 +1,6 @@
 # one_search
 
-面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.4 提供 README 驱动安装、共享后台服务、11 个 MCP 工具、Windows 自带运行时的安装包和本地设置窗口；文件解析、正文索引与语义计算在本机进行。
+面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.5 提供 DSH Web 侧栏设置与进度面板、README 驱动安装、共享后台服务、11 个 MCP 工具和 Windows 自带运行时的安装包；文件解析、正文索引与语义计算在本机进行。
 
 新安装默认发现当前账号可访问的本地磁盘；可以改为指定目录。当前交付单机，接口已保留 `node_id`；多机传输、认证与跨机结果合并尚未实现。项目名是 `one_search`，Python 包 `data_search`、命令及 MCP 条目 `data-search` 保持兼容。
 
@@ -77,7 +77,7 @@ if ($LASTEXITCODE -ne 0) { throw 'DSH registration failed' }
 dsh --profile web
 ```
 
-注册脚本返回 `registered=true, connected=false`；启动 profile 后才连接 MCP。首次激活也可安装缺失的后台服务；已有 v0.3 后台需提供匹配 Release 进行保留配置升级，不能只更新 npm 插件。请让 DSH 实际调用 `index_status` 和一次 `search`：发现工具和调用成功才算该 profile 已接入。可执行的独立 DSH 连接诊断、profile 配置、自定义路径、Linux 注册和版本要求见 [DSH 接入说明](plugins/deepseek-harness/README.md)。本地安装成功与 DSH 聊天回答质量是不同验收项。
+注册脚本返回 `registered=true, connected=false`；启动 profile 后才连接 MCP。首次激活也可安装缺失的后台服务；已有旧版后台需提供匹配 Release 进行保留配置升级，不能只更新 npm 插件。请让 DSH 实际调用 `index_status` 和一次 `search`：发现工具和调用成功才算该 profile 已接入。可执行的独立 DSH 连接诊断、profile 配置、自定义路径、Linux 注册和版本要求见 [DSH 接入说明](plugins/deepseek-harness/README.md)。本地安装成功与 DSH 聊天回答质量是不同验收项。
 
 Linux 无桌面安装：
 
@@ -95,6 +95,21 @@ bash scripts/install.sh --root /srv/docs --install-dir "$HOME/.local/share/data-
 
 原生升级继续运行新包安装器：校验、暂存、保留迁移前快照、启动失败回滚。v0.3 文件索引升级后需要按预算重新核对文件身份并处理正文，期间旧文件 ID 会被拒绝，不会悄悄指向新文件。遇到中断，先用同一配置执行 `status`、`model-status`、`installation-status`；按错误阶段修复下载/依赖/空间/路径后重试同一命令。不要用重新初始化配置替代修复。具体服务维护、回滚边界、卸载保留数据及平台限制见 [安装说明](docs/INSTALL.md)。
 
+
+## 在 DSH Web 中打开设置与进度
+
+安装并注册同一版本的 DSH 插件后，重新启动对应 profile，点击左侧 **one_search** 按钮。在主区域打开的面板中：
+
+- **概览**：查看文件发现、正文解析、语义索引与数据库同步；暂停、恢复、请求重新扫描，或诊断/刷新指定路径。
+- **检索范围**：设置整机或指定目录、排除项、正文与语义范围。目录均指 DSH 服务所在机器的路径。
+- **资源**：选择省电、均衡、快速档位，设置空闲和电源策略，查看后台内存及索引空间。
+- **数据库**：填写连接与只读账号，发现表字段、显式选择允许读取的列和正文索引字段，测试后保存。密码只写入系统凭据库，不在页面回显。
+
+设置保存会验证配置并重新启动后台，失败时尝试恢复原配置。其他页面先保存时，本页会提示重新读取，避免覆盖新的设置。模型准备独立进行，文件名和关键词检索不必等待语义模型。
+
+首次扫描尚不知道整机文件总数，页面显示已知文件数和待遍历目录，不显示虚构的全机百分比。语义比例仅针对已知可处理片段；新文件加入后分母会增加。页面可见时约每 2 秒更新，底层部分计数最多缓存 5 秒；关闭面板不停止后台工作。
+
+此 Web 面板需要 **one_search 后台与 DSH 插件均为 0.5.0 或更新兼容版本**。从旧版升级时先运行新 Release 的安装器，再按上述注册命令更新插件并重启 DSH。若没有按钮，检查是否更新了正确 profile 的插件，以及后台版本是否兼容。原有 Windows `Settings.vbs` 和 CLI 继续可用。完整操作和状态含义见 [Web 面板说明](docs/DSH-WEB.md)。
 
 ## 能检索什么
 

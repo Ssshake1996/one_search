@@ -92,7 +92,7 @@ The native Windows installation provides `Settings.vbs` in the installed applica
 For a Python source installation use `python -m data_search.setup_ui --config <config.json>`.
 
 Generated MCP configuration: `{mcp_path}`.
-DeepSeek Harness uses the included [Cordis bundle](plugins/deepseek-harness/README.md). Registering the npm package adds the bundle; its first profile activation installs a missing backend and connects the official MCP client. An existing backend is reused.
+DeepSeek Harness uses the included [Cordis bundle](plugins/deepseek-harness/README.md). Registering the npm package adds the bundle; its first profile activation installs a missing backend and connects the official MCP client. An existing backend is reused. After activation in DSH Web, click **one_search** in the sidebar for settings and scan/index progress. Update both the backend and bundle when upgrading; see [Web panel guide](docs/DSH-WEB.md).
 Native Windows upgrades retain the previous runtime and a stopped pre-migration index/configuration snapshot under `.upgrade-*`. They require additional disk space and attempt rollback only for this installation's failed startup. Bootstrap/Linux upgrades do not use this transaction.
 See [installation instructions](docs/INSTALL.md), [project README](PROJECT_README.md), and validation reports in docs/.
 

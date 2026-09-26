@@ -7,10 +7,10 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
-const requiredBackendVersion = '0.4.0';
+const requiredBackendVersion = '0.5.0';
 export function backendCompatible(version) {
   const parts = typeof version === 'string' && version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
-  return Boolean(parts && Number(parts[1]) === 0 && (Number(parts[2]) > 4 || (Number(parts[2]) === 4 && Number(parts[3]) >= 0)));
+  return Boolean(parts && Number(parts[1]) === 0 && Number(parts[2]) >= 5);
 }
 const exists = async (path) => {
   try { await access(path, constants.F_OK); return true; } catch { return false; }

@@ -1,5 +1,7 @@
 # 查找、核实与排错
 
+DSH Web 用户可点击侧栏 **one_search** 打开设置与扫描/索引进度，具体操作见 [Web 面板说明](DSH-WEB.md)。下方保留 Agent 工具和 CLI 的使用方式。
+
 安装与 DSH 接入先读 [项目 README](../README.md)。以下 `data-search` 表示安装结果中 `cli` 指向的实际可执行文件；每条命令均需 `--config <配置绝对路径>`。Windows PowerShell 用 `& $cli ... --config $config` 调用。设置窗口是运行设置和核实入口，安装由 README 和脚本完成。
 
 ## 在 DSH 中完成任务

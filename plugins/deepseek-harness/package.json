@@ -1,13 +1,19 @@
 {
   "name": "one-search-bundle",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "DeepSeek Harness bundle that provisions the local one_search service and connects its MCP tools",
   "type": "module",
   "main": "index.mjs",
-  "exports": {".": "./index.mjs", "./package.json": "./package.json"},
-  "files": ["index.mjs", "bootstrap.mjs", "install-wrapper.ps1", "register.mjs", "verify.mjs", "cordis.patch.yml", "README.md"],
+  "exports": {".": "./index.mjs", "./client": "./client.js", "./package.json": "./package.json"},
+  "files": ["index.mjs", "bootstrap.mjs", "web-host.mjs", "client.js", "install-wrapper.ps1", "register.mjs", "verify.mjs", "cordis.patch.yml", "README.md"],
   "engines": {"node": ">=22"},
-  "dsh": {"bundle": {"patch": "./cordis.patch.yml"}},
+  "dsh": {
+    "bundle": {"patch": "./cordis.patch.yml"},
+    "client": {
+      "platform": "web",
+      "inject": ["@deepseek-ai/dsh-client-ui-layout", "@deepseek-ai/dsh-client-ui-sidebar", "@deepseek-ai/dsh-client-connection", "@deepseek-ai/dsh-client-ui-settings"]
+    }
+  },
   "dependencies": {"@deepseek-ai/dsh-mcp-client": "0.1.5-rc.2"},
   "scripts": {"test": "node --test test/*.test.mjs"}
 }

@@ -72,6 +72,10 @@ under `$DSH_HOME/profiles/<name>`, normally `~/.dsh/profiles/<name>`):
 
 These installation options apply only when provisioning a missing backend.
 Change an already installed scope through the one_search settings window.
+In DSH Web, click **one_search** in the sidebar to open the indexing overview,
+scope, resource and database settings. The page uses the authenticated DSH
+connection; it does not expose the daemon's loopback token. Visible status polling
+does not launch a Python process. See [the Web panel guide](../../docs/DSH-WEB.md).
 Available first-install fields: `installDir`, `dataDir`, `releaseDir`, `roots`,
 `excludePaths`, `preset` (`low/balanced/fast`), `skipModel`, `modelDir`,
 `noAutostart`. Empty `roots` means whole machine. Presets change resource budgets,
@@ -91,7 +95,7 @@ For a source environment, `command` can point to the venv Python and
 and never installs or rewrites it. Optional `serverName` defaults to `one_search`;
 `timeoutMs` bounds each setup command (default 15 minutes).
 
-The v0.4 bundle requires backend >=0.4.0. When an older managed installation is
+The v0.5 bundle requires backend >=0.5.0. When an older managed installation is
 found and `ONE_SEARCH_RELEASE_DIR`/`releaseDir` points to a compatible extracted
 release, activation runs its verified installer and preserves existing settings.
 Otherwise it reports `backend_update_required` with the README action. An

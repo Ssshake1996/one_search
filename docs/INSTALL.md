@@ -1,6 +1,6 @@
 # one_search 安装、设置与接入
 
-用户和 Agent 的主安装合同在 [README 的安装与接入](../README.md#安装与接入给用户和-agent-的执行入口)，包括同版本包选择、校验、参数、状态含义和失败恢复。本文补充各平台维护细节。v0.4 的模型准备已经独立于基础服务启动；下文使用 v0.4 包名，下载时保持版本一致。
+用户和 Agent 的主安装合同在 [README 的安装与接入](../README.md#安装与接入给用户和-agent-的执行入口)，包括同版本包选择、校验、参数、状态含义和失败恢复。本文补充各平台维护细节。v0.4 的模型准备已经独立于基础服务启动；下文使用 v0.5 包名，下载时保持版本一致。
 
 本版先交付单机服务。每台机器使用独立 `node_id`，协议保留节点标识；远程认证、传输与跨机汇总尚未实现。新安装默认发现本机文件范围，传入目录参数可限制范围；重装保留现有设置。
 
@@ -8,18 +8,20 @@
 
 | 形式 | 文件或入口 | 前提 |
 |---|---|---|
-| Windows 原生运行时包 | `one-search-0.4.0-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
-| Windows Python bootstrap 包 | `one-search-0.4.0-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
+| Windows 原生运行时包 | `one-search-0.5.0-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
+| Windows Python bootstrap 包 | `one-search-0.5.0-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
 | 源码 | 仓库中的 `scripts/install.ps1` / `scripts/install.sh` | Python 3.11+、venv/pip；安装依赖需要网络或匹配 wheelhouse |
-| 项目 wheel | `data_search-0.4.0-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
+| 项目 wheel | `data_search-0.5.0-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
 
 本轮发行目标为 Windows amd64，实测主机是 Windows 11、内核 10.0.22631；其他 Windows 版本/ARM64 不作为已验收平台。Linux 已在 Ubuntu 24.04 CI 完成无界面、手动启动模式的安装、重装、检索、迁移和卸载；尚无 Linux 免 Python 二进制，systemd 用户服务与目标服务器仍待验收。源码最低 Python 版本与 bootstrap 包的固定小版本要求不同，安装器会检查包的 `RELEASE_MANIFEST.json` 并拒绝不匹配解释器。
 
-最终发行目录为 `dist/release-v0.4.0`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
+最终发行目录为 `dist/release-v0.5.0`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
 
 模型不在默认 ZIP 内。首次安装先启动基础检索，再启动后台任务准备固定版本本地 embedding 模型；可以指定离线模型目录，在后台校验，或先关闭语义功能。推理始终在本机。网络失败只改变模型任务状态，安装不等待下载完成。
 
 ## Windows 安装
+
+安装并接入 DSH Web 后，侧栏 **one_search** 是设置与索引进度入口。后台与 DSH bundle 均需 0.5.0；升级后台后请用新包重新注册 bundle，并重启对应 profile。详见 [Web 面板说明](DSH-WEB.md)。
 
 完整解压 ZIP，在解压目录运行：
 
@@ -155,7 +157,7 @@ bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 
 ```powershell
 .\scripts\install.ps1 -Root 'D:\docs' `
-  -PackagePath '.\wheelhouse\data_search-0.4.0-py3-none-any.whl' `
+  -PackagePath '.\wheelhouse\data_search-0.5.0-py3-none-any.whl' `
   -Wheelhouse '.\wheelhouse' -ModelDir 'D:\models\bge-small-zh-v1.5'
 ```
 
@@ -163,7 +165,7 @@ bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 
 ```powershell
 python -m pip install -e . --no-deps
-python scripts/build_release.py --output dist/release-v0.4.0 --native
+python scripts/build_release.py --output dist/release-v0.5.0 --native
 ```
 
 `--native` 仅接受 64 位 Windows，使用 PyInstaller 生成完整运行时目录，同时生成 bootstrap 包；不传该参数只构建 bootstrap。`--wheelhouse PATH` 可复用构建/依赖 wheel。输出包目录已存在会拒绝覆盖；另选空输出目录。不要混用 Windows/Linux、不同架构或不同 CPython 小版本的原生依赖。当前没有打包 Linux 原生运行时。

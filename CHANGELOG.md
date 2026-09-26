@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0
+
+- DSH Web adds a one_search sidebar button and a shared-runtime React panel for indexing overview, search scope, resource policy and database onboarding. The browser uses DSH's authenticated RPC bridge; local daemon tokens and database secrets remain server-side.
+- Visible-only status polling uses bounded direct daemon RPC, in-flight deduplication and caching without starting Python on each update. Progress distinguishes discovery, parsing, retries, model preparation, semantic encoding and vector publication; unknown filesystem/database totals never become invented percentages.
+- Web settings use allowlisted configuration snapshots and revision checks. Changed database settings receive bounded read-only preflight before transactional restart. Failed configuration writes restart the unchanged prior configuration; accepted saves finish even if the browser closes.
+- Database discovery and explicit table/column selection, OS credential storage, path diagnosis/refresh, pause/resume and model preparation controls are available in the panel. Headless MCP usage remains supported.
+
+
 ## 0.4.0
 
 ### Installation and first usable search
