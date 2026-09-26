@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -58,21 +59,50 @@ def settings_config(current: dict, values: dict) -> dict:
     return candidate
 
 
-def activate_settings(config_path: Path, current: dict, candidate: dict, tested: str | None = None):
+class SettingsConflict(ValueError):
+    """The configuration changed after an editor loaded its snapshot."""
+
+
+def settings_revision(config_path: Path) -> str:
+    return hashlib.sha256(config_path.read_bytes()).hexdigest()
+
+
+def activate_settings(config_path: Path, current: dict, candidate: dict, tested: str | None = None,
+                      *, expected_revision: str | None = None):
+    from .service import InstanceLock
+    with InstanceLock(Path(current['data_dir']) / 'settings.lock'):
+        if expected_revision is not None:
+            try:
+                actual_revision = settings_revision(config_path)
+            except FileNotFoundError:
+                actual_revision = ''  # A new editor expects the path to remain absent.
+            if actual_revision != expected_revision:
+                raise SettingsConflict('设置已被其他页面修改，请重新读取后再保存。')
+        result = _activate_settings_unlocked(config_path, current, candidate, tested)
+        # Return the revision while still holding the writer lock. A later writer
+        # must not make the caller label its old form with a newer revision.
+        return {**result, 'settings_revision': settings_revision(config_path)}
+
+
+def _activate_settings_unlocked(config_path: Path, current: dict, candidate: dict, tested: str | None = None):
     from .preflight import require_preflight
     from .service import start_service, stop_service
     require_preflight(current, candidate, tested)
     previous = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else None
     if previous is not None:
         stop_service(load_config(config_path))
-    atomic_json(config_path, candidate)
     try:
+        atomic_json(config_path, candidate)
         return start_service(load_config(config_path))
     except Exception:
         # The service launcher must finish stopping its failed child before this returns.
         stop_service(load_config(config_path))
         if previous is not None:
-            atomic_json(config_path, previous)
+            # A failed atomic write leaves the original intact. Restart it
+            # without requiring another write on a full or read-only disk.
+            saved = json.loads(config_path.read_text(encoding="utf-8-sig"))
+            if saved != previous:
+                atomic_json(config_path, previous)
             start_service(load_config(config_path))
         raise
 
@@ -121,14 +151,18 @@ def main(argv=None):
     parser.add_argument("--config", type=Path, default=default_config_path())
     args = parser.parse_args(argv)
     config_path = args.config.expanduser().resolve()
-    if config_path.exists():
-        current = json.loads(config_path.read_text(encoding="utf-8-sig"))
-    else:
+    try:
+        saved = config_path.read_bytes()
+    except FileNotFoundError:
+        current_revision = ''
         current = defaults(str(config_path.parent))
         program_dir = Path(sys.executable).resolve().parent
         if getattr(sys, "frozen", False) and program_dir.name == "runtime":
             program_dir = program_dir.parent
         current.setdefault("exclude_paths", []).append(str(program_dir))
+    else:
+        current = json.loads(saved.decode('utf-8-sig'))
+        current_revision = hashlib.sha256(saved).hexdigest()
     # Older saved configurations preserve their previously selected directory scope.
     current.setdefault("scope", "directories")
     baseline = defaults(current["data_dir"], [])
@@ -432,9 +466,11 @@ def main(argv=None):
             messagebox.showerror("配置错误", str(error), parent=window)
             return
         def operation():
-            nonlocal current
-            result = activate_settings(config_path, current, candidate, tested_fingerprint)
+            nonlocal current, current_revision
+            result = activate_settings(config_path, current, candidate, tested_fingerprint,
+                                       expected_revision=current_revision)
             current = candidate
+            current_revision = result['settings_revision']
             return result
         run_task(operation)
 

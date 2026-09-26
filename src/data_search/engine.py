@@ -924,11 +924,15 @@ class Engine:
     def coverage(self):
         cached = self._coverage_cache
         if cached is None or time.monotonic()-self._coverage_time > 5:
-            states=self.store.rows('SELECT status,count(*) count FROM documents GROUP BY status')
+            states=self.store.rows('SELECT source_id,status,count(*) count FROM documents GROUP BY source_id,status')
+            documents = {}
+            for row in states:
+                documents[row['status']] = documents.get(row['status'],0) + row['count']
+            file_documents = {row['status']:row['count'] for row in states if row['source_id']=='files'}
             chunks=self.store.rows('SELECT count(*) n FROM chunks')[0]['n']
             embedded=self.store.rows('SELECT count(*) n FROM chunks c JOIN embeddings e ON c.hash=e.hash WHERE e.model=? AND c.semantic=1',(MODEL_ID,))[0]['n']
             eligible=self.store.rows('SELECT count(*) n FROM chunks WHERE semantic=1')[0]['n']
-            cached = {'documents':{r['status']:r['count'] for r in states},'chunks':chunks,'embedded_chunks':embedded,'semantic_eligible_chunks':eligible}
+            cached = {'documents':documents,'file_documents':file_documents,'chunks':chunks,'embedded_chunks':embedded,'semantic_eligible_chunks':eligible}
             self._coverage_cache = cached
             self._coverage_time = time.monotonic()
         # A concurrent scan may invalidate the shared cache while this response
@@ -940,7 +944,7 @@ class Engine:
         from . import __version__
         from .product import capabilities
         from .model_manager import model_status
-        return {'schema_version':1,'version':__version__,'instance_id':self.instance_id,
+        result = {'schema_version':1,'version':__version__,'instance_id':self.instance_id,
                 'node_id':self.config['node_id'],'paused':self.policy.status()['user_paused'],'last_error':self.last_error,
                 'runtime_policy':self.policy.status(),'capabilities':capabilities(self),
                 'file_scope':self._scope_report(),
@@ -954,6 +958,9 @@ class Engine:
                 'semantic':{'enabled':self.config['semantic']['enabled'],'model_ready':model_ready(self.config['semantic']['model_dir']),
                             'model_loaded':self.model.proc is not None,'model_id':MODEL_ID,'lifecycle':model_status(self.config)},
                 'remote_nodes':'not_implemented'}
+        from .progress import index_progress
+        result['progress'] = index_progress(result)
+        return result
 
     def dispatch(self,method:str,params:dict):
         params=dict(params)

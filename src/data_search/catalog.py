@@ -334,10 +334,15 @@ class FileCatalog:
 
     def progress(self):
         roots = self.store.rows('SELECT * FROM file_scan_roots ORDER BY path')
+        sampled_at = time.time()
+        queue = self.store.rows('SELECT count(*) n,coalesce(sum(available_at<=?),0) ready,'
+                                'min(CASE WHEN available_at>? THEN available_at END) next_retry_at '
+                                'FROM file_work',(sampled_at,sampled_at))[0]
         return {'roots':roots,'discovery_active':any(row['phase']!='done' for row in roots),
                 'chunking_migration':json.loads(self.store.setting('file_chunking_migration')),
                 'queued_directories':self.store.rows('SELECT count(*) n FROM file_scan_dirs')[0]['n'],
-                'queued_files':self.store.rows('SELECT count(*) n FROM file_work')[0]['n'],
+                'queued_files':queue['n'],'ready_files':queue['ready'],'retry_files':queue['n']-queue['ready'],
+                'next_retry_at':queue['next_retry_at'],
                 'queued_events':self.store.rows('SELECT count(*) n FROM file_events')[0]['n'],
                 'resume_granularity':'directory; completed metadata and parse jobs persist'}
 

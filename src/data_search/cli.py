@@ -24,7 +24,7 @@ def _parser():
     for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download", "compact", "preflight",
                     "diagnose", "prioritize", "refresh", "context", "open", "model-status", "model-start", "model-import", "model-cancel", "model-quiesce", "installation-status",
                     "space", "version", "cleanup-backup", "export-config", "restore-config", "relocate-index", "clients", "register-client", "remove-client", "preset",
-                    "discover-database", "propose-database", "store-credential", "credential-status", "delete-credential", "autostart", "lifecycle", "purge-external-index"]:
+                    "discover-database", "propose-database", "store-credential", "credential-status", "delete-credential", "autostart", "lifecycle", "purge-external-index", "web-manage"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", default=argparse.SUPPRESS, help="Configuration JSON path")
         commands[command] = subparser
@@ -123,6 +123,9 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if not args.config:
         parser.error("--config is required")
+    if args.command == 'web-manage':
+        from .web_management import main as manage
+        return manage(args.config)
     try:
         if args.command == "init":
             result = _initialize(args)
