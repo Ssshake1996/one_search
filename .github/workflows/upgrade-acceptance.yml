@@ -128,6 +128,8 @@ jobs:
             }
           }
           pkg.overrides = {...pkg.overrides, ...pins};
+          // Match a published CLI installation; its development-only packages are not required.
+          delete pkg.devDependencies;
           fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
           '@ | node
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
