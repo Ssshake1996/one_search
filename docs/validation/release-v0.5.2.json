@@ -1,0 +1,149 @@
+{
+  "schema_version": 1,
+  "version": "0.5.2",
+  "status": "passed",
+  "started_at": "2026-09-28T16:17:00.882130+00:00",
+  "finished_at": "2026-09-28T16:18:32.040148+00:00",
+  "duration_seconds": 91.158,
+  "source_commit": "60dcd7dbda6c8b3ae7ab50b5a08d001cbd2494d3",
+  "platform": {
+    "system": "Windows",
+    "release": "10",
+    "version": "10.0.22631",
+    "machine": "AMD64"
+  },
+  "method": "Real native and Python-bootstrap installation from extracted release ZIPs into independent synthetic directories, with -SkipModel and -NoAutostart. CLI operations and Node createWebBridge call the installed native daemon.",
+  "archive_stage": "Candidate ZIPs after code freeze; final public-document refresh and final archive hashes are verified separately. Accepted runtime executable and project wheel bytes must remain unchanged.",
+  "tested_assets": [
+    {
+      "name": "data_search-0.5.2-py3-none-any.whl",
+      "bytes": 173291,
+      "sha256": "b8fb5af9b830c76a3490279bcf03774694779083dfae85bf10b44f9286b94a86"
+    },
+    {
+      "name": "one-search-0.5.2-windows-amd64-native.manifest.json",
+      "bytes": 4786,
+      "sha256": "34fef7e076953ba04988393d387a7a77c4a26786422dde9c7dfb0cf2ec6583fc"
+    },
+    {
+      "name": "one-search-0.5.2-windows-amd64-native.zip",
+      "bytes": 74756762,
+      "sha256": "d6c25c368af266343c6550603046730a7df9b90f8d8ae9c4d2fe6843f97eb7ea"
+    },
+    {
+      "name": "one-search-0.5.2-windows-amd64-py311-bootstrap.manifest.json",
+      "bytes": 7625,
+      "sha256": "8d37df5d9e491622c5225aa3b78ceea1f458ee83623256a5c921513ca787264c"
+    },
+    {
+      "name": "one-search-0.5.2-windows-amd64-py311-bootstrap.zip",
+      "bytes": 69717627,
+      "sha256": "fa19c9853f99cda94ed7350357ae3e68d181c39c275389066f8643a6a0ced094"
+    }
+  ],
+  "runtime_sha256": "fe8b9cccb875d380b2e22db312ae7ce5f529aff1683737e113a1e9042c28c3cb",
+  "bootstrap_wheel_sha256": "b8fb5af9b830c76a3490279bcf03774694779083dfae85bf10b44f9286b94a86",
+  "archive_checks": [
+    {
+      "archive": "one-search-0.5.2-windows-amd64-native.zip",
+      "kind": "windows-native",
+      "all_file_checksums": true,
+      "checked_files": 2771,
+      "manifest_and_versions": true,
+      "default_scope": "documents",
+      "source_hashes_match_working_tree": true,
+      "source_hashes_match_HEAD": true,
+      "frozen_build_payload_unchanged": true,
+      "source_files": 41,
+      "payload_sha256": "fe8b9cccb875d380b2e22db312ae7ce5f529aff1683737e113a1e9042c28c3cb"
+    },
+    {
+      "archive": "one-search-0.5.2-windows-amd64-py311-bootstrap.zip",
+      "kind": "python-bootstrap",
+      "all_file_checksums": true,
+      "checked_files": 186,
+      "manifest_and_versions": true,
+      "default_scope": "documents",
+      "source_hashes_match_working_tree": true,
+      "source_hashes_match_HEAD": true,
+      "frozen_build_payload_unchanged": true,
+      "source_files": 41,
+      "payload_sha256": "b8fb5af9b830c76a3490279bcf03774694779083dfae85bf10b44f9286b94a86"
+    }
+  ],
+  "default_documents": {
+    "native_executable_init_without_roots": true,
+    "scope": "directories",
+    "single_root_matches_system_known_documents": true,
+    "actual_windows_folder_redirection_observed": true,
+    "explicit_whole_machine_init_supported": true,
+    "service_never_started_for_default_or_whole_machine_configs": true,
+    "no_index_created_for_default_or_whole_machine_configs": true
+  },
+  "native": {
+    "real_installation": true,
+    "basic_search_ready": true,
+    "synthetic_directory_scope": true,
+    "autostart": "none",
+    "semantic_enabled": false,
+    "install_seconds": 18.437,
+    "pause_resume": {
+      "settled_state": "paused",
+      "background_activity": {
+        "scan": false,
+        "vector_build": false
+      },
+      "cached_search_works_while_paused": true,
+      "added_file_not_discovered_while_paused": true,
+      "added_content_not_indexed_while_paused": true,
+      "restart_changes_service_identity": true,
+      "pause_survives_restart": true,
+      "absolute_pause_deadline_preserved": true,
+      "resume_indexes_added_file": true
+    },
+    "reinstall_seconds": 12.391,
+    "reinstall": {
+      "saved_config_byte_identical": true,
+      "broader_root_argument_ignored": true,
+      "instance_identity_preserved": true,
+      "document_identity_preserved": true,
+      "existing_results_retained": true
+    },
+    "web_bridge": {
+      "passed": true,
+      "transport": "real Node createWebBridge to installed native daemon",
+      "full_dsh_host_tested": false,
+      "status_pause_state": "running",
+      "pause_response_state": "paused",
+      "settled_pause_state": "paused",
+      "resume_response_state": "running",
+      "stopped_service_error": "service_state_missing",
+      "actionable_retry_details": true,
+      "restart_recovers_status": true,
+      "backend_token_excluded": true
+    }
+  },
+  "bootstrap": {
+    "real_installation": true,
+    "basic_search_ready": true,
+    "synthetic_file_keyword_query_passed": true,
+    "synthetic_directory_scope": true,
+    "autostart": "none",
+    "semantic_enabled": false,
+    "install_seconds": 37.25
+  },
+  "cleanup": {
+    "only_own_synthetic_services_stopped": true,
+    "both_service_state_files_removed": true,
+    "raw_logs_and_synthetic_indexes_retained_outside_public_report": true
+  },
+  "boundaries": {
+    "user_documents_scanned": false,
+    "real_machine_scan_performed": false,
+    "real_user_installation_modified": false,
+    "model_download_or_semantic_search_tested": false,
+    "full_dsh_host_or_browser_flow_tested": false,
+    "linux_installation_tested": false,
+    "older_version_multi_profile_upgrade_retested": false
+  }
+}

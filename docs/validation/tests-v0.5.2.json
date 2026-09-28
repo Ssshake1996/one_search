@@ -1,0 +1,29 @@
+{
+  "version": "0.5.2",
+  "runtime_source_commit": "60dcd7dbda6c8b3ae7ab50b5a08d001cbd2494d3",
+  "python": {
+    "passed": 556,
+    "skipped": 5,
+    "failures": 0,
+    "seconds": 152.045,
+    "command": "python -m pytest -q -rs"
+  },
+  "node": {
+    "passed": 75,
+    "failed": 0,
+    "command": "node --test plugins/deepseek-harness/test/*.test.mjs"
+  },
+  "version_bump_followup": {
+    "passed": 67,
+    "command": "python -m pytest -q tests/test_packaging.py tests/test_service.py tests/test_default_documents.py tests/test_pause_background.py"
+  },
+  "unverified": [
+    "Actual remote user installation",
+    "Live MySQL/PostgreSQL service fixtures",
+    "Large real corpus and physical 8GB/16GB performance"
+  ],
+  "artifacts": {
+    "tests-v052.xml": "c8a92929691868f1286593503ce786de758319fff5789137ed33d0a2ad058593",
+    "node-v052-final.log": "8a9a20b41e246a2be808804cd230fc323e327760a92bcb8427c3e500d6fe3b29"
+  }
+}

@@ -1,0 +1,129 @@
+{
+  "version": "0.5.2",
+  "run_id": 36449753922,
+  "url": "https://github.com/Ssshake1996/one_search/actions/runs/36449753922",
+  "source_commit": "60dcd7dbda6c8b3ae7ab50b5a08d001cbd2494d3",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "test (windows-latest)",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pip install -e \".[dev]\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pytest -q -rs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -c \"import glob,subprocess; subprocess.run(['node','--test',*sorted(glob.glob('plugins/deepseek-harness/test/*.test.mjs'))],check=True)\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/smoke_linux.py",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "test (ubuntu-24.04)",
+      "conclusion": "success",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pip install -e \".[dev]\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pytest -q -rs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -c \"import glob,subprocess; subprocess.run(['node','--test',*sorted(glob.glob('plugins/deepseek-harness/test/*.test.mjs'))],check=True)\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/smoke_linux.py",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "python_counts": {
+    "windows": {
+      "passed": 555,
+      "skipped": 6
+    },
+    "ubuntu": {
+      "passed": 524,
+      "skipped": 37
+    }
+  },
+  "linux_installation_smoke": {
+    "passed": true,
+    "cases": [
+      "headless_install",
+      "no_model_basic",
+      "repeat_preserves_config",
+      "diagnose",
+      "paused_refresh",
+      "export",
+      "index_relocation",
+      "preserve_uninstall",
+      "reinstall",
+      "delete_managed_only"
+    ],
+    "autostart_tested": false,
+    "semantic_model_tested": false
+  },
+  "raw_log_sha256": "13a2aee195061378c455fb84031d0b5b5c43879bf19950316e990098f5e381fb"
+}
