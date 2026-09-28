@@ -40,7 +40,20 @@ test('transport and application failure are both errors, including optimistic re
   assert.equal(unwrap({ ok: true, value: { ok: true, result: 42 } }), 42);
   assert.throws(() => unwrap({ ok: false, error: { code: 'disconnected', message: 'offline' } }), e => e.code === 'disconnected' && e.message === 'offline');
   assert.throws(() => unwrap({ ok: true, value: { ok: false, error: { code: 'revision_conflict', message: 'changed' } } }), e => e.code === 'revision_conflict');
+  const details = { action: '检查后台运行状态。' };
+  assert.throws(() => unwrap({ ok: false, error: { code: 'connection_error', details } }), e => e.details === details);
+  assert.throws(() => unwrap({ ok: true, value: { ok: false, error: { code: 'service_connection_refused', details } } }), e => e.details === details);
   assert.throws(() => unwrap({ ok: true }), /操作未完成/);
+});
+
+test('public error description keeps the code and actionable guidance without dumping private details', () => {
+  const { errorDescription } = load().plugin.__testing;
+  const error = { code: 'service_auth_rejected', message: '后台拒绝连接认证。', details: { action: '请重新连接 one_search。', token: 'private-token', password: 'private-password', raw: 'private-log' } };
+  const info = errorDescription(error);
+  assert.equal(info.code, 'service_auth_rejected'); assert.equal(info.action, error.details.action);
+  assert.doesNotMatch(JSON.stringify(info), /private-/);
+  assert.equal(errorDescription({ message: 'x'.repeat(2000), code: 'bad code' }).message.length, 1000);
+  assert.equal(errorDescription({}).code, 'operation_failed');
 });
 
 test('poller has no overlapping calls, pauses when hidden, refreshes on return and disposes listeners', async () => {
@@ -147,14 +160,42 @@ test('overview distinguishes unknown discovery total, stale/error states and que
   assert.match(textOf(Overview({ status, run() {}, busy: false })), /需要关注/);
 });
 
-test('pause control submits a supported seconds parameter', async () => {
-  const React = { createElement: element, Fragment: 'fragment', useState: initial => [initial, () => {}] };
-  const { Overview } = load(React).plugin.__testing;
+test('pause control works without progress and supports indefinite and timed pauses', async () => {
+  const harness = hookHarness();
+  const { IndexControls } = load(harness.React).plugin.__testing;
   const calls = [];
-  const tree = Overview({ status: { index: { progress: { overall: {}, content: {}, semantic: {}, discovery: {}, databases: {}, error_summary: {} } } }, run: (...args) => calls.push(args), busy: false });
-  const button = all(tree, node => textOf(node) === '暂停索引' && node.props.onClick)[0];
+  const props = { status: { service: { status: 'running' }, index: {} }, run: (...args) => calls.push(args), busy: false };
+  let tree = harness.render(IndexControls, props);
+  let button = all(tree, node => textOf(node) === '暂停索引' && node.props.onClick)[0];
+  assert.equal(button.props.disabled, false);
   button.props.onClick();
-  assert.equal(calls[0][0], 'pause'); assert.equal(calls[0][1].seconds, 1800); assert.equal(calls[0][1].duration_seconds, undefined);
+  assert.equal(calls[0][0], 'pause'); assert.equal(calls[0][1].seconds, null);
+  all(tree, node => node.props['aria-label'] === '暂停时长')[0].props.onChange('30');
+  tree = harness.render(IndexControls, props);
+  button = all(tree, node => textOf(node) === '暂停索引' && node.props.onClick)[0]; button.props.onClick();
+  assert.equal(calls[1][1].seconds, 1800); assert.equal(calls[1][1].duration_seconds, undefined);
+  assert.match(textOf(tree), /已有索引仍可检索/);
+  harness.dispose();
+});
+
+test('pause control shows draining, paused and unknown states without treating a stopped service as paused', () => {
+  const React = { createElement: element, Fragment: 'fragment', useState: initial => [initial, () => {}] };
+  const { IndexControls } = load(React).plugin.__testing;
+  const calls = [];
+  const props = { status: { service: { status: 'running' }, index: { pause_state: 'pausing' } }, run: (...args) => calls.push(args), busy: false };
+  let tree = IndexControls(props);
+  assert.match(textOf(tree), /正在暂停，等待当前任务收尾/);
+  all(tree, node => textOf(node) === '恢复索引' && node.props.onClick)[0].props.onClick();
+  assert.equal(calls[0][0], 'resume');
+  props.status.index = { paused: true };
+  assert.match(textOf(IndexControls(props)), /后台索引已暂停/);
+  tree = IndexControls({ ...props, disconnected: true });
+  assert.match(textOf(tree), /暂停状态待确认/); assert.doesNotMatch(textOf(tree), /后台索引已暂停/);
+  assert.equal(all(tree, node => node.props.onClick)[0].props.disabled, true);
+  tree = IndexControls({ ...props, status: { service: { status: 'stopped' }, index: {} } });
+  assert.match(textOf(tree), /暂停状态待确认/); assert.equal(all(tree, node => node.props.onClick)[0].props.disabled, true);
+  tree = IndexControls({ ...props, status: null });
+  assert.match(textOf(tree), /暂停索引/); assert.equal(all(tree, node => node.props.onClick)[0].props.disabled, true);
 });
 
 function hookHarness() {
@@ -175,6 +216,105 @@ function hookHarness() {
     dispose() { for (const effect of effects) effect?.cleanup?.(); },
   };
 }
+
+test('pause controls stay outside tab panels and immediately show the acknowledged pause state', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let statuses = 0, finishStatus;
+  const request = async action => {
+    if (action === 'settings_get') return { revision: 'one', values: { roots: [], indexing: {}, runtime_policy: {}, databases: [] } };
+    if (action === 'status') return ++statuses === 1 ? { service: { status: 'running' }, index: {} } : new Promise(resolve => { finishStatus = resolve; });
+    if (action === 'pause') return { paused: true, user_paused: true, pause_until: null, pause_state: 'pausing' };
+  };
+  harness.render(Panel, { request }); await tick(); let tree = harness.render(Panel, { request });
+  const controls = () => all(tree, node => node.type?.name === 'IndexControls')[0];
+  for (const tab of all(tree, node => node.props.role === 'tab')) {
+    tab.props.onClick(); tree = harness.render(Panel, { request });
+    assert.ok(controls());
+    assert.equal(all(tree, node => node.props.role === 'tabpanel').flatMap(panel => all(panel, node => node.type?.name === 'IndexControls')).length, 0);
+  }
+  await controls().props.run('pause', { seconds: null }); tree = harness.render(Panel, { request });
+  assert.equal(controls().props.status.index.pause_state, 'pausing');
+  assert.match(textOf(tree), /正在暂停/); assert.match(textOf(tree), /请求已接受/);
+  finishStatus({ service: { status: 'running' }, index: { pause_state: 'paused', paused: true } });
+  await tick(); tree = harness.render(Panel, { request });
+  assert.equal(controls().props.status.index.pause_state, 'paused');
+  harness.dispose();
+});
+
+test('connection errors show a code and advice, then recovery reloads missing settings automatically', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let offline = true, reads = 0;
+  const error = Object.assign(new Error('本地后台未接受连接。'), { code: 'service_connection_refused', details: { action: '检查 one_search 是否运行，随后点击立即重试。', token: 'private-token', password: 'private-password' } });
+  const request = async action => {
+    if (action === 'status') { if (offline) throw error; return { service: { status: 'running' }, index: {} }; }
+    if (action === 'settings_get') { reads++; if (offline) throw error; return { revision: 'ready', values: { roots: ['D:/restored'], indexing: {}, runtime_policy: {}, databases: [] } }; }
+  };
+  harness.render(Panel, { request }); await tick(); let tree = harness.render(Panel, { request });
+  assert.match(textOf(tree), /service_connection_refused/); assert.match(textOf(tree), /检查 one_search 是否运行/);
+  assert.doesNotMatch(textOf(tree), /private-token|private-password/);
+  assert.equal(all(tree, node => node.type?.name === 'IndexControls')[0].props.disconnected, true);
+  assert.equal(reads, 1);
+  offline = false; clock.fire(); await tick(); tree = harness.render(Panel, { request });
+  assert.equal(reads, 2); assert.equal(all(tree, node => node.type?.name === 'IndexControls')[0].props.disconnected, false);
+  assert.deepEqual(Array.from(all(tree, node => node.type?.name === 'Scope')[0].props.values.roots), ['D:/restored']);
+  assert.doesNotMatch(textOf(tree), /service_connection_refused/);
+  harness.dispose();
+});
+
+test('a status request started before pause cannot overwrite the acknowledged pause state', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let statuses = 0, finishOldStatus;
+  const request = async action => {
+    if (action === 'settings_get') return { revision: 'one', values: { roots: [], indexing: {}, runtime_policy: {}, databases: [] } };
+    if (action === 'status') return ++statuses === 1 ? { service: { status: 'running' }, index: { pause_state: 'running' } } : new Promise(resolve => { finishOldStatus = resolve; });
+    if (action === 'pause') return { paused: true, user_paused: true, pause_state: 'pausing' };
+  };
+  harness.render(Panel, { request }); await tick(); let tree = harness.render(Panel, { request });
+  clock.fire();
+  await all(tree, node => node.type?.name === 'IndexControls')[0].props.run('pause', { seconds: null });
+  finishOldStatus({ service: { status: 'running' }, index: { pause_state: 'running' } });
+  await tick(); tree = harness.render(Panel, { request });
+  assert.equal(all(tree, node => node.type?.name === 'IndexControls')[0].props.status.index.pause_state, 'pausing');
+  assert.equal(clock.timers.values().next().value.delay, 0);
+  harness.dispose();
+});
+
+test('failed pause shows its code and action without changing the last confirmed pause state', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  const request = async action => {
+    if (action === 'settings_get') return { revision: 'one', values: { roots: [], indexing: {}, runtime_policy: {}, databases: [] } };
+    if (action === 'status') return { service: { status: 'running' }, index: { pause_state: 'running' } };
+    if (action === 'pause') throw Object.assign(new Error('后台正在停止。'), { code: 'service_stopping', details: { action: '等待后台停止后重新连接。' } });
+  };
+  harness.render(Panel, { request }); await tick(); let tree = harness.render(Panel, { request });
+  await all(tree, node => node.type?.name === 'IndexControls')[0].props.run('pause', { seconds: null });
+  tree = harness.render(Panel, { request });
+  assert.match(textOf(tree), /service_stopping/); assert.match(textOf(tree), /等待后台停止后重新连接/);
+  assert.equal(all(tree, node => node.type?.name === 'IndexControls')[0].props.status.index.pause_state, 'running');
+  harness.dispose();
+});
+
+test('reconnection preserves dirty settings and does not automatically reload an existing draft', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let offline = false, reads = 0;
+  const request = async action => {
+    if (action === 'settings_get') { reads++; return { revision: 'one', values: { roots: ['D:/before'], indexing: {}, runtime_policy: {}, databases: [] } }; }
+    if (action === 'status') { if (offline) throw new Error('offline'); return { service: { status: 'running' }, index: {} }; }
+  };
+  harness.render(Panel, { request }); await tick(); let tree = harness.render(Panel, { request });
+  all(tree, node => node.type?.name === 'Scope')[0].props.update('roots', ['D:/mine']);
+  tree = harness.render(Panel, { request }); offline = true; clock.fire(); await tick(); tree = harness.render(Panel, { request });
+  offline = false; clock.fire(); await tick(); tree = harness.render(Panel, { request });
+  assert.deepEqual(Array.from(all(tree, node => node.type?.name === 'Scope')[0].props.values.roots), ['D:/mine']);
+  assert.equal(reads, 1);
+  harness.dispose();
+});
+
 test('polling cannot overwrite dirty settings; pending saves disable forms, reject double saves, then show applied snapshot', async () => {
   const harness = hookHarness(), clock = fakeClock();
   const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;

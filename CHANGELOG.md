@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+- New installations select the current user's Documents folder, including Windows folder redirection and Linux XDG configuration. Missing or disabled Documents requires an explicit directory; whole-machine indexing is an explicit opt-in. Reinstallation preserves the existing saved scope and index.
+- DSH Web keeps pause/resume controls visible on every tab, including when detailed progress is unavailable. It distinguishes pausing, paused and unconfirmed connection state. In-flight background extraction, embedding and database paging now cancel without losing pending work or adding error backoff; existing search remains available.
+- Connection failures now display specific error codes and recovery actions for missing/invalid configuration, missing state, refused connections, timeouts, authentication, busy/stopping services and invalid responses. Canonical config aliases no longer create false identity failures; status retries once if a concurrent daemon restart replaced its identity. Settings load retries after reconnection without overwriting edits.
+- The release does not establish the cause of outages on a remote user's installation. Fault injection, temporary-daemon and UI fixture validation are documented separately from unverified remote deployment behavior.
+
 ## 0.5.1
 
 - Windows native upgrades coordinate with compatible running DSH profiles before replacing the runtime. A Node-owned loopback controller stops MCP reconnects, disposes the MCP scope, waits for active management children to close, and reconnects after successful activation or rollback. The Web panel remains available and reports maintenance while runtime operations are gated.

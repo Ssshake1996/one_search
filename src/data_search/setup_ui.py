@@ -222,6 +222,8 @@ def main(argv=None):
         return text
 
     roots = folder_list(scope_tab, current.get("roots", []))
+    if current["scope"] == "directories" and not current.get("roots"):
+        ttk.Label(scope_tab, text="文档文件夹不可用或尚未选择目录。请添加要检索的目录后保存；不会自动扩大范围。", wraplength=780).pack(anchor="w", pady=5)
     ttk.Label(scope_tab,text='排除目录（文件名、正文与语义均不检索）').pack(anchor='w',pady=(6,0))
     excluded_paths = folder_list(scope_tab,current.get('exclude_paths',[]),height=2)
     ttk.Label(scope_tab, text="文件名索引覆盖上述范围。正文与语义可进一步缩小范围以节省资源。", wraplength=780).pack(anchor="w", pady=5)

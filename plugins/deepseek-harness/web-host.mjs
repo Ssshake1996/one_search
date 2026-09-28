@@ -1,6 +1,6 @@
 /** Authenticated DSH Web adapter. Backend credentials never leave this process. */
 import { spawn } from 'node:child_process';
-import { open } from 'node:fs/promises';
+import { open, realpath } from 'node:fs/promises';
 import { request as httpRequest } from 'node:http';
 import { homedir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -15,13 +15,49 @@ const READ_ACTIONS = new Set(['status', 'diagnose_path', 'settings_get', 'settin
 const DIRECT_ACTIONS = new Set(['status', 'pause', 'resume', 'scan', 'refresh_path', 'diagnose_path']);
 const STATUS_KEYS = new Set(['schema_version', 'version', 'instance_id', 'node_id', 'paused', 'last_error',
   'runtime_policy', 'capabilities', 'file_scope', 'coverage', 'resources', 'indexing', 'vector_index',
-  'worker_controls', 'database_sync', 'scheduler', 'journal', 'vector_error', 'semantic', 'remote_nodes', 'progress']);
+  'worker_controls', 'database_sync', 'scheduler', 'journal', 'vector_error', 'semantic', 'remote_nodes', 'progress',
+  'pause_state', 'background_activity']);
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 class BridgeError extends Error {
-  constructor(code, message) { super(message); this.code = code; }
+  constructor(code, message, details) { super(message); this.code = code; this.details = details; }
 }
-const failed = (code, message) => ({ ok: false, error: { code, message } });
-const unavailable = () => new BridgeError('service_offline', '后台服务暂不可用，请检查安装与服务状态后重试。');
+const failed = (code, message, details) => ({ ok: false, error: { code, message, ...(details ? { details } : {}) } });
+// Only fixed public text crosses the bridge. OS errors, state tokens, database
+// diagnostics and raw subprocess output may contain private information.
+const SERVICE_ERRORS = {
+  configuration_missing: ['找不到后台配置文件。', '在运行 DSH 的电脑上确认安装目录及 configPath，按 README 完成安装。', false],
+  configuration_unreadable: ['无法读取后台配置文件。', '检查运行 DSH 的账户是否有配置目录的读取权限。', false],
+  configuration_invalid: ['后台配置文件格式无效。', '检查配置 JSON，或使用保留数据的安装方式修复；不要删除索引。', false],
+  service_state_missing: ['未找到正在运行的后台服务记录。', '在服务所在电脑检查 installation-status 和后台日志，启动服务后重试。', true],
+  service_state_unreadable: ['无法读取后台服务状态。', '检查 DSH 与后台是否使用同一账户，以及数据目录权限。', false],
+  service_state_invalid: ['后台服务状态记录无效。', '查看后台日志并正常重启服务，不要手工修改状态文件。', false],
+  service_identity_mismatch: ['后台服务身份与当前配置不一致。', '核对 DSH 的 configPath 和数据目录；服务刚重启时可稍后重试。', true],
+  service_connection_refused: ['后台记录存在，但本地服务未接受连接。', '服务可能已退出；在服务所在电脑检查后台日志和服务状态。', true],
+  service_connection_timeout: ['等待后台响应超时。', '检查服务器负载和后台日志；服务恢复响应后页面会自动重连。', true],
+  service_disconnected: ['与后台的连接在响应完成前断开。', '服务可能正在重启；稍后重试，反复出现时检查后台日志。', true],
+  service_auth_rejected: ['后台拒绝了当前连接凭据。', '服务可能已重启；重试读取最新状态，持续失败时核对数据目录。', true],
+  service_endpoint_rejected: ['后台拒绝了本地 RPC 请求。', '核对后台与插件版本，确认连接的是 one_search 本地服务。', false],
+  service_busy: ['后台当前请求过多。', '等待正在执行的查询完成后重试。', true],
+  service_stopping: ['后台正在停止或重启。', '等待服务恢复；页面会自动重新读取状态。', true],
+  service_response_invalid: ['后台返回了无法识别的响应。', '核对后台和插件版本，并检查后台日志。', false],
+  service_response_too_large: ['后台状态响应超过大小限制。', '减少数据源范围或联系维护人员，附上此错误码。', false],
+  backend_rejected: ['后台未能执行此操作。', '检查操作参数与后台日志后重试。', false],
+  backend_operation_failed: ['后台执行操作失败。', '检查数据源是否可访问，并查看后台日志。', true],
+  host_startup_failed: ['DSH 尚未成功连接后台。', '检查 DSH 的 one_search 启动日志，修复安装或服务问题后重新加载此 profile。', true],
+  host_starting: ['DSH 正在准备后台连接。', '等待安装或服务启动完成，页面会自动重试。', true],
+};
+function serviceError(code, stage) {
+  const [message, action, retryable] = SERVICE_ERRORS[code];
+  return new BridgeError(code, message, { stage, reason: code, action, retryable });
+}
+
+async function readServiceFile(path, limit, kind) {
+  try { return await readJson(path, limit); }
+  catch (error) {
+    const suffix = error.code === 'ENOENT' ? 'missing' : error instanceof SyntaxError || !error.code ? 'invalid' : 'unreadable';
+    throw serviceError(kind + '_' + suffix, kind);
+  }
+}
 
 async function readJson(path, limit) {
   const file = await open(path, 'r');
@@ -51,19 +87,30 @@ export function preparedBackend(connection) {
 }
 
 async function readState(backend) {
-  try {
-    const config = await readJson(backend.configPath, 1024 * 1024);
-    if (typeof config.data_dir !== 'string' || !config.data_dir) throw new Error('Invalid data directory');
+    const config = await readServiceFile(backend.configPath, 1024 * 1024, 'configuration');
+    if (!plain(config) || typeof config.data_dir !== 'string' || !config.data_dir) throw serviceError('configuration_invalid', 'configuration');
     const dataDir = config.data_dir.replace(/^~(?=$|[\\/])/, homedir());
-    const state = await readJson(join(resolve(dataDir), 'service.json'), 16384);
+    const state = await readServiceFile(join(resolve(dataDir), 'service.json'), 16384, 'service_state');
     if (!plain(state) || !Number.isInteger(state.port) || state.port < 1024 || state.port > 65535 ||
         !Number.isInteger(state.pid) || state.pid < 1 || typeof state.token !== 'string' || state.token.length < 32 ||
-        typeof state.service_id !== 'string' || !state.service_id || state.config_path !== backend.configPath) throw new Error('Invalid state');
+        typeof state.service_id !== 'string' || !state.service_id || typeof state.config_path !== 'string' ||
+        !isAbsolute(state.config_path)) throw serviceError('service_state_invalid', 'service_state');
+    // Python canonicalizes config_path on startup. Match the same real file even
+    // when DSH used a directory symlink or different Windows path casing.
+    let actual, expected;
+    try { [actual, expected] = await Promise.all([realpath(state.config_path), realpath(backend.configPath)]); }
+    catch { throw serviceError('service_identity_mismatch', 'service_state'); }
+    if (process.platform === 'win32') { actual = actual.toLowerCase(); expected = expected.toLowerCase(); }
+    if (actual !== expected) throw serviceError('service_identity_mismatch', 'service_state');
     return state;
-  } catch { throw unavailable(); }
 }
 
 function daemonCall(state, method, params, signal, timeoutMs = 12000) {
+  const stage = method === '_health' ? 'health' : method === 'index_status' ? 'status' : 'operation';
+  const transportError = (error) => error instanceof BridgeError ? error : signal?.aborted
+    ? new BridgeError('cancelled', '操作已取消。')
+    : serviceError(error?.code === 'ECONNREFUSED' ? 'service_connection_refused'
+      : error?.code === 'ETIMEDOUT' ? 'service_connection_timeout' : 'service_disconnected', stage);
   return new Promise((fulfill, reject) => {
     const body = Buffer.from(JSON.stringify({ method, params }));
     const req = httpRequest({ hostname: '127.0.0.1', port: state.port, path: '/rpc', method: 'POST',
@@ -73,22 +120,31 @@ function daemonCall(state, method, params, signal, timeoutMs = 12000) {
       let length = 0;
       response.on('data', (chunk) => {
         length += chunk.length;
-        if (length > MAX_RESPONSE) { response.destroy(); req.destroy(unavailable()); }
+        if (length > MAX_RESPONSE) { const error = serviceError('service_response_too_large', stage); reject(error); response.destroy(); req.destroy(error); }
         else chunks.push(chunk);
       });
-      response.on('error', () => reject(unavailable()));
+      response.on('error', (error) => reject(transportError(error)));
       response.on('end', () => {
         try {
-          if (response.statusCode !== 200) throw unavailable();
+          if (response.statusCode !== 200) throw serviceError(response.statusCode === 401 ? 'service_auth_rejected'
+            : response.statusCode === 503 || response.statusCode === 429 ? 'service_busy' : 'service_endpoint_rejected', stage);
           const result = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          if (!plain(result) || result.ok !== true) throw new BridgeError('backend_rejected', '后台未能执行此操作，请检查参数或稍后重试。');
+          if (!plain(result) || typeof result.ok !== 'boolean' || (result.ok && !Object.hasOwn(result, 'result'))) throw serviceError('service_response_invalid', stage);
+          if (!result.ok) {
+            // v0.5.0/1 return fixed strings; newer runtimes also supply a code.
+            const legacy = { 'Service is busy; retry later': 'service_busy', 'Service is shutting down': 'service_stopping' };
+            const allowed = new Set(['service_busy', 'service_stopping', 'backend_operation_failed']);
+            const code = allowed.has(result.error_code) ? result.error_code
+              : typeof result.error === 'string' && Object.hasOwn(legacy, result.error) ? legacy[result.error] : 'backend_rejected';
+            throw serviceError(code, stage);
+          }
           fulfill(result.result);
-        } catch (error) { reject(error instanceof BridgeError ? error : unavailable()); }
+        } catch (error) { reject(error instanceof BridgeError ? error : serviceError('service_response_invalid', stage)); }
       });
     });
-    const timer = setTimeout(() => req.destroy(unavailable()), timeoutMs);
+    const timer = setTimeout(() => req.destroy(serviceError('service_connection_timeout', stage)), timeoutMs);
     req.on('close', () => clearTimeout(timer));
-    req.on('error', () => reject(unavailable()));
+    req.on('error', (error) => reject(transportError(error)));
     req.end(body);
   });
 }
@@ -170,7 +226,8 @@ function validateRequest(request) {
 }
 
 export function createWebBridge(connection, { manage = runManagement, now = Date.now,
-  runRuntime = (callback) => callback(), maintenanceStatus = () => null } = {}) {
+  runRuntime = (callback) => callback(), maintenanceStatus = () => null,
+  healthTimeoutMs = 3000, statusTimeoutMs = 12000 } = {}) {
   const active = new Set();
   let disposed = false;
   let cached;
@@ -191,7 +248,7 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
   }
   function backend() {
     const current = typeof connection === 'function' ? connection() : connection;
-    if (!current) throw unavailable();
+    if (!current) throw serviceError(maintenanceStatus()?.state === 'failed' ? 'host_startup_failed' : 'host_starting', 'connection');
     if (current !== previousConnection) { invalidate(); previousConnection = current; }
     return preparedBackend(current);
   }
@@ -205,11 +262,29 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
     const startedGeneration = generation;
     active.add(controller);
     const task = (async () => {
-      const state = await readState(prepared);
-      const health = await daemonCall(state, '_health', {}, controller.signal, 3000);
-      if (health.service_id !== state.service_id || health.pid !== state.pid || health.status !== 'running') throw unavailable();
-      const index = await daemonCall(state, 'index_status', {}, controller.signal);
-      if (!plain(index)) throw unavailable();
+      let state = await readState(prepared);
+      const sample = async () => {
+        const health = await daemonCall(state, '_health', {}, controller.signal, healthTimeoutMs);
+        if (!plain(health)) throw serviceError('service_response_invalid', 'health');
+        if (health.service_id !== state.service_id || health.pid !== state.pid) throw serviceError('service_identity_mismatch', 'health');
+        if (health.status === 'stopping') throw serviceError('service_stopping', 'health');
+        if (health.status !== 'running') throw serviceError('service_response_invalid', 'health');
+        const index = await daemonCall(state, 'index_status', {}, controller.signal, statusTimeoutMs);
+        if (!plain(index)) throw serviceError('service_response_invalid', 'status');
+        return index;
+      };
+      let index;
+      try { index = await sample(); }
+      catch (error) {
+        if (!['service_identity_mismatch', 'service_auth_rejected', 'service_connection_refused', 'service_disconnected'].includes(error.code)) throw error;
+        // A restart may atomically replace service.json after our first read.
+        // Retry this read-only sample once, only when the state really changed.
+        const replacement = await readState(prepared);
+        if (replacement.service_id === state.service_id && replacement.port === state.port &&
+            replacement.token === state.token && replacement.pid === state.pid) throw error;
+        state = replacement;
+        index = await sample();
+      }
       const value = { service: { status: 'running' }, index: Object.fromEntries(
         Object.entries(index).filter(([key]) => STATUS_KEYS.has(key))) };
       if (generation === startedGeneration) cached = { at: now(), value };
@@ -286,7 +361,7 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
           invalidate();
           return failed('upgrade_in_progress', '正在升级 one_search，请等待升级完成后重试。');
         }
-        return error instanceof BridgeError ? failed(error.code, error.message) : failed('operation_failed', '操作未完成，请刷新状态后重试。');
+        return error instanceof BridgeError ? failed(error.code, error.message, error.details) : failed('operation_failed', '操作未完成，请刷新状态后重试。');
       }
     },
     dispose() { disposed = true; for (const controller of active) controller.abort(); cached = undefined; },

@@ -12,7 +12,7 @@ window.__ModuleLoader__.load({
     const date = value => value ? new Date(typeof value === 'number' ? value * 1000 : value).toLocaleString('zh-CN') : '—';
     const mb = value => Number.isFinite(value) ? `${number(Math.round(value))} MB` : '—';
     const labels = {
-      maintenance: '升级维护中', paused: '已暂停', waiting: '等待资源', indexing: '正在扫描与建索引', needs_attention: '需要关注',
+      maintenance: '升级维护中', pausing: '正在暂停', paused: '已暂停', waiting: '等待资源', indexing: '正在扫描与建索引', needs_attention: '需要关注',
       up_to_date: '当前已知任务已处理', user_pause: '手动暂停', system_busy: '电脑繁忙，稍后继续',
       memory_budget_exceeded: '达到内存预算', system_memory_pressure: '可用内存不足',
       disk_budget_exceeded: '达到索引空间预算', disk_free_space_low: '磁盘可用空间不足',
@@ -32,6 +32,7 @@ window.__ModuleLoader__.load({
       if (!transport || transport.ok !== true) {
         const error = new Error(transport?.error?.message || '与 DSH 的连接中断，请稍后重试。');
         error.code = transport?.error?.code || 'connection_error';
+        error.details = transport?.error?.details;
         throw error;
       }
       const response = transport.value;
@@ -71,6 +72,24 @@ window.__ModuleLoader__.load({
 
     function freshDraft(snapshot) { return { revision: snapshot.revision, values: clone(snapshot.values), original: clone(snapshot.values) }; }
     function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
+    function errorDescription(error) {
+      const publicText = value => typeof value === 'string' ? value.slice(0, 1000) : '';
+      return { message: publicText(error?.message) || '操作未完成，请重试。',
+        code: typeof error?.code === 'string' && /^[a-z0-9_]{1,80}$/.test(error.code) ? error.code : 'operation_failed',
+        action: publicText(error?.details?.action) };
+    }
+    function errorContent(error) {
+      const info = errorDescription(error);
+      return h(React.Fragment, null, h('p', null, info.message), h('p', { className: 'os-note' }, '错误码：', h('code', null, info.code)),
+        info.action && h('p', null, info.action));
+    }
+    function pauseStatus(status) {
+      const index = status?.index || {};
+      const policy = index.runtime_policy || index.progress?.runtime_policy || {};
+      const state = ['running', 'pausing', 'paused'].includes(index.pause_state) ? index.pause_state :
+        policy.user_paused === true || index.paused === true ? 'paused' : 'running';
+      return { state, until: policy.pause_until || index.pause_until };
+    }
     function diagnosticMessage(result) {
       return (result.diagnostics || result.checks || []).filter(x => x.ok !== true).map(x => [x.message, x.action].filter(Boolean).join(' ')).join('；') || '请检查连接信息与允许读取的字段。';
     }
@@ -120,6 +139,7 @@ window.__ModuleLoader__.load({
     const css = `
 .os-panel{height:100%;overflow:auto;box-sizing:border-box;color:var(--dsw-alias-label-primary,#202329);background:var(--dsw-alias-bg-base,#fff);font-family:inherit;font-size:14px;line-height:1.55;--os-line:var(--dsw-alias-border-l3,#e2e5e9);--os-muted:var(--dsw-alias-label-secondary,#69717e);--os-soft:var(--dsw-alias-interactive-bg-hover,#f4f5f7);--os-blue:var(--dsw-alias-state-business-primary,#4164d6)}
 .os-panel *{box-sizing:border-box}.os-body{max-width:1120px;padding:32px 36px 24px;margin:0 auto}.os-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.os-head h1{font-size:26px;font-weight:650;letter-spacing:-.8px;margin:0 0 3px}.os-subtitle,.os-muted{color:var(--os-muted)}.os-subtitle{margin:0}.os-state{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-size:12px;padding:6px 10px;border:1px solid var(--os-line);border-radius:20px}.os-dot{width:7px;height:7px;border-radius:50%;background:#638d73}.os-state[data-state=needs_attention] .os-dot,.os-state[data-state=waiting] .os-dot{background:#b68a34}.os-state[data-state=paused] .os-dot{background:#8a92a0}
+.os-index-controls{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-top:22px;padding:16px 0;border-top:1px solid var(--os-line);border-bottom:1px solid var(--os-line)}.os-index-controls>div{min-width:0}.os-index-controls p{margin:3px 0 0;font-size:12px;color:var(--os-muted)}.os-index-controls .os-select{width:auto;max-width:100%}.os-index-controls .os-actions{flex-shrink:0;max-width:100%}.os-index-controls+.os-tabs{margin-top:18px}
 .os-tabs{display:flex;gap:24px;border-bottom:1px solid var(--os-line);margin:26px 0 24px;overflow-x:auto}.os-tab{font:inherit;color:var(--os-muted);border:0;border-bottom:2px solid transparent;background:transparent;padding:0 0 12px;white-space:nowrap;cursor:pointer}.os-tab[aria-selected=true]{border-color:var(--os-blue);color:var(--os-blue);font-weight:600}.os-panel button:focus-visible,.os-panel input:focus-visible,.os-panel select:focus-visible,.os-panel textarea:focus-visible,.os-panel summary:focus-visible{outline:2px solid var(--os-blue);outline-offset:3px}.os-panel button:disabled{opacity:.48;cursor:not-allowed}.os-btn{font:inherit;font-size:13px;color:inherit;background:transparent;border:1px solid var(--os-line);border-radius:8px;min-height:34px;padding:6px 12px;cursor:pointer;white-space:normal}.os-btn:hover:enabled{background:var(--os-soft)}.os-btn.os-primary{background:var(--os-blue);border-color:var(--os-blue);color:#fff}.os-btn.os-primary:hover:enabled{filter:brightness(.94)}.os-btn.os-danger{color:#b84949}.os-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.os-section{border-top:1px solid var(--os-line);padding:22px 0}.os-section:first-child{border-top:0;padding-top:0}.os-section h2{margin:0 0 4px;font-size:16px;font-weight:600}.os-section>p{margin:0 0 17px;color:var(--os-muted);font-size:13px}.os-section-head{display:flex;justify-content:space-between;gap:14px;margin-bottom:15px;align-items:center}.os-section-head h2{margin:0}.os-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:4px 0 24px;gap:18px}.os-metric small{display:block;color:var(--os-muted);font-size:12px}.os-metric strong{display:block;font-weight:550;font-size:26px;letter-spacing:-.6px;margin:5px 0}.os-metric span{font-size:12px;color:var(--os-muted)}.os-stage{display:grid;grid-template-columns:150px 1fr;gap:20px;padding:15px 0;border-bottom:1px solid var(--os-line)}.os-stage:last-child{border-bottom:0}.os-stage-title{font-weight:550}.os-stage p{margin:0;color:var(--os-muted);font-size:13px}.os-stage strong{font-weight:500}.os-root{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:8px;padding:10px 0;border-bottom:1px solid var(--os-line);font-size:13px}.os-root:last-child{border:0}.os-path{overflow-wrap:anywhere;font-family:var(--ds-font-family-code,monospace);font-size:12px}.os-note{color:var(--os-muted);font-size:12px;margin:8px 0}.os-alert{border:1px solid var(--os-line);background:var(--os-soft);border-left:3px solid var(--os-blue);padding:10px 13px;border-radius:5px;margin:12px 0;overflow-wrap:anywhere}.os-alert.os-error{border-left-color:#b84949}.os-alert p{margin:3px 0}.os-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 22px}.os-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}.os-field>span{font-weight:500}.os-field input,.os-field textarea,.os-field select,.os-select{font:inherit;color:inherit;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--os-line);border-radius:7px;padding:8px 10px;min-height:36px;width:100%}.os-field textarea{resize:vertical;min-height:82px;line-height:1.65}.os-field small{font-weight:400;color:var(--os-muted)}.os-wide{grid-column:1/-1}.os-check{display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin:10px 0}.os-check input{accent-color:var(--os-blue);margin-top:4px}.os-fields{border:0;margin:0;padding:0;min-width:0}.os-radio-group{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.os-radio{display:flex;align-items:center;gap:8px;padding:11px 15px;border:1px solid var(--os-line);border-radius:8px;cursor:pointer}.os-radio:has(input:checked){border-color:var(--os-blue);background:var(--os-soft)}.os-radio input{accent-color:var(--os-blue)}.os-save{position:sticky;bottom:0;background:var(--dsw-alias-bg-base,#fff);border-top:1px solid var(--os-line);padding:14px 0 6px;display:flex;gap:16px;justify-content:space-between;align-items:center;margin-top:18px;z-index:1}.os-save p{margin:0;font-size:12px;color:var(--os-muted)}.os-pre{font:12px/1.6 var(--ds-font-family-code,monospace);white-space:pre-wrap;overflow-wrap:anywhere;max-height:290px;overflow:auto;background:var(--os-soft);padding:12px;border-radius:6px}.os-details summary{cursor:pointer;font-size:13px;padding:8px 0}.os-db-list{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px}.os-db-item{display:flex;gap:5px;align-items:center}.os-table-wrap{overflow:auto;max-height:350px;margin:10px 0}.os-table{border-collapse:collapse;width:100%;font-size:12px;text-align:left}.os-table th,.os-table td{padding:8px 10px;border-bottom:1px solid var(--os-line);vertical-align:top}.os-table th{color:var(--os-muted);font-weight:500}.os-table input{accent-color:var(--os-blue)}.os-table-picker{border:1px solid var(--os-line);border-radius:8px;padding:12px 16px;margin:10px 0}.os-table-picker>summary{cursor:pointer;font-weight:500;overflow-wrap:anywhere}.os-loading{padding:36px 0;color:var(--os-muted)}.os-preset small{display:block;color:var(--os-muted);font-size:11px}.os-preset .os-radio{flex:1;min-width:160px;align-items:flex-start}.os-empty{padding:14px 0;color:var(--os-muted);font-size:13px}.os-panel [hidden]{display:none!important}
 @media(max-width:760px){.os-body{padding:22px 18px}.os-head{flex-wrap:wrap;gap:14px}.os-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.os-form-grid{grid-template-columns:1fr}.os-stage{grid-template-columns:1fr;gap:5px}.os-save{align-items:flex-start;flex-direction:column}.os-root{grid-template-columns:1fr}.os-tabs{gap:23px}.os-section-head{align-items:flex-start;flex-wrap:wrap}}
 `;
@@ -140,11 +160,28 @@ window.__ModuleLoader__.load({
     function Metric({ title, value, note }) { return h('div', { className: 'os-metric' }, h('small', null, title), h('strong', null, value), h('span', null, note)); }
     function Stage({ title, children }) { return h('div', { className: 'os-stage' }, h('div', { className: 'os-stage-title' }, title), h('div', null, children)); }
 
+    function IndexControls({ status, run, busy, disconnected }) {
+      const [minutes, setMinutes] = useState('0');
+      const pause = pauseStatus(status);
+      const maintenance = status?.service?.status === 'maintenance';
+      const available = Boolean(status?.index) && !maintenance && !disconnected && (!status.service?.status || status.service.status === 'running');
+      const disabled = Boolean(busy) || !available;
+      const paused = pause.state !== 'running';
+      const stateText = maintenance ? '升级维护中' : !available ? '暂停状态待确认' :
+        pause.state === 'pausing' ? '正在暂停，等待当前任务收尾' : paused ? '后台索引已暂停' : '后台索引可运行';
+      return h('section', { className: 'os-index-controls', 'aria-label': '后台索引控制' },
+        h('div', null, h('strong', { role: 'status', 'aria-live': 'polite' }, stateText),
+          h('p', null, !available ? '连接恢复后自动更新状态与操作入口。' : '暂停文件扫描、正文解析、语义索引与数据库同步；已有索引仍可检索。'),
+          available && paused && h('p', null, pause.until ? `${date(pause.until)} 自动恢复` : '直到手动恢复')),
+        h('div', { className: 'os-actions' }, !paused && h(Select, { className: 'os-select', 'aria-label': '暂停时长', value: minutes, disabled,
+          options: [['0','直到手动恢复'],['15','15 分钟'],['30','30 分钟'],['60','1 小时']], onChange: setMinutes }),
+          h(Button, { onClick: () => paused ? run('resume') : run('pause', { seconds: Number(minutes) ? Number(minutes) * 60 : null }), disabled }, paused ? '恢复索引' : '暂停索引')));
+    }
+
     function Overview({ status, run, busy }) {
       const [path, setPath] = useState('');
       const [pathResult, setPathResult] = useState(null);
       const [modelPath, setModelPath] = useState('');
-      const [minutes, setMinutes] = useState('30');
       const index = status?.index || {};
       const progress = index.progress;
       const model = index.semantic?.lifecycle || {};
@@ -165,11 +202,7 @@ window.__ModuleLoader__.load({
           h(Metric, { title: '内存占用', value: mb(progress.resources?.rss_mb), note: '后台及其工作进程' })),
         h('section', { className: 'os-section' },
           h('div', { className: 'os-section-head' }, h('h2', null, '扫描与建立索引'),
-            h('div', { className: 'os-actions' }, policy.user_paused ?
-              h(Button, { onClick: () => run('resume'), disabled: busy }, '恢复索引') :
-              h(React.Fragment, null, h(Select, { className: 'os-select', 'aria-label': '暂停时长', value: minutes, disabled: busy, options: [['15','15 分钟'],['30','30 分钟'],['60','1 小时'],['0','直到手动恢复']], onChange: setMinutes }),
-                h(Button, { onClick: () => run('pause', { seconds: Number(minutes) ? Number(minutes) * 60 : null }), disabled: busy }, '暂停索引')),
-              h(Button, { onClick: () => run('scan'), disabled: busy }, '重新扫描'))),
+            h(Button, { onClick: () => run('scan'), disabled: busy }, '重新扫描')),
           (policy.reason || progress.overall?.reason && progress.overall.reason !== 'known_tasks_pending') && h('div', { className: 'os-alert' }, label(policy.reason || progress.overall.reason), policy.pause_until && ` · ${date(policy.pause_until)} 自动恢复`),
           h(Stage, { title: '文件发现' }, h('strong', null, discovery.active ? '正在发现文件' : discovery.complete ? '本轮配置范围已扫描' : '等待扫描'),
             h('p', null, `${number(discovery.queued_directories)} 个目录等待扫描。首次扫描总量未知，不显示整机百分比。`)),
@@ -343,16 +376,38 @@ window.__ModuleLoader__.load({
       const [dbDirty, setDbDirty] = useState(false);
       const [discard, setDiscard] = useState(false);
       const [editorEpoch, setEditorEpoch] = useState(0);
-      const mounted = useRef(true), lock = useRef(false), poller = useRef(null), draftRef = useRef(null);
+      const mounted = useRef(true), lock = useRef(false), poller = useRef(null), draftRef = useRef(null), statusEpoch = useRef(0);
       draftRef.current = draft;
       const maintenance = status?.service?.status === 'maintenance';
       const controlsDisabled = Boolean(busy) || maintenance;
       const dirty = Boolean(draft && !same(draft.values, draft.original));
       useEffect(() => {
         mounted.current = true;
-        poller.current = createPoller({ document, request: () => request('status'), onValue: value => { setStatus(value); setConnectionError(null); }, onError: (error, delay) => setConnectionError(`${error.message} ${Math.ceil(delay / 1000)} 秒后重试；显示的是上次收到的状态。`) });
-        request('settings_get').then(value => { if (mounted.current) { setSettings(value); setDraft(freshDraft(value)); } }).catch(error => { if (mounted.current) setSettingsError(error.message); });
-        return () => { mounted.current = false; poller.current?.dispose(); };
+        let active = true, settingsRunning = false, settingsFailures = 0, retrySettingsAt = 0, disconnected = false;
+        async function readMissingSettings(force = false) {
+          if (!active || draftRef.current || settingsRunning || (!force && Date.now() < retrySettingsAt)) return;
+          settingsRunning = true;
+          try {
+            const value = await request('settings_get');
+            if (active && !draftRef.current) {
+              const next = freshDraft(value); draftRef.current = next;
+              setSettings(value); setDraft(next); setSettingsError(null);
+            }
+          } catch (error) {
+            settingsFailures += 1; retrySettingsAt = Date.now() + Math.min(30000, 2000 * 2 ** settingsFailures);
+            if (active) setSettingsError(error);
+          } finally { settingsRunning = false; }
+        }
+        poller.current = createPoller({ document, request: async () => { const epoch = statusEpoch.current; return { epoch, value: await request('status') }; },
+          onValue: ({ epoch, value }) => {
+            if (epoch !== statusEpoch.current) return;
+            setStatus(value); setConnectionError(null);
+            const recovered = disconnected; disconnected = false;
+            if (value.service?.status !== 'maintenance') readMissingSettings(recovered);
+          },
+          onError: (error, delay) => { disconnected = true; setConnectionError({ error, delay }); } });
+        readMissingSettings();
+        return () => { active = false; mounted.current = false; poller.current?.dispose(); };
       }, [request]);
       useEffect(() => {
         if (!dirty && !dbDirty) return;
@@ -365,10 +420,24 @@ window.__ModuleLoader__.load({
         if (lock.current || maintenance) return;
         lock.current = true; setBusy(title); setNotice(null);
         try { const message = await operation(); if (mounted.current) { setNotice({ text: typeof message === 'string' ? message : `${title}已完成。`, error: false }); poller.current?.refresh(); } }
-        catch (error) { if (mounted.current) { if (error.code === 'revision_conflict') setConflict(true); setNotice({ text: error.message, error: true }); } }
+        catch (error) { if (mounted.current) { if (error.code === 'revision_conflict') setConflict(true); setNotice({ detail: error, error: true }); } }
         finally { lock.current = false; if (mounted.current) setBusy(''); }
       }
-      const run = (action, params = {}, after) => task(({ pause: '暂停请求', resume: '恢复请求', scan: '重新扫描请求', refresh_path: '路径刷新请求', diagnose_path: '路径诊断', model_start: '模型准备请求', model_import: '模型导入请求', model_cancel: '模型取消请求' })[action] || '操作', async () => { const result = await request(action, params); if (mounted.current) after?.(result); return ['scan','refresh_path','model_start','model_import','model_cancel'].includes(action) ? '请求已接受，后台处理结果会在进度中更新。' : undefined; });
+      const run = (action, params = {}, after) => task(({ pause: '暂停请求', resume: '恢复请求', scan: '重新扫描请求', refresh_path: '路径刷新请求', diagnose_path: '路径诊断', model_start: '模型准备请求', model_import: '模型导入请求', model_cancel: '模型取消请求' })[action] || '操作', async () => {
+        const result = await request(action, params);
+        if (mounted.current) {
+          after?.(result);
+          if (['pause', 'resume'].includes(action) && result && (typeof result.paused === 'boolean' || ['running', 'pausing', 'paused'].includes(result.pause_state))) {
+            // An older in-flight sample must not undo the acknowledged action.
+            statusEpoch.current += 1;
+            setStatus(current => ({ ...current, index: { ...current?.index,
+              pause_state: result.pause_state || (result.paused ? 'paused' : 'running'),
+              runtime_policy: { ...(current?.index?.runtime_policy || current?.index?.progress?.runtime_policy),
+                user_paused: result.user_paused ?? result.paused, pause_until: result.pause_until ?? null } } }));
+          }
+        }
+        return ['pause','resume','scan','refresh_path','model_start','model_import','model_cancel'].includes(action) ? '请求已接受，后台状态会自动刷新。' : undefined;
+      });
       const reload = () => task('重新加载设置', async () => { const value = await request('settings_get'); if (!mounted.current) return; setSettings(value); setDraft(freshDraft(value)); setSettingsError(null); setConflict(false); setPreview(null); setDbDirty(false); setEditorEpoch(x => x + 1); setDiscard(false); });
       const save = () => task('保存并应用', async () => {
         const current = draftRef.current; const value = await request('settings_save', { revision: current.revision, values: current.values });
@@ -377,14 +446,19 @@ window.__ModuleLoader__.load({
       });
       const previewSettings = () => task('预览设置影响', async () => { const current = draftRef.current; const value = await request('settings_preview', { revision: current.revision, values: current.values }); if (mounted.current) setPreview(value); return value.can_apply ? '预览完成，可保存并应用。' : '预览发现问题，请先修正后再保存。'; });
       const tabs = [['overview','概览'],['scope','检索范围'],['resources','资源'],['databases','数据库']];
+      const overallState = maintenance ? 'maintenance' : status?.index && pauseStatus(status).state !== 'running' ? pauseStatus(status).state :
+        status?.index?.progress?.overall?.state || (status?.service?.status === 'running' ? 'running_service' : status?.service?.status);
       return h('div', { className: 'os-panel' }, h('style', null, css), h('div', { className: 'os-body' },
-        h('header', { className: 'os-head' }, h('div', null, h('h1', null, 'one_search'), h('p', { className: 'os-subtitle' }, '本地资料，随时可找。')), h('span', { className: 'os-state', 'data-state': connectionError ? 'needs_attention' : status?.index?.progress?.overall?.state }, h('span', { className: 'os-dot' }), connectionError ? '状态连接中断' : label(status?.index?.progress?.overall?.state || status?.service?.status || '连接中'))),
+        h('header', { className: 'os-head' }, h('div', null, h('h1', null, 'one_search'), h('p', { className: 'os-subtitle' }, '本地资料，随时可找。')), h('span', { className: 'os-state', 'data-state': connectionError ? 'needs_attention' : overallState }, h('span', { className: 'os-dot' }), connectionError ? '状态连接中断' : label(overallState || '连接中'))),
+        h(IndexControls, { status, run, busy: controlsDisabled, disconnected: Boolean(connectionError) }),
         h('div', { className: 'os-tabs', role: 'tablist', 'aria-label': 'one_search 设置' }, tabs.map(([key,text], index) => h('button', { key, type: 'button', className: 'os-tab', role: 'tab', id: `os-tab-${key}`, 'aria-controls': `os-content-${key}`, 'aria-selected': tab === key, tabIndex: tab === key ? 0 : -1, onClick: () => setTab(key), onKeyDown: event => { let next; if (event.key === 'ArrowRight') next = (index + 1) % tabs.length; if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length; if (event.key === 'Home') next = 0; if (event.key === 'End') next = tabs.length - 1; if (next !== undefined) { event.preventDefault(); setTab(tabs[next][0]); event.currentTarget.parentElement.children[next].focus(); } } }, text))),
         maintenance && h('div', { className: 'os-alert', role: 'status' }, h('strong', null, '正在升级或恢复 one_search'), h('p', null, '完成后会自动恢复连接。本页未保存的编辑仍保留，设置操作暂时不可用。'), h('p', null, '如果安装程序已意外退出，请重新运行同一安装命令完成恢复。')),
-        connectionError && h('div', { className: 'os-alert os-error', role: 'status' }, connectionError, h(Button, { onClick: () => poller.current?.refresh(), style: { marginLeft: 12 } }, '立即重试')),
-        h('div', { role: 'status', 'aria-live': 'polite' }, busy ? h('div', { className: 'os-alert' }, `${busy}中…`) : notice && h('div', { className: `os-alert${notice.error ? ' os-error' : ''}` }, notice.text)),
-        h('div', { id: 'os-content-overview', role: 'tabpanel', 'aria-labelledby': 'os-tab-overview', hidden: tab !== 'overview' }, h(Overview, { status, run, busy: controlsDisabled })),
-        !draft && tab !== 'overview' && h('div', { className: 'os-loading' }, settingsError || '正在读取设置…', settingsError && h(Button, { onClick: reload, disabled: controlsDisabled }, '重新读取')),
+        connectionError && h('div', { className: 'os-alert os-error', role: 'status' }, errorContent(connectionError.error),
+          h('p', { className: 'os-note' }, `${Math.ceil(connectionError.delay / 1000)} 秒后自动重试；${status ? '下方进度是上次收到的状态。' : '尚未收到后台状态。'}`), h(Button, { onClick: () => poller.current?.refresh() }, '立即重试')),
+        h('div', { role: 'status', 'aria-live': 'polite' }, busy ? h('div', { className: 'os-alert' }, `${busy}中…`) : notice && h('div', { className: `os-alert${notice.error ? ' os-error' : ''}` }, notice.error ? errorContent(notice.detail) : notice.text)),
+        h('div', { id: 'os-content-overview', role: 'tabpanel', 'aria-labelledby': 'os-tab-overview', hidden: tab !== 'overview' }, h(Overview, { status, run, busy: controlsDisabled || Boolean(connectionError) })),
+        !draft && tab !== 'overview' && h('div', { className: 'os-loading' }, settingsError ? errorContent(settingsError) : '正在读取设置…', settingsError && h(React.Fragment, null,
+          h('p', { className: 'os-note' }, '后台恢复后会自动重新读取设置。'), h(Button, { onClick: reload, disabled: controlsDisabled }, '重新读取'))),
         draft && h('fieldset', { className: 'os-fields', disabled: controlsDisabled },
           h('div', { id: 'os-content-scope', role: 'tabpanel', 'aria-labelledby': 'os-tab-scope', hidden: tab !== 'scope' }, h(Scope, { values: draft.values, update })),
           h('div', { id: 'os-content-resources', role: 'tabpanel', 'aria-labelledby': 'os-tab-resources', hidden: tab !== 'resources' }, h(Resources, { values: draft.values, update, status, settings })),
@@ -406,6 +480,6 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'one-search' }, () => h(Panel, { request })));
     }
     return { name: 'one-search-web', inject: ['slots', 'connection'], apply,
-      __testing: { unwrap, createPoller, freshDraft, packSelections, selectionFor, connectionSource, lines, Panel, Scope, Overview, Databases } };
+      __testing: { unwrap, createPoller, freshDraft, packSelections, selectionFor, connectionSource, lines, errorDescription, pauseStatus, Panel, Scope, Overview, IndexControls, Databases } };
   },
 });

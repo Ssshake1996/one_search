@@ -14,13 +14,30 @@ test('DSH manifest registers a bundle patch, without blocked install lifecycle s
   assert.match(await readFile(new URL('../cordis.patch.yml', import.meta.url), 'utf8'), /name: one-search-bundle/);
 });
 
-test('new installations default to whole machine and normal installer paths', () => {
+test('new installations delegate Documents discovery to the backend installer', () => {
   const config = settings({}, { LOCALAPPDATA: resolve('test-user') }, 'win32');
   assert.deepEqual(config.roots, []);
+  assert.equal(config.wholeMachine, false);
   assert.equal(config.noAutostart, false);
   assert.equal(config.skipModel, false);
   assert.equal(config.installDir, resolve('test-user', 'data-search', 'app'));
 });
+
+for (const wholeMachine of [false, true]) {
+  test(`Windows provisioning forwards explicit wholeMachine=${wholeMachine} without guessing roots`, { skip: process.platform !== 'win32' }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'one-search-documents-default-'));
+    await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
+    let calls = 0;
+    await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data'), wholeMachine }, async (_command, args) => {
+      calls++;
+      const request = JSON.parse(await readFile(args.at(-1), 'utf8'));
+      assert.deepEqual(request.roots, []);
+      assert.equal(request.wholeMachine, wholeMachine);
+      throw new Error('stop before installer execution');
+    }), /stop before installer execution/);
+    assert.equal(calls, 1);
+  });
+}
 
 test('DSH staging is repeatable, colocates on home drive and refuses changed content', async () => {
   const home = await mkdtemp(join(tmpdir(), 'one-search-stage-test-'));
@@ -60,7 +77,7 @@ test('explicit Windows paths do not require LOCALAPPDATA', () => {
 
 test('configuration rejects ambiguous command and scope values before spawning', () => {
   for (const config of [
-    { roots: 'C:\\' }, { roots: ['relative'] }, { command: 'python' },
+    { roots: 'C:\\' }, { roots: ['relative'] }, { wholeMachine: 'true' }, { wholeMachine: true, roots: [resolve('root')] }, { command: 'python' },
     { command: process.execPath }, { timeoutMs: -1 }, { timeoutMs: Infinity },
     { skipModel: true, modelDir: 'model' }, { serverName: 'bad name' },
   ]) assert.throws(() => settings(config));
@@ -163,15 +180,16 @@ test('release locator supports installed package copies via explicit release dir
 
 test('rollback backend remains compatible while old incoming installers are rejected before execution', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-old-installer-'));
-  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.0' }));
+  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.1' }));
   let called = false;
   await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async () => {
     called = true;
-  }), /installer release >= 0\.5\.1/);
+  }), /installer release >= 0\.5\.2/);
   assert.equal(called, false);
   assert.equal(backendCompatible('0.5.0'), true);
   assert.equal(installerCompatible('0.5.0'), false);
-  assert.equal(installerCompatible('0.5.1'), true);
+  assert.equal(installerCompatible('0.5.1'), false);
+  assert.equal(installerCompatible('0.5.2'), true);
   assert.equal(installerCompatible('0.6.0'), true);
 });
 
@@ -183,7 +201,7 @@ test('activation provisions a missing Windows backend with JSON arguments, then 
   const root = join(dir, "corpus quote ' and spaces");
   await mkdir(releaseDir);
   await mkdir(root);
-  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.1' }));
+  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
   const calls = [];
   let requestPath;
   const runner = async (command, args) => {
@@ -220,7 +238,7 @@ test('explicit profile client identities remain distinct and reject control char
 
 test('installer failure prevents MCP activation and cleans its temporary request', { skip: process.platform !== 'win32' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-install-fail-test-'));
-  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.1' }));
+  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
   let requestPath;
   let calls = 0;
   await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async (_command, args) => {
@@ -261,7 +279,7 @@ test('old managed backend upgrades through the verified installer then preserves
   await writeFile(path, original);
   await writeFile(join(app, 'runtime', 'data-search.exe'), 'mock runtime');
   await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.3.0' }));
-  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.1' }));
+  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
   const calls = [];
   await prepareService({ installDir: app, dataDir: data, releaseDir: release }, async (...args) => {
     calls.push(args);

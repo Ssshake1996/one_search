@@ -1,0 +1,40 @@
+{
+  "version": "0.5.2",
+  "validation_date": "2026-09-29",
+  "timezone": "Asia/Tokyo",
+  "kind": "real_browser_react_fixture",
+  "scope": "Actual client.js rendered with React 18.3.1 in a Playwright-controlled browser; backend responses are explicitly labeled fixtures.",
+  "verified": [
+    "1280x900 desktop and 375x812 narrow viewport render without clipping the pause/resume controls",
+    "Pause controls remain visible above all four tabs even when index progress is absent",
+    "Indefinite pause sends seconds:null; acknowledged pausing transitions to paused; resume returns to running",
+    "Disconnected state retains disabled controls and shows service_connection_refused, a specific message, guidance, and retry",
+    "Automatic polling and manual retry both recover the controls after fixture connectivity returns",
+    "Browser console has zero errors and zero warnings"
+  ],
+  "narrow_geometry": {
+    "viewport_width": 375,
+    "document_scroll_width": 360,
+    "pause_controls_inside_viewport": true
+  },
+  "regression_test": {
+    "command": "node --test plugins/deepseek-harness/test/web-client.test.mjs",
+    "passed": 20,
+    "failed": 0,
+    "includes": [
+      "Old status requests cannot overwrite an acknowledged pause state",
+      "Recovery retries missing settings without overwriting existing drafts",
+      "Application and transport errors preserve public codes and actions"
+    ]
+  },
+  "screenshots": [
+    "docs/images/dsh-web-pausing-v0.5.2.png",
+    "docs/images/dsh-web-offline-narrow-v0.5.2.png"
+  ],
+  "not_verified_by_this_record": [
+    "Connection through an installed DSH profile",
+    "Native daemon pause/cancellation behavior",
+    "Release packaging or native installation"
+  ],
+  "temporary_processes": "The dedicated fixture server and one-search-controls browser session were closed after validation."
+}

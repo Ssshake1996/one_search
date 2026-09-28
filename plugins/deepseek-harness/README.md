@@ -42,7 +42,10 @@ not start the service. Dependencies need npm network access or a populated pnpm
 cache. The Windows native release needs no separate Python; Linux bootstrap
 releases need the matching Python described in that release.
 
-First installation defaults to the accessible local machine. It uses the same
+First installation defaults to the current user's Documents folder, resolved by
+the backend installer (including Windows folder redirection and Linux XDG settings).
+An unavailable Documents folder requires explicit directory selection; setup never
+falls back to the whole machine or user home. It uses the same
 per-user app/data directories and login startup as the normal installer. Semantic
 model weights prepare in a detached background job after basic search starts,
 unless disabled or an existing model directory is supplied. Download failure is
@@ -59,7 +62,7 @@ Use the newer release installer and the migration rules below.
 ## Upgrade and reinstall
 
 For the first migration from a v0.5.0 or older bundle, stop every DSH server/profile
-connected to that backend before running the v0.5.1 installer. Closing its browser
+connected to that backend before running the v0.5.2 installer. Closing its browser
 tab is insufficient; a terminal-launched DSH can exit normally with `Ctrl+C`.
 Disconnect other MCP hosts from this server and close native `Settings.vbs`
 windows too. `data-search stop` only stops the daemon, leaving MCP processes and
@@ -75,7 +78,7 @@ and reports maintenance; runtime operations return `upgrade_in_progress`.
 An older bundle or an unrelated MCP client does not gain this capability simply
 because another connected profile supports it.
 
-Verify and extract `one-search-0.5.1-windows-amd64-native.zip` outside the existing
+Verify and extract `one-search-0.5.2-windows-amd64-native.zip` outside the existing
 application and data directories. From the new extracted directory, for a default
 installation:
 
@@ -127,7 +130,10 @@ connection; it does not expose the daemon's loopback token. Visible status polli
 does not launch a Python process. See [the Web panel guide](../../docs/DSH-WEB.md).
 Available first-install fields: `installDir`, `dataDir`, `releaseDir`, `roots`,
 `excludePaths`, `preset` (`low/balanced/fast`), `skipModel`, `modelDir`,
-`noAutostart`. Empty `roots` means whole machine. Presets change resource budgets,
+`noAutostart`, `wholeMachine`. Empty `roots` uses the Documents default; choose
+`wholeMachine: true` explicitly for machine scope (mutually exclusive with roots).
+Automatic installation requires a release installer >= 0.5.2 so an older installer
+cannot silently use the previous whole-machine default. Presets change resource budgets,
 not file/content/semantic scope. Existing configuration is preserved.
 
 For an existing installation, supply an absolute executable and configuration:
@@ -144,8 +150,8 @@ For a source environment, `command` can point to the venv Python and
 and never installs or rewrites it. Optional `serverName` defaults to `one_search`;
 `timeoutMs` bounds each setup command (default 15 minutes).
 
-The v0.5.1 bundle retains compatibility with backend v0.5.0 so a failed upgrade can
-restore its MCP connection after rollback. Prefer matching v0.5.1 components;
+The v0.5.2 bundle retains compatibility with backend v0.5.0 so a failed upgrade can
+restore its MCP connection after rollback. Prefer matching v0.5.2 components;
 automatic maintenance requires the v0.5.1 (or newer compatible) incoming installer
 and bundle in every connected DSH profile. When an older incompatible managed installation is
 found and `ONE_SEARCH_RELEASE_DIR`/`releaseDir` points to a compatible extracted

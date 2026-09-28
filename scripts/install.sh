@@ -13,11 +13,13 @@ model_dir=""
 skip_model=0
 no_autostart=0
 roots=()
+whole_machine=0
 excludes=()
 preset=balanced
 while (($#)); do
   case "$1" in
     --root) roots+=("$2"); shift 2;;
+    --whole-machine) whole_machine=1; shift;;
     --exclude) excludes+=("$2"); shift 2;;
     --preset) preset="$2"; shift 2;;
     --install-dir) install_dir="$2"; shift 2;;
@@ -28,11 +30,12 @@ while (($#)); do
     --model-dir) model_dir="$2"; shift 2;;
     --skip-model) skip_model=1; shift;;
     --no-autostart) no_autostart=1; shift;;
-    --help) printf '%s\n' 'install.sh [--root DIRECTORY ...] [--exclude PATH ...] [--preset low|balanced|fast] [--install-dir DIR] [--data-dir DIR] [--python PYTHON] [--package-path WHEEL_OR_SOURCE] [--wheelhouse DIR] [--model-dir DIR | --skip-model] [--no-autostart]' 'Default first-install scope: this machine. Reinstall preserves existing scope.'; exit 0;;
+    --help) printf '%s\n' 'install.sh [--root DIRECTORY ... | --whole-machine] [--exclude PATH ...] [--preset low|balanced|fast] [--install-dir DIR] [--data-dir DIR] [--python PYTHON] [--package-path WHEEL_OR_SOURCE] [--wheelhouse DIR] [--model-dir DIR | --skip-model] [--no-autostart]' 'Default first-install scope: the user Documents folder. Reinstall preserves existing scope.'; exit 0;;
     *) printf 'Unknown option: %s\n' "$1" >&2; exit 2;;
   esac
 done
 if [[ $skip_model == 1 && -n "$model_dir" ]]; then echo 'Choose --skip-model or --model-dir.' >&2; exit 2; fi
+if [[ $whole_machine == 1 && ${#roots[@]} != 0 ]]; then echo 'Choose --whole-machine or --root.' >&2; exit 2; fi
 case "$preset" in low|balanced|fast) ;; *) echo 'Preset must be low, balanced or fast.' >&2; exit 2;; esac
 "$python_bin" "$script_dir/check_runtime.py" "$repo_dir"
 command -v flock >/dev/null || { echo 'flock (util-linux) is required to guard installation against concurrent model/daemon work.' >&2; exit 2; }
@@ -109,6 +112,7 @@ if [[ -n "$wheelhouse" ]]; then pip_args+=(--no-index --find-links "$wheelhouse"
 "$venv_python" "${pip_args[@]}" "$package_path"
 if [[ ! -f "$config_path" ]]; then
   init_args=(init --config "$config_path" --data-dir "$data_dir" --exclude "$install_dir")
+  if [[ $whole_machine == 1 ]]; then init_args+=(--whole-machine); fi
   for search_root in "${roots[@]}"; do init_args+=(--root "$search_root"); done
   for excluded_path in "${excludes[@]}"; do init_args+=(--exclude "$excluded_path"); done
   "$cli" "${init_args[@]}"

@@ -1,6 +1,6 @@
 {
   "name": "one-search-bundle",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "DeepSeek Harness bundle that provisions the local one_search service and connects its MCP tools",
   "type": "module",
   "main": "index.mjs",

@@ -75,13 +75,13 @@ Extract the entire archive, then run from its extracted directory in {shell}:
 {install}
 ```
 
-The first installation defaults to all current-account-accessible local filesystems. To select directories instead:
+The first installation defaults to the current user's Documents folder (including Windows folder redirection and Linux XDG settings). If unavailable, setup requires an explicit directory and never falls back to the whole machine or user home. To select other directories:
 
 ```{language}
 {selected}
 ```
 
-Reinstallation preserves the saved scope. Use the settings window, or stop the service, edit config.json and restart to change it.
+For explicit whole-machine scope use {"`-WholeMachine`" if windows else "`--whole-machine`"}, mutually exclusive with directory selection. Reinstallation preserves the saved scope. Use the settings window, or stop the service, edit config.json and restart to change it.
 The installer automatically selects the bundled runtime or bundled wheel and dependency wheelhouse.
 No Git checkout or source tree is needed. Installation starts a local background service and registers current-user login autostart; it does not configure the MCP host automatically.
 
@@ -166,7 +166,7 @@ def main() -> None:
     source_hashes["pyproject.toml"] = digest(repo / "pyproject.toml")
     common = {"schema_version": 1, "product": "one_search", "version": version, "runtime": runtime,
               "model_included": False, "network_required_for_default_model_download": True,
-              "default_scope": "machine", "source_sha256": source_hashes}
+              "default_scope": "documents", "source_sha256": source_hashes}
     copy_documentation(repo, bundle)
     (bundle / "README.md").write_text(bundle_readme(tag, False), encoding="utf-8")
     manifest = {**common, "kind": "python-bootstrap", "system_python_required": True,

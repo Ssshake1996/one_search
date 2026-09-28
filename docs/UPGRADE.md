@@ -1,6 +1,6 @@
 # one_search 升级与重装
 
-安装和接入的执行入口是 [README](../README.md#升级或重装)，可让 Agent 根据该文档操作。升级不需要先卸载，也不需要重新初始化配置。本文说明 v0.5.1 的连接协调、首次迁移和故障恢复。
+安装和接入的执行入口是 [README](../README.md#升级或重装)，可让 Agent 根据该文档操作。升级不需要先卸载，也不需要重新初始化配置。本文说明 v0.5.1 引入并沿用至 v0.5.2 的连接协调、首次迁移和故障恢复。
 
 ## 先判断当前连接
 
@@ -20,14 +20,14 @@
 
 1. 在现有 `install-manifest.json` 确认程序目录和数据目录，记录相关 DSH profiles。自定义安装继续使用原路径。
 2. 正常停止所有旧 DSH 服务端/profile，断开其他 MCP 宿主，关闭原生设置窗口。不要只关闭网页或只停止 daemon。
-3. 下载同一版本的 `one-search-0.5.1-windows-amd64-native.zip` 与 `SHA256SUMS.txt`，验证完整 SHA-256。完整解压到现有程序、数据目录之外。
+3. 下载同一版本的 `one-search-0.5.2-windows-amd64-native.zip` 与 `SHA256SUMS.txt`，验证完整 SHA-256。完整解压到现有程序、数据目录之外。
 4. 在独立 PowerShell 进入新解压目录，运行下面的安装命令。首次迁移不应依赖仍持有旧 MCP 连接的 DSH 会话执行覆盖升级。
 5. 安装成功后，用新解压包的注册脚本更新每个相关 DSH profile，然后重新启动它们，实际调用 `index_status` 和 `search`。
 
 默认安装的后台升级命令：
 
 ```powershell
-Set-Location 'D:\Downloads\one-search-0.5.1-windows-amd64-native'
+Set-Location 'D:\Downloads\one-search-0.5.2-windows-amd64-native'
 $searchApp = Join-Path $env:LOCALAPPDATA 'data-search\app'
 $searchData = Join-Path $env:LOCALAPPDATA 'data-search\data'
 .\scripts\install.ps1 -InstallDir $searchApp -DataDir $searchData

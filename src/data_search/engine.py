@@ -242,7 +242,16 @@ class Engine:
             raise RuntimeError('model_missing: run model-download')
         return self.model.request({'method': 'encode', 'texts': texts, 'query': query,
                                    'model_dir': self.config['semantic']['model_dir'],
-                                   'threads': self.config['semantic']['threads']}, timeout=90)
+                                   'threads': self.config['semantic']['threads']}, timeout=90,
+                                  cancelled=None if query else self._background_cancelled)
+
+    def _background_cancelled(self):
+        return self.paused or self.stop_event.is_set()
+
+    @staticmethod
+    def _indexing_interrupted(error):
+        return isinstance(error, ResourceLimit) and str(error) in {
+            'paused', 'indexing_paused_or_stopping', 'service_stopping'}
 
     def _write_chunks(self, doc_id: int, chunks: list[dict]):
         from .chunking import split_chunks
@@ -308,12 +317,15 @@ class Engine:
         if stat.st_size <= self.config['extraction']['max_file_mb'] * 1048576:
             try:
                 result = self.parser.request({'method': 'extract', 'path': key,
-                    'max_chars': self.config['extraction']['max_chars']}, self.config['extraction']['timeout_seconds'])
+                    'max_chars': self.config['extraction']['max_chars']}, self.config['extraction']['timeout_seconds'],
+                    cancelled=None if explicit else self._background_cancelled)
                 latest = path.stat()
                 if (latest.st_mtime_ns, latest.st_size) != (stat.st_mtime_ns, stat.st_size):
                     result = {'status': 'pending', 'reason': 'changed_during_read', 'chunks': []}
                 status, reason, chunks = result['status'], result.get('reason'), result['chunks']
             except ResourceLimit as exc:
+                if self._indexing_interrupted(exc):
+                    raise
                 status, reason = 'budget', str(exc)
             except Exception as exc:
                 status, reason = 'error', type(exc).__name__
@@ -500,7 +512,7 @@ class Engine:
                         page = self.database.request({'method': 'db_index_page', 'config': conf, 'entry': entry,
                             'mode': table_state['mode'], 'after': table_state['cursor'],
                             'boundary': table_state['boundary'], 'watermark': table_state.get('watermark'),
-                            'page_size': limit}, timeout=65)
+                            'page_size': limit}, timeout=65, cancelled=self._background_cancelled)
                         self.budget.check(disk=True, reserve_mb=4 + sum(len(d['text'].encode('utf-8')) for d in page['documents']) * 8 / 1048576)
                         for item in page['documents']:
                             if self.paused or self.stop_event.is_set():
@@ -533,6 +545,15 @@ class Engine:
                     if state['next_poll_at']:
                         break
             except Exception as exc:
+                if self._indexing_interrupted(exc):
+                    # Keep the durable cursor before this page so resume replays
+                    # any partially applied rows without a failure/backoff.
+                    state.update(last_error=None, retry_count=0, next_poll_at=0)
+                    if table_state is not None:
+                        table_state['last_error'] = None
+                    self.store.set_setting(setting, json.dumps(state))
+                    self.source_errors.pop(source_id, None)
+                    break
                 error = str(exc)[:200] if isinstance(exc, ResourceLimit) or str(exc).startswith('DatabaseError:') else type(exc).__name__
                 state['last_error'] = error
                 state['retry_count'] = min(state.get('retry_count',0)+1,6)
@@ -580,7 +601,8 @@ class Engine:
                 self.vectors.sync(cancelled=lambda: self.paused or self.stop_event.is_set())
                 self.vector_error = None
             except Exception as error:
-                self.vector_error = str(error)[:200] if isinstance(error,ResourceLimit) else type(error).__name__
+                self.vector_error = (None if self._indexing_interrupted(error) else
+                    str(error)[:200] if isinstance(error,ResourceLimit) else type(error).__name__)
         self.vector_thread = threading.Thread(target=publish,daemon=True)
         self.vector_thread.start()
 
@@ -601,6 +623,8 @@ class Engine:
                 try:
                     phase()
                 except Exception as exc:
+                    if self._indexing_interrupted(exc):
+                        break
                     errors.append(str(exc)[:200] if isinstance(exc,ResourceLimit) else type(exc).__name__)
             self.last_error = '; '.join(errors) or None
             with self.store.lock, self.store.db:
@@ -944,9 +968,11 @@ class Engine:
         from . import __version__
         from .product import capabilities
         from .model_manager import model_status
+        policy = self.policy.status()
         result = {'schema_version':1,'version':__version__,'instance_id':self.instance_id,
-                'node_id':self.config['node_id'],'paused':self.policy.status()['user_paused'],'last_error':self.last_error,
-                'runtime_policy':self.policy.status(),'capabilities':capabilities(self),
+                'node_id':self.config['node_id'],'paused':policy['user_paused'],'last_error':self.last_error,
+                **self._pause_status(policy['user_paused']),
+                'runtime_policy':policy,'capabilities':capabilities(self),
                 'file_scope':self._scope_report(),
                 'coverage':self.coverage(),'resources':self.budget.snapshot(),
                 'indexing':self.config.get('indexing', {}),
@@ -961,6 +987,12 @@ class Engine:
         from .progress import index_progress
         result['progress'] = index_progress(result)
         return result
+
+    def _pause_status(self, user_paused):
+        activity = {'scan': self.scanning,
+                    'vector_build': self.vector_thread is not None and self.vector_thread.is_alive()}
+        state = 'pausing' if any(activity.values()) else 'paused'
+        return {'pause_state': state if user_paused else 'running', 'background_activity': activity}
 
     def dispatch(self,method:str,params:dict):
         params=dict(params)
@@ -986,7 +1018,7 @@ class Engine:
             self.paused=state['user_paused']
             self.store.set_setting('paused',str(self.paused).lower())
             if not self.paused: self.scan_event.set()
-            return {'paused':self.paused,**state}
+            return {'paused':self.paused,**state,**self._pause_status(state['user_paused'])}
         raise ValueError('unknown operation')
 
     def begin_shutdown(self):

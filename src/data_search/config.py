@@ -5,12 +5,16 @@ import math
 import os
 from pathlib import Path
 
+from .user_folders import documents_roots
+
 
 def defaults(data_dir: str, roots: list[str] | None = None) -> dict:
     data = str(Path(data_dir).expanduser().resolve())
+    if roots is None:
+        roots = documents_roots()
     return {
         "node_id": "local", "data_dir": data,
-        "scope": "machine" if roots is None else "directories",
+        "scope": "directories",
         "roots": [str(Path(p).expanduser().resolve()) for p in roots or []],
         "exclude_paths": [],
         "indexing": {"content_scope": "all", "content_roots": [], "content_extensions": [], "content_exclude_paths": [],

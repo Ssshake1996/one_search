@@ -50,7 +50,7 @@ def index_progress(status: dict) -> dict:
                   or scheduler['queued_events'] or not scheduler['chunking_migration']['done']
                   or database_work or semantic_work)
     if policy['user_paused']:
-        state, reason = 'paused', 'user_pause'
+        state, reason = status.get('pause_state', 'paused'), 'user_pause'
     elif policy['automatic_wait']:
         state, reason = 'waiting', policy['reason']
     elif known_work:

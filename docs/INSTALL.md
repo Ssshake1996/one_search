@@ -1,27 +1,27 @@
 # one_search 安装、设置与接入
 
-用户和 Agent 的主安装合同在 [README 的安装与接入](../README.md#安装与接入给用户和-agent-的执行入口)，包括同版本包选择、校验、参数、状态含义和失败恢复。本文补充各平台维护细节。v0.4 的模型准备已经独立于基础服务启动；下文使用 v0.5.1 包名，下载时保持版本一致。
+用户和 Agent 的主安装合同在 [README 的安装与接入](../README.md#安装与接入给用户和-agent-的执行入口)，包括同版本包选择、校验、参数、状态含义和失败恢复。本文补充各平台维护细节。v0.4 的模型准备已经独立于基础服务启动；下文使用 v0.5.2 包名，下载时保持版本一致。
 
-本版先交付单机服务。每台机器使用独立 `node_id`，协议保留节点标识；远程认证、传输与跨机汇总尚未实现。新安装默认发现本机文件范围，传入目录参数可限制范围；重装保留现有设置。
+本版先交付单机服务。每台机器使用独立 `node_id`，协议保留节点标识；远程认证、传输与跨机汇总尚未实现。新安装默认只检索当前用户的文档文件夹，传入目录参数可另选范围；重装保留现有设置。
 
 ## 选择发行形式
 
 | 形式 | 文件或入口 | 前提 |
 |---|---|---|
-| Windows 原生运行时包 | `one-search-0.5.1-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
-| Windows Python bootstrap 包 | `one-search-0.5.1-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
+| Windows 原生运行时包 | `one-search-0.5.2-windows-amd64-native.zip` | 64 位 Windows；随包包含 CPython 和应用依赖，无需另装 Python |
+| Windows Python bootstrap 包 | `one-search-0.5.2-windows-amd64-py311-bootstrap.zip` | 已安装 CPython **3.11 x64**、venv/pip；包含匹配的依赖 wheel |
 | 源码 | 仓库中的 `scripts/install.ps1` / `scripts/install.sh` | Python 3.11+、venv/pip；安装依赖需要网络或匹配 wheelhouse |
-| 项目 wheel | `data_search-0.5.1-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
+| 项目 wheel | `data_search-0.5.2-py3-none-any.whl` | Python 环境；依赖另行安装，项目 wheel 本身不是免 Python 程序 |
 
 本轮发行目标为 Windows amd64，实测主机是 Windows 11、内核 10.0.22631；其他 Windows 版本/ARM64 不作为已验收平台。Linux 已在 Ubuntu 24.04 CI 完成无界面、手动启动模式的安装、重装、检索、迁移和卸载；尚无 Linux 免 Python 二进制，systemd 用户服务与目标服务器仍待验收。源码最低 Python 版本与 bootstrap 包的固定小版本要求不同，安装器会检查包的 `RELEASE_MANIFEST.json` 并拒绝不匹配解释器。
 
-最终发行目录为 `dist/release-v0.5.1`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
+最终发行目录为 `dist/release-v0.5.2`。每个 ZIP 有对应 `.manifest.json`，目录另含 `SHA256SUMS.txt`；解压包内有逐文件校验 `SHA256SUMS.json`。源码哈希在发行清单的 `source_sha256` 中。具体构建、安装和校验结果见 [验证报告](VALIDATION.md)。
 
 模型不在默认 ZIP 内。首次安装先启动基础检索，再启动后台任务准备固定版本本地 embedding 模型；可以指定离线模型目录，在后台校验，或先关闭语义功能。推理始终在本机。网络失败只改变模型任务状态，安装不等待下载完成。
 
 ## Windows 安装
 
-安装并接入 DSH Web 后，侧栏 **one_search** 是设置与索引进度入口。建议后台与 bundle 成套使用 v0.5.1；新 bundle 仍兼容 v0.5.0 后台，以支持升级失败后的恢复连接。从旧版迁移须先阅读 [升级说明](UPGRADE.md)。本次更新 bundle 后，用新包重新注册并重启对应 profile。详见 [Web 面板说明](DSH-WEB.md)。
+安装并接入 DSH Web 后，侧栏 **one_search** 是设置与索引进度入口。建议后台与 bundle 成套使用 v0.5.2；新 bundle 仍兼容 v0.5.0 后台，以支持升级失败后的恢复连接。从旧版迁移须先阅读 [升级说明](UPGRADE.md)。本次更新 bundle 后，用新包重新注册并重启对应 profile。详见 [Web 面板说明](DSH-WEB.md)。
 
 完整解压 ZIP，在解压目录运行：
 
@@ -96,7 +96,9 @@ bootstrap 指定解释器示例：
 
 状态页展示已发现文件/记录、待处理正文、已知语义覆盖、持久化队列、预算限制和来源错误，并保留完整 JSON 详情。首次发现尚未完成时，不把已知计数换算成全机完成百分比。窗口保留未编辑的高级配置；密码仅填环境变量名，没有图形凭据保险箱。CPU 硬限额和 worker 提交内存限额只在 Windows Job 可用时生效，回退原因可在状态中查看。
 
-新安装 `scope: "machine"` 在 Windows 发现当前账号可访问的固定本地磁盘，跳过网络/可移动卷、目录链接、程序/数据/模型目录与排除项，不提升权限。Linux 使用本地挂载发现并排除远程、虚拟文件系统和 `/proc`、`/sys`、`/dev`、`/run`；全机挂载发现仍需目标 Linux 服务器验收。`scope: "directories"` 使用 `roots`。旧配置未写 `scope` 时沿用旧目录范围，升级不会扩大为整机。
+新安装默认 `scope: "directories"`，`roots` 仅包含系统确定的当前用户文档目录。Windows 已知文件夹 API 支持 OneDrive / 重定向；Linux 读取 XDG 文档目录设置，未设置时仅尝试已存在的 `~/Documents`。目录不可用、禁用或指向整个用户目录时，CLI/自动安装报错并引导使用 `-Root` / `--root`；首次设置窗口显示空选择并提示添加目录。任何入口都不会静默回退到全盘或整个用户目录。DSH 的空 `roots` 同样使用这个默认值，解析在后台安装器完成。
+
+需要整机检索时，首次安装可显式传 Windows `-WholeMachine`、Linux `--whole-machine`，或 DSH `wholeMachine: true`；这些参数与指定目录互斥。CLI 对应 `init --whole-machine`。显式 `scope: "machine"` 在 Windows 发现当前账号可访问的固定本地磁盘，跳过网络/可移动卷、目录链接、程序/数据/模型目录与排除项，不提升权限。Linux 使用本地挂载发现并排除远程、虚拟文件系统和 `/proc`、`/sys`、`/dev`、`/run`；全机挂载发现仍需目标 Linux 服务器验收。已有配置包括整机范围一律保留，旧配置未写 `scope` 时沿用旧目录范围。
 
 正文/语义进一步受 `indexing.content_scope`、`indexing.semantic_scope`、各自的 `*_roots`、`*_extensions` 约束。语义只处理已经提取的正文。数据库正文由自己的 `index` 控制；文件目录/扩展名过滤不限制数据库，`semantic_scope: "none"` 也会关闭数据库嵌入。示例见 [项目说明](../README.md)。
 
@@ -157,7 +159,7 @@ bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 
 ```powershell
 .\scripts\install.ps1 -Root 'D:\docs' `
-  -PackagePath '.\wheelhouse\data_search-0.5.1-py3-none-any.whl' `
+  -PackagePath '.\wheelhouse\data_search-0.5.2-py3-none-any.whl' `
   -Wheelhouse '.\wheelhouse' -ModelDir 'D:\models\bge-small-zh-v1.5'
 ```
 
@@ -165,7 +167,7 @@ bash scripts/install.sh --model-dir /srv/models/bge-small-zh-v1.5
 
 ```powershell
 python -m pip install -e . --no-deps
-python scripts/build_release.py --output dist/release-v0.5.1 --native
+python scripts/build_release.py --output dist/release-v0.5.2 --native
 ```
 
 `--native` 仅接受 64 位 Windows，使用 PyInstaller 生成完整运行时目录，同时生成 bootstrap 包；不传该参数只构建 bootstrap。`--wheelhouse PATH` 可复用构建/依赖 wheel。输出包目录已存在会拒绝覆盖；另选空输出目录。不要混用 Windows/Linux、不同架构或不同 CPython 小版本的原生依赖。当前没有打包 Linux 原生运行时。

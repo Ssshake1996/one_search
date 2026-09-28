@@ -73,7 +73,8 @@ def machine(tmp_path, monkeypatch):
     # transports are synthetic; no native disk API can be reached.
     monkeypatch.setattr('data_search.engine.platform', SimpleNamespace(system=lambda: 'Windows'))
     monkeypatch.setattr(change_journal, 'VolumeJournal', lambda root: feeds[root].handle())
-    config = defaults(str(tmp_path / 'index'))
+    config = defaults(str(tmp_path / 'index'), [])
+    config['scope'] = 'machine'
     config['semantic']['enabled'] = False
     config['resource'].update(batch_sleep_ms=0, min_available_mb=0, min_free_disk_mb=0)
     config['scheduler'].update(metadata_items_per_tick=2, metadata_batch_size=2,

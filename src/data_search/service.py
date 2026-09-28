@@ -314,10 +314,10 @@ def run_daemon(config: dict, *, engine_factory=None):
                         return
                     with requests_condition:
                         if closing.is_set():
-                            self._send(200, {"ok": False, "error": "Service is shutting down"})
+                            self._send(200, {"ok": False, "error": "Service is shutting down", "error_code": "service_stopping"})
                             return
                         if not request_slots.acquire(blocking=False):
-                            self._send(200, {"ok": False, "error": "Service is busy; retry later"})
+                            self._send(200, {"ok": False, "error": "Service is busy; retry later", "error_code": "service_busy"})
                             return
                         active_requests += 1
                     try:
@@ -326,7 +326,7 @@ def run_daemon(config: dict, *, engine_factory=None):
                         self._send(200, {"ok": False, "error": str(error)})
                         return
                     except Exception:
-                        self._send(200, {"ok": False, "error": "Operation failed; check source availability and service status"})
+                        self._send(200, {"ok": False, "error": "Operation failed; check source availability and service status", "error_code": "backend_operation_failed"})
                         return
                     finally:
                         request_slots.release()

@@ -11,7 +11,7 @@ const moduleDir = dirname(fileURLToPath(import.meta.url));
 // Keep the immediately previous runtime usable after an upgrade rollback.
 // Maintenance coordination belongs to this Node bundle and the incoming installer.
 const requiredBackendVersion = '0.5.0';
-const requiredInstallerVersion = '0.5.1';
+const requiredInstallerVersion = '0.5.2';
 export function backendCompatible(version) {
   const parts = typeof version === 'string' && version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
   return Boolean(parts && Number(parts[1]) === 0 &&
@@ -30,8 +30,11 @@ export function settings(config = {}, environment = process.env, platform = proc
   const configPath = resolve(config.configPath || join(dataDir, 'config.json'));
   const roots = config.roots ?? [];
   if (!Array.isArray(roots) || roots.some((p) => typeof p !== 'string' || !isAbsolute(p))) {
-    throw new Error('roots must be an array of absolute directories; [] means whole machine on first installation');
+    throw new Error('roots must be an array of absolute directories; [] uses the user Documents folder on first installation');
   }
+  if (config.wholeMachine !== undefined && typeof config.wholeMachine !== 'boolean') throw new Error('wholeMachine must be boolean');
+  const wholeMachine = config.wholeMachine === true;
+  if (wholeMachine && roots.length) throw new Error('Choose wholeMachine or roots, not both');
   const excludePaths = config.excludePaths ?? [];
   if (!Array.isArray(excludePaths) || excludePaths.some((p) => typeof p !== 'string' || !isAbsolute(p))) throw new Error('excludePaths must contain absolute paths');
   const preset = config.preset || 'balanced';
@@ -53,7 +56,7 @@ export function settings(config = {}, environment = process.env, platform = proc
     if (typeof value !== 'string' || !value || value.length > 160 || /[\u0000-\u001f]/.test(value)) throw new Error('clientId and clientLabel must be bounded plain text');
   }
   return {
-    platform, installDir, dataDir, configPath, roots, excludePaths, preset, serverName, clientId, clientLabel,
+    platform, installDir, dataDir, configPath, roots, wholeMachine, excludePaths, preset, serverName, clientId, clientLabel,
     command: config.command, commandArgs: config.commandArgs || [],
     releaseDir: config.releaseDir || environment.ONE_SEARCH_RELEASE_DIR,
     modelDir: config.modelDir || '', skipModel: config.skipModel === true,
@@ -128,7 +131,7 @@ export function runProcess(command, args, { timeoutMs = 900000 } = {}) {
 export function installerCompatible(version) {
   const parts = typeof version === 'string' && version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
   return Boolean(parts && Number(parts[1]) === 0 &&
-    (Number(parts[2]) > 5 || (Number(parts[2]) === 5 && Number(parts[3]) >= 1)));
+    (Number(parts[2]) > 5 || (Number(parts[2]) === 5 && Number(parts[3]) >= 2)));
 }
 
 export async function installedCommand(options) {
@@ -156,6 +159,7 @@ async function install(options, run) {
   } else {
     const args = [join(release.directory, 'scripts', 'install.sh'), '--install-dir', options.installDir, '--data-dir', options.dataDir];
     for (const root of options.roots) args.push('--root', root);
+    if (options.wholeMachine) args.push('--whole-machine');
     for (const path of options.excludePaths) args.push('--exclude', path);
     args.push('--preset', options.preset);
     if (options.skipModel) args.push('--skip-model');

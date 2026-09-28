@@ -29,7 +29,9 @@ def _parser():
         subparser.add_argument("--config", default=argparse.SUPPRESS, help="Configuration JSON path")
         commands[command] = subparser
     commands["init"].add_argument("--data-dir", required=True)
-    commands["init"].add_argument("--root", action="append", help="Search only this directory; repeat for more directories. Default: local machine disks")
+    initial_scope = commands["init"].add_mutually_exclusive_group()
+    initial_scope.add_argument("--root", action="append", help="Search only this directory; repeat for more directories. Default: the current user's Documents folder")
+    initial_scope.add_argument("--whole-machine", action="store_true", help="Explicitly search accessible local machine disks instead of Documents")
     commands["init"].add_argument("--exclude", action="append", default=[], help="Exclude this directory tree; repeat for more exclusions")
     commands["init"].add_argument("--node-id", default="local")
     commands["search"].add_argument("query")
@@ -98,7 +100,11 @@ def _initialize(args):
     roots = [str(Path(root).expanduser().resolve()) for root in args.root] if args.root else None
     if any(not Path(root).is_dir() for root in roots or []):
         raise ValueError("Every search root must be an existing directory")
-    config = defaults(args.data_dir, roots)
+    config = defaults(args.data_dir, [] if args.whole_machine else roots)
+    if args.whole_machine:
+        config['scope'] = 'machine'
+    elif not config['roots']:
+        raise ValueError("The user's Documents folder is unavailable. Choose an existing directory with --root, or explicitly select --whole-machine.")
     config['exclude_paths'] = [str(Path(p).expanduser().resolve()) for p in args.exclude]
     config["node_id"] = args.node_id
     config["nodes"] = [{"id": args.node_id, "transport": "local"}]

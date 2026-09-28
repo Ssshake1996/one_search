@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [string[]]$Root = @(),
+    [switch]$WholeMachine,
     [string[]]$Exclude = @(),
     [ValidateSet('low','balanced','fast')][string]$Preset = 'balanced',
     [string]$InstallDir = (Join-Path $env:LOCALAPPDATA 'data-search\app'),
@@ -122,6 +123,7 @@ if ($NativeTransactionChild) {
     $DataDir = [string]$continuation.DataDir
     $RuntimeDir = [string]$continuation.RuntimeDir
     $Root = [string[]]@($continuation.Root)
+    if ($continuation.PSObject.Properties['WholeMachine']) { $WholeMachine = [bool]$continuation.WholeMachine }
     if ($continuation.PSObject.Properties['Exclude']) { $Exclude = [string[]]@($continuation.Exclude) }
     if ($continuation.PSObject.Properties['Preset']) { $Preset = [string]$continuation.Preset }
     $ModelDir = [string]$continuation.ModelDir
@@ -130,6 +132,7 @@ if ($NativeTransactionChild) {
 }
 
 if ($SkipModel -and $ModelDir) { throw 'Choose either -SkipModel or -ModelDir.' }
+if ($WholeMachine -and $Root.Count) { throw 'Choose either -WholeMachine or -Root.' }
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $releaseManifestPath = Join-Path $repoRoot 'RELEASE_MANIFEST.json'
 if (Test-Path -LiteralPath $releaseManifestPath) {
@@ -192,7 +195,7 @@ if ($ModelDir) {
 if ($RuntimeDir -and -not $NativeTransactionChild) {
     $requestPath = Join-Path ([IO.Path]::GetTempPath()) ('data-search-upgrade-' + [Guid]::NewGuid().ToString('N') + '.json')
     $request = @{InstallDir=$InstallDir; DataDir=$DataDir; RuntimeDir=$RuntimeDir; Root=@($resolvedRoots);
-        Exclude=@($Exclude); Preset=$Preset;
+        WholeMachine=[bool]$WholeMachine; Exclude=@($Exclude); Preset=$Preset;
         ModelDir=$ModelDir; SkipModel=[bool]$SkipModel; NoAutostart=[bool]$NoAutostart;
         Installer=$PSCommandPath; PowerShell=[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName}
     try {
@@ -247,6 +250,7 @@ $manifest.cli = $cli
 $installStage = 'configuration'
 if (-not (Test-Path -LiteralPath $configPath)) {
     $initArgs = @('init', '--config', $configPath, '--data-dir', $DataDir, '--exclude', $InstallDir)
+    if ($WholeMachine) { $initArgs += '--whole-machine' }
     foreach ($searchRoot in $resolvedRoots) { $initArgs += @('--root', $searchRoot) }
     foreach ($excludedPath in $Exclude) { $initArgs += @('--exclude', (Full-Path $excludedPath)) }
     Run-Checked $cli $initArgs

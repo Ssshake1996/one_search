@@ -242,7 +242,7 @@ def test_endpoint_and_method_restrictions(daemon):
 
 
 def test_remote_node_and_errors(daemon):
-    config, _, _ = daemon
+    config, _, state = daemon
     with pytest.raises(ServiceError, match="Remote nodes"):
         rpc(config, "search", {"query": "a", "node_id": "remote"})
     with pytest.raises(ServiceError, match="Invalid query"):
@@ -250,6 +250,9 @@ def test_remote_node_and_errors(daemon):
     with pytest.raises(ServiceError) as error:
         rpc(config, "search", {"query": "private-error"})
     assert "SECRET" not in str(error.value)
+    status, result = send(state, json.dumps({"method": "search", "params": {"query": "private-error"}}))
+    assert status == 200 and result["error_code"] == "backend_operation_failed"
+    assert "SECRET" not in json.dumps(result)
 
 
 def test_duplicate_daemon_rejected_by_os_lock(daemon):
@@ -259,7 +262,7 @@ def test_duplicate_daemon_rejected_by_os_lock(daemon):
 
 
 def test_shutdown_rejects_new_requests_and_drains_existing_dispatch(daemon):
-    config, engine, _ = daemon
+    config, engine, state = daemon
     entered, shutdown_entered = threading.Event(), threading.Event()
     release_query, release_cancel, finished = threading.Event(), threading.Event(), threading.Event()
     outcomes = []
@@ -291,6 +294,7 @@ def test_shutdown_rejects_new_requests_and_drains_existing_dispatch(daemon):
         assert not engine.closed
         with pytest.raises(ServiceError, match="shutting down"):
             rpc(config, "index_status")
+        assert send(state)[1]["error_code"] == "service_stopping"
     finally:
         release_query.set()
         release_cancel.set()

@@ -87,6 +87,48 @@ def test_settings_change_scope_retains_unedited_budgets_and_database_tls(tmp_pat
         settings_config(config, values)
 
 
+@pytest.mark.parametrize('available', [True, False])
+def test_new_settings_selects_documents_or_requests_a_directory(tmp_path, monkeypatch, tk_root, available):
+    import tkinter
+    from data_search import setup_ui
+    documents = tmp_path / 'redirected Documents'
+    documents.mkdir()
+    monkeypatch.setattr('data_search.config.documents_roots', lambda: [str(documents)] if available else [])
+    window = tkinter.Toplevel(tk_root)
+    window.withdraw()
+    monkeypatch.setattr(tkinter, 'Tk', lambda: window)
+    path = tmp_path / 'config.json'
+    errors = []
+    monkeypatch.setattr('tkinter.messagebox.showerror', lambda *args, **kwargs: errors.append(args))
+    monkeypatch.setattr(setup_ui, 'activate_settings', lambda *args, **kwargs: pytest.fail('No scope was approved'))
+
+    def exercise():
+        pending, buttons, texts = [window], {}, []
+        while pending:
+            widget = pending.pop()
+            pending.extend(widget.winfo_children())
+            if 'text' in widget.keys():
+                buttons[widget.cget('text')] = widget
+            if isinstance(widget, tkinter.Text):
+                texts.append(widget.get('1.0', 'end').strip())
+        directory = buttons['仅下列目录']
+        assert window.getvar(directory.cget('variable')) == 'directories'
+        if available:
+            assert str(documents) in texts
+        else:
+            assert any('文档文件夹不可用' in label for label in buttons)
+            buttons['保存并启动'].invoke()
+            assert errors and 'Choose at least' in errors[0][1]
+        assert not path.exists()
+
+    monkeypatch.setattr(window, 'mainloop', exercise)
+    try:
+        assert setup_ui.main(['--config', str(path)]) == 0
+    finally:
+        window.destroy()
+        gc.collect()
+
+
 def test_settings_window_save_restarts_with_selected_scope(tmp_path, monkeypatch, tk_root):
     tkinter = pytest.importorskip("tkinter")
     from data_search import service, setup_ui

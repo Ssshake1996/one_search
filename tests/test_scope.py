@@ -11,21 +11,26 @@ from data_search.engine import Engine
 
 
 def configuration(tmp_path, roots=None):
-    config = defaults(str(tmp_path / 'index'), roots)
+    config = defaults(str(tmp_path / 'index'), roots or [])
+    if roots is None:
+        config['scope'] = 'machine'
     config['semantic']['enabled'] = False
     config['resource']['batch_sleep_ms'] = 0
     return config
 
 
-def test_init_defaults_machine_and_preserves_explicit_roots(tmp_path, capsys):
+def test_init_defaults_documents_and_preserves_saved_config(tmp_path, capsys, monkeypatch):
     path = tmp_path / 'config.json'
     excluded = tmp_path / 'private'
+    documents = tmp_path / 'redirected Documents'
+    documents.mkdir()
+    monkeypatch.setattr('data_search.config.documents_roots', lambda: [str(documents)])
     assert cli.main(['init', '--config', str(path), '--data-dir', str(tmp_path / 'index'),
                      '--exclude', str(excluded)]) == 0
     loaded = load_config(path)
-    assert loaded['scope'] == 'machine' and loaded['roots'] == []
+    assert loaded['scope'] == 'directories' and loaded['roots'] == [str(documents)]
     assert loaded['exclude_paths'] == [str(excluded.resolve())]
-    assert json.loads(capsys.readouterr().out)['scope'] == 'machine'
+    assert json.loads(capsys.readouterr().out)['scope'] == 'directories'
     original = path.read_bytes()
     assert cli.main(['init', '--config', str(path), '--data-dir', str(tmp_path / 'other')]) == 1
     assert path.read_bytes() == original

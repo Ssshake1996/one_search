@@ -58,6 +58,8 @@ class Worker:
         with self.lock:
             if self.cancelled.is_set():
                 raise ResourceLimit('service_stopping')
+            if cancelled is not None and cancelled():
+                raise ResourceLimit('indexing_paused_or_stopping')
             self.budget.check()
             if self.proc is None or self.proc.poll() is not None:
                 self._start()
@@ -75,6 +77,8 @@ class Worker:
                         result = self.responses.get(timeout=0.1)
                     except queue.Empty:
                         continue
+                    if cancelled is not None and cancelled():
+                        raise ResourceLimit('indexing_paused_or_stopping')
                     if not result["ok"]:
                         if result['error'] == 'worker exited':
                             raise RuntimeError(f'worker exited (exit_code={self.proc.poll()}); check worker_memory_mb and resource controls')

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,10 +65,10 @@ test('missing or wrong daemon identity is structured offline and never returns s
   const f = await fixture(t, () => ({ status: 'running', pid: process.pid, service_id: 'other-service' }));
   const bridge = createWebBridge(f.connection);
   t.after(() => bridge.dispose());
-  assert.equal((await bridge.request({ action: 'status', params: {} })).error.code, 'service_offline');
+  assert.equal((await bridge.request({ action: 'status', params: {} })).error.code, 'service_identity_mismatch');
   f.state.config_path = join(f.directory, 'another-config.json');
   await writeFile(join(f.directory, 'service.json'), JSON.stringify(f.state));
-  assert.equal((await bridge.request({ action: 'status', params: {} })).error.code, 'service_offline');
+  assert.equal((await bridge.request({ action: 'status', params: {} })).error.code, 'service_identity_mismatch');
   assert.equal(f.calls.length, 1);
 });
 
@@ -81,6 +81,103 @@ test('browser cannot select arbitrary RPCs, executables, config paths or unbound
     assert.equal((await bridge.request(input)).error.code, 'invalid_request');
   }
   assert.equal(f.calls.length, 0);
+});
+
+test('missing and corrupt local files return actionable codes without leaking their contents', async (t) => {
+  const f = await fixture(t);
+  const bridge = createWebBridge(f.connection);
+  t.after(() => bridge.dispose());
+  for (const [path, contents, code] of [
+    [join(f.directory, 'service.json'), null, 'service_state_missing'],
+    [join(f.directory, 'service.json'), 'private-token-invalid-json', 'service_state_invalid'],
+    [f.configPath, 'private-config-invalid-json', 'configuration_invalid'],
+    [f.configPath, null, 'configuration_missing'],
+  ]) {
+    if (contents === null) await rm(path); else await writeFile(path, contents);
+    const result = await bridge.request({ action: 'status', params: {} });
+    assert.equal(result.error.code, code);
+    assert.equal(result.error.details.reason, code);
+    assert.equal(typeof result.error.details.retryable, 'boolean');
+    assert.ok(result.error.details.action);
+    assert.equal(JSON.stringify(result).includes('private-'), false);
+  }
+  assert.equal(f.calls.length, 0);
+});
+
+test('canonical config through a directory alias is accepted', async (t) => {
+  const f = await fixture(t);
+  const alias = f.directory + '-alias';
+  await symlink(f.directory, alias, process.platform === 'win32' ? 'junction' : 'dir');
+  t.after(() => rm(alias, { force: true, recursive: false }));
+  const bridge = createWebBridge({ ...f.connection, args: ['mcp', '--config', join(alias, 'config.json')] });
+  t.after(() => bridge.dispose());
+  assert.equal((await bridge.request({ action: 'status', params: {} })).ok, true);
+});
+
+test('transport and backend faults remain distinct and safe, then recover on the next status poll', async (t) => {
+  const f = await fixture(t);
+  f.server.removeAllListeners('request');
+  let mode;
+  f.server.on('request', (req, res) => {
+    req.resume();
+    if (mode === 'timeout') return;
+    if (mode === 'disconnect') { res.writeHead(200, { 'Content-Length': 1000 }); res.write('{'); res.destroy(); return; }
+    if (typeof mode === 'number') { res.writeHead(mode); res.end('private-diagnostic'); return; }
+    res.writeHead(200);
+    if (mode === 'invalid') res.end('private-bad-json');
+    else if (mode === 'large') res.end('x'.repeat(2 * 1024 * 1024 + 1));
+    else res.end(JSON.stringify(mode));
+  });
+  const bridge = createWebBridge(f.connection, { healthTimeoutMs: 100 });
+  t.after(() => bridge.dispose());
+  for (const [fault, code] of [
+    [401, 'service_auth_rejected'], [503, 'service_busy'], [404, 'service_endpoint_rejected'],
+    ['timeout', 'service_connection_timeout'], ['disconnect', 'service_disconnected'],
+    ['invalid', 'service_response_invalid'], ['large', 'service_response_too_large'],
+    [{ ok: false, error: 'Service is busy; retry later' }, 'service_busy'],
+    [{ ok: false, error: 'private-stack', error_code: 'service_stopping' }, 'service_stopping'],
+    [{ ok: false, error: 'private-stack', error_code: 'backend_operation_failed' }, 'backend_operation_failed'],
+    [{ ok: false, error: '__proto__' }, 'backend_rejected'],
+  ]) {
+    mode = fault;
+    const result = await bridge.request({ action: 'status', params: {} });
+    assert.equal(result.error.code, code);
+    assert.equal(result.error.details.stage, 'health');
+    assert.equal(JSON.stringify(result).includes('private-'), false);
+  }
+  mode = { ok: true, result: { status: 'running', pid: f.state.pid, service_id: f.state.service_id } };
+  assert.equal((await bridge.request({ action: 'status', params: {} })).ok, true);
+  await new Promise((resolve) => { f.server.closeAllConnections(); f.server.close(resolve); });
+  bridge.dispose();
+  const offline = createWebBridge(f.connection);
+  t.after(() => offline.dispose());
+  assert.equal((await offline.request({ action: 'status', params: {} })).error.code, 'service_connection_refused');
+});
+
+test('status retries a concurrently replaced service identity once; mutations are never replayed', async (t) => {
+  let replaced = false;
+  const f = await fixture(t, async (body, state) => {
+    if (!replaced) {
+      replaced = true;
+      state.service_id = 'replacement-service';
+      await writeFile(join(f.directory, 'service.json'), JSON.stringify(state));
+    }
+    return body.method === '_health' ? { status: 'running', pid: state.pid, service_id: state.service_id } : { paused: true };
+  });
+  const bridge = createWebBridge(f.connection);
+  t.after(() => bridge.dispose());
+  assert.equal((await bridge.request({ action: 'status', params: {} })).ok, true);
+  assert.deepEqual(f.calls.map((call) => call.method), ['_health', '_health', 'index_status']);
+  f.server.removeAllListeners('request');
+  let mutations = 0;
+  f.server.on('request', async (req, res) => {
+    req.resume(); mutations++;
+    f.state.service_id = 'next-service';
+    await writeFile(join(f.directory, 'service.json'), JSON.stringify(f.state));
+    res.writeHead(401); res.end();
+  });
+  assert.equal((await bridge.request({ action: 'pause', params: {} })).error.code, 'service_auth_rejected');
+  assert.equal(mutations, 1);
 });
 
 test('mutations serialize, bound queue, and invalidate cached status', async (t) => {

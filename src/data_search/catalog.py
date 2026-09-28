@@ -307,7 +307,7 @@ class FileCatalog:
             try:
                 self.engine._file(Path(row['path']),row['seen'])
             except ResourceLimit as error:
-                if self.engine.paused or self.engine.stop_event.is_set():
+                if self.engine._indexing_interrupted(error):
                     raise
                 # A post-extraction disk reservation can fail after expensive
                 # parser work. Persist backoff instead of repeating it each tick.
