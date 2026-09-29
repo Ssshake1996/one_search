@@ -275,7 +275,7 @@ def test_windows_registration_contains_hidden_stable_launcher_and_gate(setup):
         return subprocess.CompletedProcess(args, 0, stdout='"test-user","S-1-5-21-12345-1001"\n')
     native = SystemScheduler(manager.config, runner=runner, platform="windows", command=[r"C:\folder with spaces\data-search.exe"])
     native.put(adapter.tasks[task_id])
-    xml = (native.directory / (task_id + ".xml")).read_text()
+    xml = (native.directory / (task_id + ".xml")).read_text(encoding="utf-16")
     tree = ET.fromstring(xml)
     ns = {"t": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
     assert tree.find(".//t:LogonType", ns).text == "InteractiveToken"
@@ -391,3 +391,32 @@ def test_upgrade_blocks_journal_recovery_os_writes(setup):
         assert error.value.code == "schedule_maintenance_busy"
         assert adapter.tasks == {}
     assert len(manager.list()["tasks"]) == 1 and first in adapter.tasks
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Checks actual schtasks XML decoding")
+def test_windows_registration_preserves_unicode_and_spaces_in_action_path(tmp_path):
+    import base64
+    root = tmp_path / "数据 space"
+    root.mkdir()
+    config = {"data_dir": str(root), "config_path": str(root / "config.json")}
+    manager = ScheduleManager(config)
+    task_id = None
+    try:
+        result = manager.save({"name": "Unicode task registration acceptance", "enabled": False,
+                               "schedule": {"kind": "daily", "time": "12:00"}})
+        task_id = result["tasks"][0]["id"]
+        name = manager.adapter.prefix + task_id
+        # ASCII base64 avoids a second console code-page conversion hiding corruption.
+        script = "$s=New-Object -ComObject Schedule.Service; $s.Connect(); $a=$s.GetFolder('\\').GetTask('" + name + "').Definition.Actions.Item(1).Arguments; [Console]::Write([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($a)))"
+        output = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script],
+                                capture_output=True, timeout=15, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+        arguments = base64.b64decode(output.stdout).decode("utf-16-le")
+        task = manager._read()["tasks"][0]
+        launcher = manager.adapter.directory / (task_id + "-" + task["generation"] + ".ps1")
+        assert arguments.endswith(subprocess.list2cmdline([str(launcher)]))
+        assert "数据 space" in arguments
+        xml = manager.adapter.directory / (task_id + ".xml")
+        assert xml.read_bytes().startswith(b"\xff\xfe")
+    finally:
+        if task_id is not None:
+            manager.clear()

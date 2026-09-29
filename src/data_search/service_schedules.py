@@ -119,11 +119,11 @@ def _next(task, now):
     return _iso(min(values)) if values else None
 
 
-def _write_text(path, text):
+def _write_text(path, text, *, encoding="utf-8"):
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
     try:
-        with temp.open("x", encoding="utf-8") as stream:
+        with temp.open("x", encoding=encoding) as stream:
             stream.write(text)
             stream.flush()
             os.fsync(stream.fileno())
@@ -254,7 +254,10 @@ class SystemScheduler:
             except (ValueError, IndexError, StopIteration):
                 raise ScheduleError("scheduler_identity_invalid", "无法确定当前 Windows 用户身份。") from None
             xml = self.directory / (task["id"] + ".xml")
-            _write_text(xml, self._windows_xml(task, launcher, sid))
+            # schtasks reads an unmarked UTF-8 file using the Windows code page.
+            # Its registration may succeed while corrupting a Unicode -File path.
+            _write_text(xml, '<?xml version="1.0" encoding="UTF-16"?>\n' +
+                        self._windows_xml(task, launcher, sid), encoding="utf-16")
             self._run(["schtasks.exe", "/Create", "/TN", name, "/XML", str(xml), "/F"])
         else:
             def quote(value):
