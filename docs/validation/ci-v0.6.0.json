@@ -1,0 +1,146 @@
+{
+  "version": "0.6.0",
+  "run_id": 36514032646,
+  "url": "https://github.com/Ssshake1996/one_search/actions/runs/36514032646",
+  "source_commit": "87b352e441ff3d31d94608c1d571b7d291d6e45d",
+  "conclusion": "success",
+  "jobs": [
+    {
+      "name": "test (ubuntu-24.04)",
+      "url": "https://github.com/Ssshake1996/one_search/actions/runs/36514032646/job/109232247885",
+      "conclusion": "success",
+      "python": {
+        "passed": 592,
+        "skipped": 42
+      },
+      "node": {
+        "passed": 86,
+        "skipped": 5
+      },
+      "raw_log_sha256": "358af938937a57c5354133bdf736decf912ff9b1d137ed6a3b5a6f9f6e41d343",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pip install -e \".[dev]\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pytest -q -rs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -c \"import glob,subprocess; subprocess.run(['node','--test',*sorted(glob.glob('plugins/deepseek-harness/test/*.test.mjs'))],check=True)\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/smoke_linux.py",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    },
+    {
+      "name": "test (windows-latest)",
+      "url": "https://github.com/Ssshake1996/one_search/actions/runs/36514032646/job/109232248566",
+      "conclusion": "success",
+      "python": {
+        "passed": 627,
+        "skipped": 7
+      },
+      "node": {
+        "passed": 91,
+        "skipped": 0
+      },
+      "raw_log_sha256": "963cd9d3a51f0a4f9459a4292ee540b5d3ba96c0e3460dd9eb3aecdbde02672d",
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pip install -e \".[dev]\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pytest -q -rs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -c \"import glob,subprocess; subprocess.run(['node','--test',*sorted(glob.glob('plugins/deepseek-harness/test/*.test.mjs'))],check=True)\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/smoke_linux.py",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ]
+    }
+  ],
+  "linux_installation_smoke": {
+    "ok": true,
+    "platform": "linux",
+    "python": "3.11.16",
+    "cases": [
+      "headless_install",
+      "no_model_basic",
+      "repeat_preserves_config",
+      "diagnose",
+      "paused_refresh",
+      "export",
+      "index_relocation",
+      "preserve_uninstall",
+      "reinstall_keeps_stopped",
+      "manual_restart",
+      "delete_managed_only"
+    ],
+    "user_files_accessed": false,
+    "autostart_tested": false,
+    "semantic_model_tested": false
+  },
+  "limitations": [
+    "No real Linux systemd user timer registration, firing or uninstall acceptance.",
+    "Skipped tests are not counted as passed; see CI for platform and external database prerequisites."
+  ]
+}

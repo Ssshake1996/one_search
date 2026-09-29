@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "version": "0.6.0",
+  "status": "passed",
+  "started_at": "2026-09-29T02:46:41.954244+00:00",
+  "finished_at": "2026-09-29T02:48:46.395838+00:00",
+  "duration_seconds": 124.442,
+  "source_commit": "87b352e441ff3d31d94608c1d571b7d291d6e45d",
+  "platform": {
+    "system": "Windows",
+    "release": "10",
+    "version": "10.0.22631",
+    "machine": "AMD64"
+  },
+  "method": "Real native and Python-bootstrap installation from candidate-3 ZIPs into independent synthetic directories using -SkipModel and -NoAutostart. Native app/data paths contain Chinese characters and spaces. CLI and standalone Node WebBridge call the installed native daemon. One disabled Windows task is created; COM readback verifies its registered Unicode launcher path, and packaged uninstallation must remove the task before deleting the application.",
+  "archive_stage": "Candidate ZIPs after runtime freeze. Final public-document refresh and final archive hashes are verified separately; accepted executable and project wheel bytes must remain unchanged.",
+  "tested_assets": [
+    {
+      "name": "data_search-0.6.0-py3-none-any.whl",
+      "bytes": 187944,
+      "sha256": "166d36d8663d4a7fa9dc9b5eb209d3ed123e243c665ac94a1b67aeae73c08600"
+    },
+    {
+      "name": "one-search-0.6.0-windows-amd64-native.manifest.json",
+      "bytes": 5010,
+      "sha256": "904bb542ec8963ffee22cb8893aa7fa8a1f5674c94f9d294f73f3c21eb83e182"
+    },
+    {
+      "name": "one-search-0.6.0-windows-amd64-native.zip",
+      "bytes": 74950501,
+      "sha256": "f77da020e5ad7d46781be120a6c73b8de04a0ff55d32ede8f29bf837eb037369"
+    },
+    {
+      "name": "one-search-0.6.0-windows-amd64-py311-bootstrap.manifest.json",
+      "bytes": 7849,
+      "sha256": "6c14185d615cba2712fda93623f962c87dc426b30042a7d55cae1198d8c15caf"
+    },
+    {
+      "name": "one-search-0.6.0-windows-amd64-py311-bootstrap.zip",
+      "bytes": 69885777,
+      "sha256": "51fa3a71a9878e78374ac757f07f447b88a5fa271face7bc2b3e03f1c369def9"
+    }
+  ],
+  "archive_checks": [
+    {
+      "archive": "one-search-0.6.0-windows-amd64-native.zip",
+      "kind": "windows-native",
+      "all_file_checksums": true,
+      "checked_files": 2785,
+      "manifest_and_versions": true,
+      "default_scope": "documents",
+      "source_hashes_match_working_tree": true,
+      "source_hashes_match_HEAD": true,
+      "frozen_build_payload_unchanged": true,
+      "source_files": 43,
+      "payload_sha256": "67a10793ec9f2839b578e077c9e1bea80f3812dae0cf5f68329cd22a409be9e9"
+    },
+    {
+      "archive": "one-search-0.6.0-windows-amd64-py311-bootstrap.zip",
+      "kind": "python-bootstrap",
+      "all_file_checksums": true,
+      "checked_files": 200,
+      "manifest_and_versions": true,
+      "default_scope": "documents",
+      "source_hashes_match_working_tree": true,
+      "source_hashes_match_HEAD": true,
+      "frozen_build_payload_unchanged": true,
+      "source_files": 43,
+      "payload_sha256": "166d36d8663d4a7fa9dc9b5eb209d3ed123e243c665ac94a1b67aeae73c08600"
+    }
+  ],
+  "runtime_sha256": "67a10793ec9f2839b578e077c9e1bea80f3812dae0cf5f68329cd22a409be9e9",
+  "bootstrap_wheel_sha256": "166d36d8663d4a7fa9dc9b5eb209d3ed123e243c665ac94a1b67aeae73c08600",
+  "default_documents": {
+    "native_executable_init_without_roots": true,
+    "scope": "directories",
+    "single_root_matches_system_known_documents": true,
+    "missing_documents_refused": false,
+    "explicit_whole_machine_init_supported": true,
+    "service_never_started_for_default_or_whole_machine_configs": true,
+    "no_index_created_for_default_or_whole_machine_configs": true
+  },
+  "native": {
+    "real_installation": true,
+    "basic_search_ready": true,
+    "synthetic_directory_scope": true,
+    "autostart": "none",
+    "semantic_enabled": false,
+    "install_seconds": 24.015,
+    "pause_resume": {
+      "settled_state": "paused",
+      "background_activity": {
+        "scan": false,
+        "vector_build": false
+      },
+      "cached_search_works_while_paused": true,
+      "added_file_not_discovered_while_paused": true,
+      "added_content_not_indexed_while_paused": true,
+      "restart_changes_service_identity": true,
+      "pause_survives_restart": true,
+      "absolute_pause_deadline_preserved": true,
+      "resume_indexes_added_file": true
+    },
+    "reinstall_seconds": 15.078,
+    "reinstall": {
+      "saved_config_byte_identical": true,
+      "broader_root_argument_ignored": true,
+      "instance_identity_preserved": true,
+      "document_identity_preserved": true,
+      "existing_results_retained": true
+    },
+    "reinstall_while_stopped": {
+      "stop_intent_byte_identical": true,
+      "no_daemon_launched": true,
+      "installation_ok_without_claiming_search_ready": true
+    },
+    "service_control": {
+      "force_stop_completes": true,
+      "forced_intent_persisted": true,
+      "automatic_start_preserves_stop_revision": true,
+      "automatic_start_creates_no_daemon": true,
+      "explicit_start_recovers_existing_results": true
+    },
+    "web_bridge": {
+      "passed": true,
+      "transport": "real Node createWebBridge to installed native daemon",
+      "full_dsh_host_tested": false,
+      "status_pause_state": "running",
+      "pause_response_state": "paused",
+      "settled_pause_state": "paused",
+      "resume_response_state": "running",
+      "stopped_service_error": "service_state_missing",
+      "actionable_retry_details": true,
+      "restart_recovers_status": true,
+      "backend_token_excluded": true
+    },
+    "uninstall": {
+      "disabled_system_task_registered_and_verified": true,
+      "registered_unicode_launcher_path_verified_via_COM": true,
+      "system_task_removed_by_uninstaller": true,
+      "application_removed": true,
+      "configuration_byte_identical": true,
+      "index_preserved": true,
+      "indexed_rows_unchanged": true,
+      "stop_intent_persisted": true,
+      "no_enabled_task_created": true
+    }
+  },
+  "bootstrap": {
+    "real_installation": true,
+    "basic_search_ready": true,
+    "synthetic_file_keyword_query_passed": true,
+    "synthetic_directory_scope": true,
+    "autostart": "none",
+    "semantic_enabled": false,
+    "install_seconds": 40.203
+  },
+  "cleanup": {
+    "only_own_synthetic_services_stopped": true,
+    "both_service_state_files_removed": true,
+    "native_application_removed_by_packaged_uninstaller": true,
+    "unique_disabled_windows_task_removed_by_packaged_uninstaller": true,
+    "raw_logs_and_synthetic_indexes_retained_outside_public_report": true
+  },
+  "boundaries": {
+    "user_documents_scanned": false,
+    "real_machine_scan_performed": false,
+    "real_user_installation_modified": false,
+    "model_download_or_semantic_search_tested": false,
+    "full_dsh_host_or_browser_flow_tested": false,
+    "linux_installation_tested": false,
+    "older_version_multi_profile_upgrade_retested": false,
+    "enabled_os_tasks_created": 0,
+    "disabled_os_tasks_created_and_removed": 1,
+    "timed_start_execution_tested": false
+  }
+}

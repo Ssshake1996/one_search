@@ -1,0 +1,33 @@
+{
+  "version": "0.6.0",
+  "scope": "Actual Chromium and React UI with explicitly simulated backend",
+  "backend_mocked": true,
+  "full_dsh_host_tested": false,
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 900
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "checks": [
+    "force-stop confirmation and stopped display",
+    "offline weekly task creation, disabling and deletion",
+    "manual start",
+    "unexpected reconnect state",
+    "no horizontal overflow"
+  ],
+  "console_errors": 0,
+  "console_warnings": 0,
+  "frontend_tests_passed": 27,
+  "screenshots": [
+    "../images/dsh-web-service-v0.6.0.png",
+    "../images/dsh-web-service-narrow-v0.6.0.png"
+  ],
+  "limitations": [
+    "Does not establish real daemon, OS scheduling or remote machine behavior; see separate runtime acceptance."
+  ]
+}

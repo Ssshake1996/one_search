@@ -15,6 +15,7 @@ dist/
 .test-databases/
 .demo-agent-validation/
 .packaging-smoke/
+output/playwright/
 
 # Local credentials and service state
 .env

@@ -6,7 +6,7 @@
 
 ## 安装与接入：给用户和 Agent 的执行入口
 
-请让 Agent 读取本 README，再按下面顺序执行。安装由可重复运行的脚本完成，不需要图形安装向导。**先安装并启动基础检索，模型在后台单独准备；模型下载失败不会阻止文件名、关键词检索。**
+请让 Agent 读取本 README，再按下面顺序执行。安装由可重复运行的脚本完成，不需要图形安装向导。**首次安装先启动基础检索，模型在后台单独准备；模型下载失败不会阻止文件名、关键词检索。** 已有安装的主动停止状态会保留。
 
 1. 查看 [GitHub Releases](https://github.com/Ssshake1996/one_search/releases)，选择目标平台的同一版本资源。Windows x64 优先 `windows-amd64-native.zip`，自带 Python 和依赖。`py311-bootstrap.zip` 需要 CPython **3.11 x64**、venv/pip；项目 wheel 单独使用仍需依赖。Linux 当前使用 Python 3.11+ 源码安装，真实主机验收状态见 [验证报告](docs/VALIDATION.md)。不要将 Windows wheelhouse 用于 Linux。
 2. 同时下载 `SHA256SUMS.txt`，核对 ZIP 的 SHA-256 后完整解压。原生安装器进一步验证包内逐文件清单。校验失败应重新获取同一发行资源，不能跳过校验。
@@ -50,7 +50,7 @@ bootstrap 的 `$searchCli` 是 `<InstallDir>\venv\Scripts\data-search.exe`。默
   -InstallDir 'D:\apps\one-search' -DataDir 'D:\app-data\one-search'
 ```
 
-安装脚本退出 `0` 表示运行时和基础检索探测成功，`1` 表示安装/启动/验收失败；Linux 参数或平台前提错误可返回 `2`。PowerShell 参数绑定错误发生在脚本执行前，也可能没有结构化结果。正常日志可有多条 JSON/提示，**`<DataDir>/install-result.json` 是本次成功安装的完整验收结果**；失败时检查本次退出码和 `event=installation_result, ok=false, error.code`，不要把旧的成功文件当作本次结果。`stage` 不是所有错误记录都有的字段；原生升级已建立事务时，可在保留的 `transaction.json` 中查看 `phase`，详见[升级排障](docs/UPGRADE.md#失败与中断恢复)。
+安装脚本退出 `0` 表示安装验收成功：通常包含基础检索探测；若此前已主动停止，则成功保留停止状态（`intentionally_stopped=true`、`basic_search_ready=false`），不擅自启动。`1` 表示安装/启动/验收失败；Linux 参数或平台前提错误可返回 `2`。PowerShell 参数绑定错误发生在脚本执行前，也可能没有结构化结果。正常日志可有多条 JSON/提示，**`<DataDir>/install-result.json` 是本次成功安装的完整验收结果**；失败时检查本次退出码和 `event=installation_result, ok=false, error.code`，不要把旧的成功文件当作本次结果。`stage` 不是所有错误记录都有的字段；原生升级已建立事务时，可在保留的 `transaction.json` 中查看 `phase`，详见[升级排障](docs/UPGRADE.md#失败与中断恢复)。
 
 安装结果分别显示 `runtime_installed`、`daemon_running`、`basic_search_ready`、`semantic.state` 和 `dsh_connection`。`dsh_connection=not_checked` 只表示尚未由宿主验证。`indexing_complete=null` 表示该安装探测没有认证全机索引完成；检索不到结果时继续检查覆盖、排除项和积压，不应声称电脑没有这份资料。
 
@@ -92,7 +92,7 @@ bash scripts/install.sh --root /srv/docs --install-dir "$HOME/.local/share/data-
   --data-dir "$HOME/.local/share/data-search/data" --no-autostart
 ```
 
-默认注册 systemd 用户服务；不可用时明确失败，不自动申请 root 或启用 linger。`--no-autostart` 安装后启动一次，重启机器后需要执行 `<InstallDir>/venv/bin/data-search start --config <DataDir>/config.json`。Linux 对应参数为 `--model-dir/--skip-model/--python/--package-path/--wheelhouse`，验收文件与 Windows 相同。
+默认注册 systemd 用户服务；不可用时明确失败，不自动申请 root 或启用 linger。`--no-autostart` 首次安装后启动一次，重装仍保留主动停止状态；需要手动运行时执行 `<InstallDir>/venv/bin/data-search start --config <DataDir>/config.json`。Linux 对应参数为 `--model-dir/--skip-model/--python/--package-path/--wheelhouse`，验收文件与 Windows 相同。
 
 ## 升级或重装
 
@@ -137,7 +137,7 @@ Windows bootstrap 与 Linux 安装尚无这套自动事务升级：先停止所�
 
 页签上方常驻服务启停和暂停/恢复按钮。暂停覆盖文件发现、正文/语义索引和数据库同步；在途工作退出前显示“正在暂停”，完成后显示“已暂停”，已索引资料仍可搜索。服务断开时状态待确认，页面显示具体错误码及处理建议。
 
-设置保存会验证配置并重新启动后台，失败时尝试恢复原配置。其他页面先保存时，本页会提示重新读取，避免覆盖新的设置。模型准备独立进行，文件名和关键词检索不必等待语义模型。
+设置保存会验证配置；服务处于运行状态时重新启动以应用设置，主动停止时只保存并保持停止，失败时尝试恢复原配置。其他页面先保存时，本页会提示重新读取，避免覆盖新的设置。模型准备独立进行，文件名和关键词检索不必等待语义模型。
 
 首次扫描尚不知道整机文件总数，页面显示已知文件数和待遍历目录，不显示虚构的全机百分比。语义比例仅针对已知可处理片段；新文件加入后分母会增加。页面可见时约每 2 秒更新，底层部分计数最多缓存 5 秒；关闭面板不停止后台工作。
 
@@ -147,11 +147,13 @@ Windows bootstrap 与 Linux 安装尚无这套自动事务升级：先停止所�
 
 在 DSH Web 的 **one_search → 服务控制** 中，可手动启动、正常停止或强制停止后台，也可以管理单次、每日、每周的启动任务。后台停止时该控制页面仍可使用。首次安装自动启动一次，默认没有定时任务，默认检索范围仍为用户文档目录。
 
-- **异常断线**：DSH 服务端运行期间，以约 1、2、4、8 秒逐步延长重试间隔，最大 60 秒，并加入少量随机延迟；健康连接恢复后重置。DSH 不运行时，不承诺持续监测或自动修复后台崩溃。
+- **异常断线**：DSH 服务端运行期间，以约 1、2、4、8 秒逐步延长退避等待，并加入少量随机延迟，等待上限 60 秒；检测与启动本身的耗时另计，健康连接恢复后重置。DSH 不运行时，不承诺持续监测或自动修复后台崩溃。
 - **停止 / 强制停止**：先保存停止状态，再结束服务、取消后续自动恢复。刷新网页、检索请求、MCP 重连、重启 DSH 和自动登录启动项都不会解除停止状态。普通停止等待收尾，强制停止结束经身份验证属于该实例的后台进程。
 - **重新运行**：点击“启动服务”、执行 CLI `start`，或启用的定时任务到点，才解除主动停止状态并恢复自动重连。暂停索引是独立设置，启动服务不会自动取消暂停。
 - **任务管理器直接结束进程**：无法可靠区分用户操作和程序崩溃，仍会被视为异常，可触发自动恢复。需要保持停止时，请使用 Web 强制停止或 CLI `force-stop`。
 - **系统定时任务**：关闭网页和 DSH 后仍可触发。Windows 要求对应用户仍登录；Linux 要求 `systemd --user` 管理器运行。关机、退出登录等错过的执行时间不补跑，也不自动申请管理员权限或修改 linger。时间按服务所在机器显示和执行。
+
+Windows 定时任务使用当前登录用户的 `InteractiveToken`，锁屏可运行，退出登录后不能运行。Linux systemd 用户定时器已有实现和隔离测试，**尚未完成真实 systemd 用户会话中的登记、到点启动及卸载验收**；不能将 Linux CI 的代码回归等同于该能力已实机验证。
 
 CLI 等效操作（沿用安装步骤中的变量）：
 

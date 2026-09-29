@@ -1,0 +1,17 @@
+{
+  "version": "0.6.0",
+  "platform": "Windows",
+  "real_os_scheduler": true,
+  "checks": {
+    "temporary_once_task_registered": true,
+    "os_triggered_hidden_launcher": true,
+    "temporary_task_deleted": true,
+    "two_owned_tasks_transactionally_cleared": true,
+    "upgrade_lock_and_marker_prevent_runtime_loading": true
+  },
+  "persistent_user_tasks_created": false,
+  "limitations": [
+    "Standalone scheduler probe; actual daemon startup is tested separately in DSH lifecycle acceptance.",
+    "Linux systemd user task registration has not been tested on a live user manager."
+  ]
+}

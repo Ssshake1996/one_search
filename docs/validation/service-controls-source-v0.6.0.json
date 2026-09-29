@@ -1,0 +1,434 @@
+{
+  "schema_version": 1,
+  "tested_at_utc": "2026-09-29T02:31:47.694525+00:00",
+  "mode": "source",
+  "fixture": ".packaging-smoke\\service-v060-source-05",
+  "host_cli_version": "0.1.5-rc.1",
+  "synthetic_only": true,
+  "default_dsh_profile_modified": false,
+  "model_requests": 0,
+  "enabled_os_tasks_created": 1,
+  "checks": {
+    "initial_profiles": {
+      "profiles": 2,
+      "tools_per_profile": 11,
+      "real_mcp_search": true
+    },
+    "normal_stop": {
+      "seconds": 8,
+      "samples": 16,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "new_profile_after_stop": {
+      "seconds": 8,
+      "samples": 16,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "manual_restart": {
+      "both_profiles_tools_restored": true,
+      "real_mcp_search": true
+    },
+    "unexpected_exit": {
+      "killed_pid": 41924,
+      "service_id": "a602e52d779e49099618757f1e8b854b",
+      "process_identity_verified": true,
+      "recovered_automatically": true,
+      "real_mcp_search": true,
+      "observed_reconnect_samples": [
+        {
+          "observed_at": 1790649153.182559,
+          "state": "failed",
+          "attempt": 0,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649153.3377793,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649153.4928005,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649153.6476395,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649153.8016205,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649153.9588163,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649154.1185203,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649154.279009,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649154.4367168,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649154.5978124,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649154.7533615,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649154.9090457,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649155.0630677,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1790649154.273,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649155.2168977,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649155.375445,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649155.5299578,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649155.6851945,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649155.840894,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649155.9952333,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649156.1548557,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649156.3139305,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649156.468568,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649156.6236708,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649156.7815402,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649156.9365356,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649157.0917547,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649157.2461474,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649157.39981,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "observed_at": 1790649157.5833752,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649157.7388022,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649157.892076,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649158.0451381,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649158.1983871,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649158.352483,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649158.5058527,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649158.6730955,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649158.8262122,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649158.9827354,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649159.1375048,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649159.2901158,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649159.4428842,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649159.6122484,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649159.7661145,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649159.9191551,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "observed_at": 1790649160.0717998,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        }
+      ],
+      "scope": "Real first retry and recovery; full delay progression and jitter bounds are covered by coordinator tests"
+    },
+    "forced_stop": {
+      "seconds": 12,
+      "samples": 24,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "offline_schedule_crud": {
+      "created": true,
+      "edited_from_second_profile": true,
+      "deleted": true,
+      "tasks_left": 0,
+      "enabled_tasks_created": 0,
+      "daemon_absent": true
+    },
+    "after_schedule_crud": {
+      "seconds": 3,
+      "samples": 6,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "real_os_once_trigger": {
+      "scheduler": "windows-task-scheduler",
+      "requested_at": "2026-09-29T11:33:27+09:00",
+      "last_run_at": "2026-09-29T11:33:28+09:00",
+      "last_result": {
+        "status": "started"
+      },
+      "control_reason": "scheduled",
+      "both_profiles_tools_restored": true,
+      "real_mcp_search": true,
+      "task_deleted": true,
+      "direct_scheduled_start_command_used_by_harness": false
+    }
+  },
+  "source_commit": "88aa52ee940dfe5377d25b282e32ee9e65b4f90d",
+  "plugin_hashes": {
+    "index.mjs": "022a5f3bf3965a87d4824ad7854967ea9c2799bf4709f7759c18b865adcb3e2f",
+    "bootstrap.mjs": "d4c54695e6495e8e240c56ec2c3c573f06215d838c267a9f0a02ca8218e9406a",
+    "upgrade-coordinator.mjs": "56d7cf0e9e4b96ab96882586532bbf035485c4a9490e3661fba01cfe2d195823",
+    "web-host.mjs": "a3ee6da9eb3a37dd40ae9550488b077a50f7123f2565fae948d1aac925d238ca",
+    "service-control.mjs": "e7743ee4301a2c3fc77976e08978c0e795d14962f49477f7751f21eaea5e8c60"
+  },
+  "backend_source_hashes": {
+    "service.py": "42f6b2b4bcaca14e22321bba2999828584faa932bae5bc494aa8c2e6d58a5c16",
+    "service_control.py": "75fa87f27d02149422c53ce24e46dd82bcc75e1dd94361250c7b858f1f832705",
+    "service_schedules.py": "74b86ca42b0c7ef065990de2475d6b13955475fdc755a3a740d21fe839277750",
+    "web_management.py": "3d74a56600625ff73412ea3c7ff53768918c63004f0a2e22b5fa4485858a52e9",
+    "cli.py": "17e1658c5b0542a237fabff186dd77bf7d54175c7573bd2a34253f6807c85a22"
+  },
+  "runtime_sha256": "bfff517165ad6d1f3bf02d1782eaf7588fb7c20cd78d1c81788c4444e7bc5d82",
+  "schedule_busy_read_retries": 1,
+  "passed": true,
+  "unverified": [
+    "No LLM/model request or real user data is included",
+    "Task validation, weekly calendar timing and once-task timezone conversion are covered separately by scheduler tests"
+  ],
+  "cleaned_up": true,
+  "earlier_runs": [
+    {
+      "fixture": ".packaging-smoke/service-v060-source-03",
+      "result": "failed",
+      "reason": "Real stop RPC raced the daemon watching saved intent; fixed by checking the owned service lock after RPC disconnection.",
+      "cleaned_up": true
+    },
+    {
+      "fixture": ".packaging-smoke/service-v060-source-04",
+      "result": "harness failed on transient schedules_busy during a successful OS trigger",
+      "fix": "Bounded retry for read-only schedules_busy and cleanup busy responses.",
+      "post_failure_tasks_removed": true,
+      "post_failure_daemon_absent": true
+    }
+  ]
+}
