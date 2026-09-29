@@ -285,3 +285,25 @@ def test_force_stop_rejects_nan_process_birth_time(config):
     with pytest.raises(control.ServiceControlError) as caught:
         control.stop(config, force=True)
     assert caught.value.code == 'service_process_invalid'
+
+
+@pytest.mark.parametrize('lease_held', [False, True])
+def test_stop_rpc_lost_is_success_only_after_daemon_lease_released(config, monkeypatch, lease_held):
+    def disconnected(*args, **kwargs):
+        raise service.ServiceError('Daemon exited between health and stop RPC')
+    monkeypatch.setattr(service, 'stop_service', disconnected)
+    lock = service.InstanceLock(Path(config['data_dir']) / 'service.lock')
+    if lease_held:
+        lock.__enter__()
+    try:
+        if lease_held:
+            with pytest.raises(control.ServiceControlError) as caught:
+                control.stop(config, timeout=.1)
+            assert caught.value.code == 'service_stop_timeout'
+        else:
+            result = control.stop(config, timeout=.1)
+            assert result['status'] == 'stopped' and result['stopped']
+        assert control.read_control(config)['desired_state'] == 'stopped'
+    finally:
+        if lease_held:
+            lock.__exit__(None, None, None)

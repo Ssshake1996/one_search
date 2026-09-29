@@ -51,7 +51,7 @@ def request(now, **overrides):
 
 def saved(manager, adapter, now):
     value = manager.save(request(now))
-    task_id = value["tasks"][0]["id"]
+    task_id = value["tasks"][-1]["id"]
     return task_id, adapter.tasks[task_id]["generation"]
 
 
@@ -313,3 +313,81 @@ def test_scheduler_unavailable_does_not_claim_success(setup):
     # Failed compensation remains journalled; callbacks fail closed until repaired.
     assert error.value.code == "schedule_recovery_required"
     assert manager.journal.exists()
+
+
+def test_clear_removes_only_owned_records_and_invalidates_pending_callbacks(setup):
+    manager, adapter, now = setup
+    first, generation = saved(manager, adapter, now[0])
+    second, _ = saved(manager, adapter, now[0])
+    adapter.tasks["other-instance"] = {"proof": "retain"}
+    value = manager.clear()
+    assert value["tasks"] == [] and value["revision"] == 3
+    assert adapter.tasks == {"other-instance": {"proof": "retain"}}
+    now[0] += timedelta(minutes=2)
+    assert manager.run_due(first, generation)["code"] == "schedule_inactive"
+
+
+def test_clear_failure_restores_all_previous_tasks_and_generation(setup):
+    manager, adapter, now = setup
+    first, generation = saved(manager, adapter, now[0])
+    second, _ = saved(manager, adapter, now[0])
+    remove = adapter.remove
+    def fail_after_second(task_id):
+        remove(task_id)
+        if task_id == second:
+            raise ScheduleError("scheduler_rejected", "denied")
+    adapter.remove = fail_after_second
+    with pytest.raises(ScheduleError) as error:
+        manager.clear()
+    assert error.value.code == "scheduler_rejected"
+    assert set(adapter.tasks) == {first, second}
+    assert adapter.tasks[first]["generation"] == generation
+    assert len(manager.list()["tasks"]) == 2 and not manager.journal.exists()
+
+
+def test_clear_empty_has_no_scheduler_dependency(setup):
+    manager, adapter, _ = setup
+    adapter.fail_always = True
+    assert manager.clear()["tasks"] == []
+
+
+def test_clear_interruption_rolls_back_all_os_removals(setup):
+    manager, adapter, now = setup
+    first, generation = saved(manager, adapter, now[0])
+    second, _ = saved(manager, adapter, now[0])
+    previous = json.loads(manager.path.read_text(encoding="utf-8"))
+    manager.journal.write_text(json.dumps({"ids": [first, second], "previous": previous}), encoding="utf-8")
+    adapter.tasks.clear()
+    assert len(manager.list()["tasks"]) == 2
+    assert set(adapter.tasks) == {first, second}
+    assert adapter.tasks[first]["generation"] == generation
+
+
+def test_upgrade_lock_blocks_crud_but_allows_uninstall_clear_and_pure_list(setup):
+    from data_search.service import InstanceLock
+    manager, adapter, now = setup
+    first, _ = saved(manager, adapter, now[0])
+    with InstanceLock(manager.data / "upgrade.lock"):
+        with pytest.raises(ScheduleError) as error:
+            manager.save(request(now[0]))
+        assert error.value.code == "schedule_maintenance_busy"
+        with pytest.raises(ScheduleError) as error:
+            manager.delete(first)
+        assert error.value.code == "schedule_maintenance_busy"
+        assert len(manager.list()["tasks"]) == 1
+        assert manager.clear()["tasks"] == []
+
+
+def test_upgrade_blocks_journal_recovery_os_writes(setup):
+    from data_search.service import InstanceLock
+    manager, adapter, now = setup
+    first, _ = saved(manager, adapter, now[0])
+    previous = json.loads(manager.path.read_text(encoding="utf-8"))
+    manager.journal.write_text(json.dumps({"id": first, "previous": previous}), encoding="utf-8")
+    adapter.tasks.clear()
+    with InstanceLock(manager.data / "upgrade.lock"):
+        with pytest.raises(ScheduleError) as error:
+            manager.list()
+        assert error.value.code == "schedule_maintenance_busy"
+        assert adapter.tasks == {}
+    assert len(manager.list()["tasks"]) == 1 and first in adapter.tasks

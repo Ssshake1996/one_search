@@ -15,6 +15,7 @@ python_bin="$install_dir/venv/bin/python"
 [[ -x "$python_bin" ]] || python_bin=python3
 "$python_bin" - "$install_dir" "$delete_data" <<'PY'
 import json, os, pathlib, shutil, subprocess, sys
+from contextlib import ExitStack
 install=pathlib.Path(sys.argv[1]).absolute(); manifest=install/'install-manifest.json'
 if not manifest.is_file(): raise SystemExit('No install manifest; refusing deletion.')
 m=json.loads(manifest.read_text()); data=pathlib.Path(m['data_dir'])
@@ -29,18 +30,28 @@ if sys.argv[2]=='1' and data.exists():
     if mark.get('product')!='data-search' or mark.get('data_dir')!=str(data): raise SystemExit('Invalid data marker; data retained.')
 from data_search.config import load_config
 from data_search.maintenance import MaintenanceGuard, purge_external_index
+from data_search.service import InstanceLock, ServiceError
+from data_search.service_control import stop
+from data_search.service_schedules import clear_schedules, ScheduleError
 config=load_config(m['config'])
-with MaintenanceGuard(config,stop=True):
-    if sys.argv[2]=='1': purge_external_index(config)
-    if m.get('autostart')=='systemd-user':
-        expected_dir=pathlib.Path(os.environ.get('XDG_CONFIG_HOME',str(pathlib.Path.home()/'.config')))/'systemd/user'
-        unit=pathlib.Path(m['unit_path'])
-        if unit.parent!=expected_dir or unit.name!=m['unit_name'] or not unit.name.startswith('data-search-'): raise SystemExit('Invalid unit path.')
-        subprocess.run(['systemctl','--user','disable','--now',m['unit_name']],check=True)
-        unit.unlink(missing_ok=True)
-        subprocess.run(['systemctl','--user','daemon-reload'],check=True)
-    shutil.rmtree(install)
-    if sys.argv[2]=='1' and data.exists():
-        shutil.rmtree(data); print('Uninstalled and removed configured data directory and managed external index files.')
-    else: print(f'Uninstalled. Configuration, models and indexes preserved at {data}')
+with ExitStack() as admission:
+    try: admission.enter_context(InstanceLock(data/'upgrade.lock'))
+    except ServiceError: raise SystemExit('uninstall_busy: an upgrade or scheduled start is active; installation and data retained.') from None
+    # Queued OS callbacks must not load runtime while tasks/files are removed.
+    try: clear_schedules(config)
+    except ScheduleError as error: raise SystemExit(f'{error.code}: scheduled-task cleanup failed; installation and data retained.') from None
+    stop(config)
+    with MaintenanceGuard(config):
+        if sys.argv[2]=='1': purge_external_index(config)
+        if m.get('autostart')=='systemd-user':
+            expected_dir=pathlib.Path(os.environ.get('XDG_CONFIG_HOME',str(pathlib.Path.home()/'.config')))/'systemd/user'
+            unit=pathlib.Path(m['unit_path'])
+            if unit.parent!=expected_dir or unit.name!=m['unit_name'] or not unit.name.startswith('data-search-'): raise SystemExit('Invalid unit path.')
+            subprocess.run(['systemctl','--user','disable','--now',m['unit_name']],check=True)
+            unit.unlink(missing_ok=True)
+            subprocess.run(['systemctl','--user','daemon-reload'],check=True)
+        shutil.rmtree(install)
+        if sys.argv[2]=='1' and data.exists():
+            shutil.rmtree(data); print('Uninstalled and removed configured data directory and managed external index files.')
+        else: print(f'Uninstalled. Configuration, models and indexes preserved at {data}')
 PY

@@ -24,7 +24,7 @@ def _parser():
     for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download", "compact", "preflight",
                     "diagnose", "prioritize", "refresh", "context", "open", "model-status", "model-start", "model-import", "model-cancel", "model-quiesce", "installation-status",
                     "space", "version", "cleanup-backup", "export-config", "restore-config", "relocate-index", "clients", "register-client", "remove-client", "preset",
-                    "discover-database", "propose-database", "store-credential", "credential-status", "delete-credential", "autostart", "lifecycle", "purge-external-index", "web-manage", "force-stop", "service-control", "scheduled-start"]:
+                    "discover-database", "propose-database", "store-credential", "credential-status", "delete-credential", "autostart", "lifecycle", "purge-external-index", "web-manage", "force-stop", "service-control", "scheduled-start", "schedules-clear"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", default=argparse.SUPPRESS, help="Configuration JSON path")
         commands[command] = subparser
@@ -173,6 +173,13 @@ def main(argv=None):
                 from .service_control import ServiceControlError
                 try:
                     result = run_due(config, args.schedule_id, args.generation)
+                except ScheduleError as error:
+                    raise ServiceControlError(error.code, str(error)) from error
+            elif command == 'schedules-clear':
+                from .service_schedules import clear_schedules, ScheduleError
+                from .service_control import ServiceControlError
+                try:
+                    result = clear_schedules(config)
                 except ScheduleError as error:
                     raise ServiceControlError(error.code, str(error)) from error
             elif command == 'preflight':

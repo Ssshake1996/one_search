@@ -323,6 +323,20 @@ class ScheduleManager:
         finally:
             lock.__exit__(None, None, None)
 
+    @contextmanager
+    def _admission(self):
+        gate = InstanceLock(self.data / "upgrade.lock")
+        try:
+            gate.__enter__()
+        except ServiceError:
+            raise ScheduleError("schedule_maintenance_busy", "正在升级、卸载或执行定时启动，暂时不能修改任务。") from None
+        try:
+            if (self.data / "upgrade-state.json").exists():
+                raise ScheduleError("schedule_maintenance_busy", "维护尚未完成，暂时不能修改任务。")
+            yield
+        finally:
+            gate.__exit__(None, None, None)
+
     def _validate_state(self, state):
         if (not isinstance(state, dict) or state.get("schema_version") != 1 or type(state.get("revision")) is not int or
                 state["revision"] < 0 or not isinstance(state.get("tasks"), list) or len(state["tasks"]) > MAX_TASKS):
@@ -358,14 +372,18 @@ class ScheduleManager:
             if self.journal.stat().st_size > 524288:
                 raise ValueError()
             record = json.loads(self.journal.read_text(encoding="utf-8"))
-            if not ID.fullmatch(record["id"]):
+            task_ids = record.get("ids", [record.get("id")])
+            if (not isinstance(task_ids, list) or not 1 <= len(task_ids) <= MAX_TASKS or
+                    any(not isinstance(task_id, str) or not ID.fullmatch(task_id) for task_id in task_ids) or
+                    len(set(task_ids)) != len(task_ids)):
                 raise ValueError()
             previous = self._validate_state(record["previous"])
-            old = next((task for task in previous["tasks"] if task["id"] == record["id"]), None)
-            if old:
-                self.adapter.put(old)
-            else:
-                self.adapter.remove(record["id"])
+            for task_id in task_ids:
+                old = next((task for task in previous["tasks"] if task["id"] == task_id), None)
+                if old:
+                    self.adapter.put(old)
+                else:
+                    self.adapter.remove(task_id)
             atomic_json(self.path, previous)
             self.journal.unlink()
         except (OSError, ValueError, KeyError, TypeError, ScheduleError):
@@ -388,7 +406,11 @@ class ScheduleManager:
     def list(self):
         try:
             with self._lock():
-                self._recover()
+                if self.journal.exists():
+                    # A pending transaction can write OS tasks during recovery.
+                    # Nonblocking admission avoids lock-order deadlocks with CRUD.
+                    with self._admission():
+                        self._recover()
                 return self._snapshot(self._read())
         except ServiceError:
             raise ScheduleError("schedules_busy", "定时任务正在变更或执行，请稍后重试。") from None
@@ -416,7 +438,7 @@ class ScheduleManager:
         now = self.clock()
         validated = _validate(request, now)
         try:
-            with self._lock():
+            with self._admission(), self._lock():
                 self._recover()
                 state = self._read()
                 self._revision(state, revision)
@@ -443,7 +465,7 @@ class ScheduleManager:
 
     def delete(self, task_id, *, revision=None):
         try:
-            with self._lock():
+            with self._admission(), self._lock():
                 self._recover()
                 state = self._read()
                 self._revision(state, revision)
@@ -452,6 +474,38 @@ class ScheduleManager:
                 updated = {**state, "revision": state["revision"] + 1,
                            "tasks": [task for task in state["tasks"] if task["id"] != task_id]}
                 return self._commit(state, updated, task_id)
+        except ServiceError:
+            raise ScheduleError("schedules_busy", "定时任务正在变更或执行，请稍后重试。") from None
+
+    def clear(self):
+        """Remove this instance's tasks transactionally before uninstalling it.
+
+        The uninstaller must hold upgrade.lock across this call and file removal,
+        so an already queued OS launcher cannot load the runtime in between.
+        """
+        try:
+            with self._lock():
+                self._recover()
+                state = self._read()
+                task_ids = [task["id"] for task in state["tasks"]]
+                if not task_ids:
+                    return self._snapshot(state)
+                atomic_json(self.journal, {"ids": task_ids, "previous": state})
+                updated = {**state, "revision": state["revision"] + 1, "tasks": []}
+                try:
+                    for task_id in task_ids:
+                        self.adapter.remove(task_id)
+                    atomic_json(self.path, updated)
+                    self.journal.unlink()
+                except Exception:
+                    self._recover()
+                    raise
+                for task_id in task_ids:
+                    try:
+                        self.adapter.cleanup(task_id)
+                    except OSError:
+                        pass
+                return self._snapshot(updated)
         except ServiceError:
             raise ScheduleError("schedules_busy", "定时任务正在变更或执行，请稍后重试。") from None
 
@@ -512,6 +566,10 @@ def save_schedule(config, request, *, revision=None):
 
 def delete_schedule(config, task_id, *, revision=None):
     return ScheduleManager(config).delete(task_id, revision=revision)
+
+
+def clear_schedules(config):
+    return ScheduleManager(config).clear()
 
 
 def run_due(config, schedule_id, generation):

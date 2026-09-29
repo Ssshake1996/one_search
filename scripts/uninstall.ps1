@@ -54,6 +54,20 @@ if ($DeleteData -and (Test-Path -LiteralPath $checkedData)) {
 }
 $locks = [Collections.Generic.List[IO.FileStream]]::new()
 try {
+    # The stable scheduled launcher holds this same lock before loading runtime.
+    # Hold it through task cancellation and deletion, not merely daemon shutdown.
+    try { $locks.Add((Lock-ManagedFile (Join-Path $checkedData 'upgrade.lock'))) }
+    catch { throw 'uninstall_busy: an upgrade or scheduled start is active; installation and data retained. Retry after it finishes.' }
+    $hasSchedules = (Test-Path -LiteralPath (Join-Path $checkedData 'service-schedules.json')) -or (Test-Path -LiteralPath (Join-Path $checkedData 'service-schedules-pending.json'))
+    if ($hasSchedules) {
+        if (-not (Test-Path -LiteralPath $cli)) { throw 'schedule_cleanup_unavailable: runtime is missing; restore the matching runtime before removing scheduled tasks. Installation and data retained.' }
+        & $cli schedules-clear --config $manifest.config
+        if ($LASTEXITCODE -ne 0) { throw 'schedule_cleanup_failed: system tasks could not be removed; installation and data retained.' }
+    }
+    if (Test-Path -LiteralPath $cli) {
+        & $cli stop --config $manifest.config
+        if ($LASTEXITCODE -ne 0) { throw 'Daemon did not stop; installation and data retained.' }
+    }
     # Admission remains blocked until replacement/deletion is complete. Merely
     # stopping the daemon does not stop a detached semantic model download.
     $locks.Add((Lock-ManagedFile (Join-Path $checkedData 'model-job\manager.lock')))
@@ -62,10 +76,6 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Model job did not stop; installation and data retained.' }
     }
     $locks.Add((Lock-ManagedFile (Join-Path $checkedData 'model-job\worker.lock')))
-    if (Test-Path -LiteralPath $cli) {
-        & $cli stop --config $manifest.config
-        if ($LASTEXITCODE -ne 0) { throw 'Daemon did not stop; installation and data retained.' }
-    }
     $locks.Add((Lock-ManagedFile (Join-Path $checkedData 'service.lock')))
     if ($DeleteData -and (Test-Path -LiteralPath $cli)) {
         & $cli purge-external-index --config $manifest.config

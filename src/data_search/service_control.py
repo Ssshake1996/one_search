@@ -234,7 +234,11 @@ def stop(config, *, force=False, timeout=15):
         except ServiceControlError:
             raise
         except ServiceError:
-            raise ServiceControlError('service_stop_timeout', 'Service did not stop cleanly; automatic startup is disabled, and Force stop remains available') from None
+            if force:
+                raise ServiceControlError('service_stop_timeout', 'Service did not stop cleanly; automatic startup is disabled, and Force stop remains available') from None
+            # The intent watcher can close RPC between health and _stop. The
+            # OS lease below proves completion even if that final RPC was lost.
+            result = {'status': 'stopped', 'stopped': True}
         if not force:
             # A daemon can still be constructing Engine before RPC publication.
             # It checks the same intent again before beginning background work.

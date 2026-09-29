@@ -62,9 +62,18 @@ DSH 服务端退出后，没有插件进程执行这套恢复逻辑，因此不�
 | `scheduler_rejected` | 检查当前用户的任务登记权限和系统服务状态。 |
 | `schedule_recovery_required` | 保留数据目录中的任务记录，恢复系统调度器权限后刷新重试；不要手工删除事务。 |
 | `schedule_conflict` | 刷新任务列表，再提交修改。 |
+| `schedule_maintenance_busy` | 正在升级、卸载或执行定时启动；结束后重试。 |
 | `schedule_invalid` | 检查任务名称、时间、星期和单次任务是否已过期。 |
 | `schedules_state_invalid` | 任务记录无法读取或损坏；保留文件供诊断，修复前不会执行任务。 |
 
 任务文件不含 MCP token 或数据库密码。任务 ID 和 generation 仅用于防止旧回调执行，并不是访问凭据。
+
+## 卸载与目录迁移
+
+卸载前关闭连接该实例的 DSH profiles 和其他 MCP 宿主。新版卸载器先取得与定时启动脚本共用的升级锁，撤销本实例的系统任务并清空列表，再持久停止服务、删除程序。保留配置和索引的卸载也会移除定时任务，避免将来重装到原路径时旧任务意外启动。不会操作其他实例或用户自行创建的任务。
+
+如果刚好已有定时启动或升级在执行，卸载返回 `uninstall_busy` 并保留目录；等操作结束后重试。系统任务无法撤销时中止卸载、保留程序和数据，并尝试恢复原任务。若 runtime 已损坏而无法清理任务，先恢复同一版本 runtime 后重试，不应直接删程序目录留下系统任务。
+
+“迁移索引”仅更改 `index_dir`，配置、数据目录和定时启动脚本路径不变，任务继续使用当前配置。整体移动安装或数据目录不属于自动迁移功能；应先删除系统任务，按新路径完成安装接入后重新创建。
 
 系统行为参考：[Microsoft 任务计划程序每日触发器](https://learn.microsoft.com/en-us/windows/win32/taskschd/dailytrigger)、[systemd 定时器文档](https://github.com/systemd/systemd/blob/main/man/systemd.timer.xml)。
