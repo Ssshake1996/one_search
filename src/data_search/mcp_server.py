@@ -114,5 +114,12 @@ def create_mcp(config: dict):
 
 def run_mcp(config: dict):
     # Avoid stdout logging here: stdout belongs exclusively to MCP framing.
-    start_service(config)
+    from .service_control import ServiceControlError
+    try:
+        start_service(config)
+    except ServiceControlError as error:
+        if error.code not in {'service_stopped', 'service_control_changed', 'service_control_invalid'}:
+            raise
+        # Keep stdio alive while explicitly stopped; a reconnecting MCP client
+        # must never turn a user stop into a daemon launch loop.
     create_mcp(config).run(transport="stdio")

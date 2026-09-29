@@ -18,6 +18,8 @@ from .runtime_policy import apply_preset, validate_policy
 from .service import ServiceError, rpc, service_status
 from .setup_ui import SettingsConflict, activate_settings, settings_config, settings_revision
 from .source_setup import discover_source, propose_source
+from .service_control import ServiceControlError
+from .service_schedules import ScheduleError
 
 
 MAX_REQUEST_BYTES = 128 * 1024
@@ -35,6 +37,9 @@ ACTION_FIELDS = {
     'db_propose': {'source', 'selections', 'business_metadata'},
     'db_preflight': {'source'}, 'credential_store': {'secret', 'reference'},
     'model_start': set(), 'model_import': {'source'}, 'model_cancel': set(),
+    'service_start': set(), 'service_stop': set(), 'service_force_stop': set(),
+    'schedules_get': set(), 'schedule_save': {'revision', 'task'},
+    'schedule_delete': {'revision', 'id'},
 }
 
 
@@ -163,7 +168,22 @@ def dispatch(config_path, request):
                 result = {**snapshot(path), 'applied': True}
         else:
             current = load_config(path)
-            if action in {'db_discover', 'db_propose', 'db_preflight'}:
+            if action in {'service_start', 'service_stop', 'service_force_stop'}:
+                from .service_control import start, stop
+                result = (start(current, reason='manual') if action == 'service_start'
+                          else stop(current, force=action == 'service_force_stop'))
+            elif action in {'schedules_get', 'schedule_save', 'schedule_delete'}:
+                from .service_schedules import list_schedules, save_schedule, delete_schedule
+                if action == 'schedules_get':
+                    result = list_schedules(current)
+                else:
+                    revision = params.get('revision')
+                    if type(revision) is not int or revision < 0:
+                        raise ManagementError('invalid_request', '请先读取定时任务，再提交有效的任务版本。')
+                    result = (save_schedule(current, params.get('task'), revision=revision)
+                              if action == 'schedule_save' else
+                              delete_schedule(current, params.get('id'), revision=revision))
+            elif action in {'db_discover', 'db_propose', 'db_preflight'}:
                 source = _source(params.get('source'), current)
                 if action == 'db_discover':
                     result = discover_source(source)
@@ -191,7 +211,7 @@ def dispatch(config_path, request):
         if error.details is not None:
             detail['details'] = error.details
         return {'ok': False, 'error': detail}
-    except (DatabaseError, CredentialError) as error:
+    except (DatabaseError, CredentialError, ServiceControlError, ScheduleError) as error:
         return {'ok': False, 'error': {'code': error.code, 'message': str(error)}}
     except (ValueError, TypeError, KeyError):
         return {'ok': False, 'error': {'code': 'invalid_settings',

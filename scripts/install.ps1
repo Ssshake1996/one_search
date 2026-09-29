@@ -58,6 +58,12 @@ function Run-Checked([string]$Command, [string[]]$Arguments) {
 function Write-Json([string]$Path, $Value) {
     [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 24), [Text.UTF8Encoding]::new($false))
 }
+function Stop-ForMaintenance([string]$Command, [string]$ConfigPath) {
+    $help = (& $Command stop --help) -join [Environment]::NewLine
+    $arguments = @('stop', '--config', $ConfigPath)
+    if ($help -match '--temporary') { $arguments += '--temporary' }
+    Run-Checked $Command $arguments
+}
 function Test-OnlyHostRegistrations([string]$Path) {
     foreach ($entry in @(Get-ChildItem -LiteralPath $Path -Force)) {
         if ($entry.Name -ne 'host-clients' -or -not $entry.PSIsContainer -or ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)) { return $false }
@@ -226,9 +232,9 @@ if (-not $RuntimeDir) {
     }
     $installLocks.Add((Lock-InstallFile (Join-Path $DataDir 'model-job\worker.lock')))
 }
-if ((Test-Path -LiteralPath $cli) -and (Test-Path -LiteralPath $configPath)) { Run-Checked $cli @('stop', '--config', $configPath) }
+if ((Test-Path -LiteralPath $cli) -and (Test-Path -LiteralPath $configPath)) { Stop-ForMaintenance $cli $configPath }
 $nativeCli = Join-Path $InstallDir 'runtime\data-search.exe'
-if ((Test-Path -LiteralPath $nativeCli) -and (Test-Path -LiteralPath $configPath)) { Run-Checked $nativeCli @('stop', '--config', $configPath) }
+if ((Test-Path -LiteralPath $nativeCli) -and (Test-Path -LiteralPath $configPath)) { Stop-ForMaintenance $nativeCli $configPath }
 if (-not $RuntimeDir) { $installLocks.Add((Lock-InstallFile (Join-Path $DataDir 'service.lock'))) }
 if ($RuntimeDir) {
     $runtimeDest = Join-Path $InstallDir 'runtime'
@@ -294,7 +300,7 @@ if ($NoAutostart) {
     if (Test-Path -LiteralPath $runKey) { Remove-ItemProperty -LiteralPath $runKey -Name $startupName -ErrorAction SilentlyContinue }
 } else {
     # WScript launches the CLI without a visible console. CLI start detaches and deduplicates.
-    $command = '"' + $cli + '" start --config "' + $configPath + '"'
+    $command = '"' + $cli + '" start --automatic --config "' + $configPath + '"'
     $vbs = 'CreateObject("WScript.Shell").Run "' + $command.Replace('"','""') + '", 0, False' + "`r`n"
     $vbsPath = Join-Path $InstallDir 'launch-hidden.vbs'
     [IO.File]::WriteAllText($vbsPath, $vbs, [Text.Encoding]::Unicode)
@@ -309,9 +315,12 @@ Write-Json $manifestPath $manifest
 for ($i = $installLocks.Count - 1; $i -ge 0; $i--) { $installLocks[$i].Dispose() }
 $installLocks.Clear()
 $installStage = 'daemon_start'
-Run-Checked $cli @('start', '--config', $configPath)
+$startReport = & $cli 'start' '--automatic' '--config' $configPath
+if ($LASTEXITCODE -ne 0) { throw 'Automatic service startup failed; saved stop preferences were preserved.' }
+$startResult = ($startReport -join [Environment]::NewLine) | ConvertFrom-Json
+$startReport | Write-Output
 $installStage = 'model_queued'
-if ($activeConfig.semantic.enabled -and -not $SkipModel) {
+if ($startResult.status -ne 'stopped' -and $activeConfig.semantic.enabled -and -not $SkipModel) {
     # This launches a detached job. Model download/network failure cannot block basic search.
     if ($ModelDir) { & $cli 'model-import' '--config' $configPath '--source' $activeConfig.semantic.model_dir }
     else { & $cli 'model-start' '--config' $configPath }

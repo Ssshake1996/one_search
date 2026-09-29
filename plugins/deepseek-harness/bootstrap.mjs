@@ -6,12 +6,14 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { readServiceControl } from './service-control.mjs';
+import { coordinatorOptions } from './upgrade-coordinator.mjs';
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 // Keep the immediately previous runtime usable after an upgrade rollback.
 // Maintenance coordination belongs to this Node bundle and the incoming installer.
 const requiredBackendVersion = '0.5.0';
-const requiredInstallerVersion = '0.5.2';
+const requiredInstallerVersion = '0.6.0';
 export function backendCompatible(version) {
   const parts = typeof version === 'string' && version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
   return Boolean(parts && Number(parts[1]) === 0 &&
@@ -131,7 +133,7 @@ export function runProcess(command, args, { timeoutMs = 900000 } = {}) {
 export function installerCompatible(version) {
   const parts = typeof version === 'string' && version.match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
   return Boolean(parts && Number(parts[1]) === 0 &&
-    (Number(parts[2]) > 5 || (Number(parts[2]) === 5 && Number(parts[3]) >= 2)));
+    Number(parts[2]) >= 6);
 }
 
 export async function installedCommand(options) {
@@ -170,7 +172,16 @@ async function install(options, run) {
 }
 
 export async function prepareService(config = {}, run = runProcess, { runRuntime = (callback) => callback() } = {}) {
-  const options = settings(config);
+  const options = await coordinatorOptions(settings(config));
+  const requireRunning = async () => {
+    const control = await readServiceControl(options.dataDir);
+    if (control.desired_state === 'stopped') {
+      const error = new Error('service_stopped: use manual Start or an enabled schedule');
+      error.backendCode = control.error?.code || 'service_stopped'; error.operation = 'start'; throw error;
+    }
+  };
+  await requireRunning();
+  let backendVersion;
   const runtime = (command, args, request) => runRuntime(() => run(command, args, request));
   let command = options.command || await installedCommand(options);
   if (options.command) {
@@ -184,13 +195,16 @@ export async function prepareService(config = {}, run = runProcess, { runRuntime
       throw new Error('backend_update_required: update the explicitly configured backend with the matching release installer; then retry DSH');
     }
     if (!backendCompatible(info.version)) throw new Error('backend_update_required: the explicitly configured backend must be >= ' + requiredBackendVersion);
+    backendVersion = info.version;
   } else if (!command || !await exists(options.configPath)) {
     await install(options, run);
     command = await installedCommand(options);
     if (!command || !await exists(options.configPath)) throw new Error('one_search installer did not produce an executable and configuration');
+    backendVersion = JSON.parse(await readFile(join(options.installDir, 'install-manifest.json'), 'utf8')).version;
   } else {
     let installed = {};
     try { installed = JSON.parse(await readFile(join(options.installDir, 'install-manifest.json'), 'utf8')); } catch { /* Legacy manifest is treated as requiring upgrade. */ }
+    backendVersion = installed.version;
     if (!backendCompatible(installed.version)) {
       try { await findRelease(options.releaseDir); }
       catch { throw new Error('backend_update_required: extract the matching release and set ONE_SEARCH_RELEASE_DIR before starting DSH, or run its installer first'); }
@@ -198,11 +212,14 @@ export async function prepareService(config = {}, run = runProcess, { runRuntime
       command = await installedCommand(options);
       const upgraded = JSON.parse(await readFile(join(options.installDir, 'install-manifest.json'), 'utf8'));
       if (!command || !backendCompatible(upgraded.version)) throw new Error('backend_update_required: installer did not publish a compatible backend version');
+      backendVersion = upgraded.version;
     }
   }
   // start is idempotent. Existing configuration, search scope, and model settings
   // remain owned by the backend; profile activation never rewrites them.
-  await runtime(command, [...options.commandArgs, 'start', '--config', options.configPath], options);
+  await requireRunning();
+  const automatic = Number(backendVersion?.split('.')[1]) >= 6 ? ['--automatic'] : [];
+  await runtime(command, [...options.commandArgs, 'start', ...automatic, '--config', options.configPath], options);
   for (let attempt = 0; ; attempt++) {
     try {
       await runtime(command, [...options.commandArgs, 'register-client', options.clientId, '--label', options.clientLabel,
@@ -220,6 +237,6 @@ export async function prepareService(config = {}, run = runProcess, { runRuntime
     transport: 'stdio', serverName: options.serverName, command,
     args: [...options.commandArgs, 'mcp', '--config', options.configPath],
     env: {}, cwd: dirname(options.configPath), toolCallTimeoutMs: 60000, failOnStartupError: true,
-    reconnect: { enabled: true, initialDelayMs: 500, maxDelayMs: 30000, maxAttempts: 10 },
+    reconnect: { enabled: true, initialDelayMs: 1000 + Math.floor(Math.random() * 201), maxDelayMs: 60000, maxAttempts: 10 },
   };
 }

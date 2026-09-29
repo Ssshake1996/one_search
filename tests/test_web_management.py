@@ -188,3 +188,108 @@ def test_cli_bounds_input_and_reports_machine_envelope(configured, monkeypatch, 
     monkeypatch.setattr('sys.stdin', io.StringIO(json.dumps({'action': 'settings_get'})))
     assert web.main(configured) == 0
     assert json.loads(capsys.readouterr().out)['ok']
+
+
+def test_service_actions_are_explicit_and_force_is_separate(configured, monkeypatch):
+    from data_search import service_control
+    calls = []
+    monkeypatch.setattr(service_control, 'start', lambda config, **kw: calls.append(('start', kw)) or {'status': 'running'})
+    monkeypatch.setattr(service_control, 'stop', lambda config, **kw: calls.append(('stop', kw)) or {'status': 'stopped'})
+    for action in ['service_start', 'service_stop', 'service_force_stop']:
+        assert request(configured, action)['ok']
+    assert calls == [('start', {'reason': 'manual'}), ('stop', {'force': False}), ('stop', {'force': True})]
+    assert request(configured, 'service_start', {'command': 'untrusted'})['error']['code'] == 'invalid_request'
+
+
+def test_service_control_errors_retain_actionable_code(configured, monkeypatch):
+    from data_search import service_control
+    def failed(*args, **kwargs):
+        raise service_control.ServiceControlError('service_process_mismatch', 'Process identity changed; no process was terminated')
+    monkeypatch.setattr(service_control, 'stop', failed)
+    result = request(configured, 'service_force_stop')
+    assert not result['ok'] and result['error']['code'] == 'service_process_mismatch'
+
+
+def test_schedule_crud_works_while_daemon_is_stopped(configured, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from data_search import service_control, service_schedules
+    from test_service_schedules import FakeScheduler
+    adapter = FakeScheduler()
+    monkeypatch.setattr(service_schedules, 'SystemScheduler', lambda _: adapter)
+    service_control.stop(load_config(configured))
+    initial = request(configured, 'schedules_get')['result']
+    assert initial['tasks'] == []
+    task = {'name': 'Schedule fixture', 'enabled': True,
+            'schedule': {'kind': 'once', 'at': (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()}}
+    saved = request(configured, 'schedule_save', {'revision': initial['revision'], 'task': task})
+    assert saved['ok'] and saved['result']['tasks'][0]['name'] == 'Schedule fixture'
+    assert service_control.read_control(load_config(configured))['desired_state'] == 'stopped'
+    stale = request(configured, 'schedule_save', {'revision': initial['revision'], 'task': task})
+    assert stale['error']['code'] == 'schedule_conflict'
+    deleted = request(configured, 'schedule_delete', {'revision': saved['result']['revision'],
+                                                     'id': saved['result']['tasks'][0]['id']})
+    assert deleted['ok'] and deleted['result']['tasks'] == [] and not adapter.tasks
+
+
+@pytest.mark.parametrize('revision', [True, -1, '1', None])
+def test_schedule_mutation_requires_integer_revision(configured, revision):
+    assert request(configured, 'schedule_delete', {'revision': revision, 'id': 'fake'})['error']['code'] == 'invalid_request'
+
+
+def test_settings_save_while_stopped_preserves_stop_and_applies_candidate(configured, monkeypatch):
+    from data_search import service, service_control
+    service_control.stop(load_config(configured))
+    before = service_control.read_control(load_config(configured))
+    params = edit(configured)
+    params['values']['exclude_names'].append('offline-save')
+    monkeypatch.setattr(service, 'start_service', lambda *_: pytest.fail('Saving settings must not clear explicit stop'))
+    result = request(configured, 'settings_save', params)
+    assert result['ok'] and 'offline-save' in load_config(configured)['exclude_names']
+    assert service_control.read_control(load_config(configured)) == before
+
+
+def test_stop_during_settings_activation_wins_without_rollback(configured, monkeypatch):
+    from data_search import service, service_control
+    current = load_config(configured)
+    candidate = copy.deepcopy(current)
+    candidate['exclude_names'].append('accepted-before-stop')
+    monkeypatch.setattr(service, 'stop_service', lambda _, **kwargs: {'status': 'stopped'})
+    def start(config):
+        service_control.stop(config)
+        raise service_control.ServiceControlError('service_stopped', 'Stopped concurrently')
+    monkeypatch.setattr(service, 'start_service', start)
+    result = activate_settings(configured, current, candidate)
+    assert result['status'] == 'stopped'
+    assert 'accepted-before-stop' in load_config(configured)['exclude_names']
+    assert service_control.read_control(current)['desired_state'] == 'stopped'
+
+
+def test_control_failure_restores_config_without_restarting_invalid_state(configured, monkeypatch):
+    from data_search import service, service_control
+    current = load_config(configured)
+    before = json.loads(configured.read_text(encoding='utf-8'))
+    candidate = copy.deepcopy(current)
+    candidate['exclude_names'].append('invalid-control-race')
+    calls = []
+    monkeypatch.setattr(service, 'stop_service', lambda _: calls.append('stop'))
+    def start(config):
+        calls.append('start')
+        (Path(config['data_dir']) / 'service-control.json').write_text('{corrupt')
+        raise service_control.ServiceControlError('service_control_invalid', 'Malformed control state')
+    monkeypatch.setattr(service, 'start_service', start)
+    with pytest.raises(service_control.ServiceControlError):
+        activate_settings(configured, current, candidate)
+    assert json.loads(configured.read_text(encoding='utf-8')) == before
+
+
+def test_invalid_control_prevents_settings_mutation(configured, monkeypatch):
+    from data_search import service, service_control
+    current = load_config(configured)
+    before = configured.read_bytes()
+    (Path(current['data_dir']) / 'service-control.json').write_text('{corrupt')
+    monkeypatch.setattr(service, 'stop_service', lambda _: pytest.fail('Invalid intent must fail before stopping'))
+    candidate = copy.deepcopy(current)
+    candidate['exclude_names'].append('not-saved')
+    with pytest.raises(service_control.ServiceControlError):
+        activate_settings(configured, current, candidate)
+    assert configured.read_bytes() == before

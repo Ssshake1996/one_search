@@ -193,7 +193,7 @@ test('pause control shows draining, paused and unknown states without treating a
   assert.match(textOf(tree), /暂停状态待确认/); assert.doesNotMatch(textOf(tree), /后台索引已暂停/);
   assert.equal(all(tree, node => node.props.onClick)[0].props.disabled, true);
   tree = IndexControls({ ...props, status: { service: { status: 'stopped' }, index: {} } });
-  assert.match(textOf(tree), /暂停状态待确认/); assert.equal(all(tree, node => node.props.onClick)[0].props.disabled, true);
+  assert.match(textOf(tree), /服务已停止，索引操作不可用/); assert.equal(all(tree, node => node.props.onClick)[0].props.disabled, true);
   tree = IndexControls({ ...props, status: null });
   assert.match(textOf(tree), /暂停索引/); assert.equal(all(tree, node => node.props.onClick)[0].props.disabled, true);
 });
@@ -382,5 +382,139 @@ test('maintenance keeps edits, disables settings actions and recovers through st
   maintenance = false; clock.fire(); await tick(); tree = harness.render(Panel, { request });
   assert.equal(all(tree, node => node.type === 'fieldset')[0].props.disabled, false);
   assert.deepEqual(Array.from(all(tree, node => node.type?.name === 'Scope')[0].props.values.roots), ['D:/mine']);
+  harness.dispose();
+});
+
+test('service controls allow explicit start while offline and require a second click to force stop', () => {
+  const harness = hookHarness();
+  const { ServiceControls } = load(harness.React).plugin.__testing;
+  const calls = [];
+  const props = { status: { service: { status: 'offline' }, control: { desired_state: 'running' }, reconnect: { state: 'waiting', attempt: 4, next_retry_at: 2000000000 } }, run: (...args) => calls.push(args), busy: false };
+  let tree = harness.render(ServiceControls, props);
+  assert.match(textOf(tree), /异常断线，等待重连/); assert.match(textOf(tree), /重试次数：4/);
+  all(tree, node => textOf(node) === '强制结束' && node.props.onClick)[0].props.onClick();
+  assert.equal(calls.length, 0);
+  tree = harness.render(ServiceControls, props);
+  assert.match(textOf(tree), /已启用的定时任务仍可在到点后启动服务/);
+  all(tree, node => textOf(node) === '确认强制结束' && node.props.onClick)[0].props.onClick();
+  assert.equal(calls[0][0], 'service_force_stop');
+  calls[0][2]();
+  props.status = { service: { status: 'stopped' }, control: { desired_state: 'stopped' }, reconnect: { state: 'stopped' } };
+  tree = harness.render(ServiceControls, props);
+  assert.match(textOf(tree), /后台已主动停止/); assert.match(textOf(tree), /自动重连已关闭/); assert.doesNotMatch(textOf(tree), /下次重试/);
+  const start = all(tree, node => textOf(node) === '启动服务' && node.props.onClick)[0];
+  assert.equal(start.props.disabled, false); start.props.onClick(); assert.equal(calls[1][0], 'service_start');
+  assert.equal(all(tree, node => textOf(node) === '停止服务' && node.props.onClick)[0].props.disabled, true);
+  tree = harness.render(ServiceControls, { ...props, status: null, disconnected: true });
+  assert.equal(all(tree, node => textOf(node) === '启动服务' && node.props.onClick)[0].props.disabled, false);
+  harness.dispose();
+});
+
+test('service stop acknowledgement clears progress and cannot be undone by an earlier status sample', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let statuses = 0, finishOld;
+  const running = { service: { status: 'running' }, control: { desired_state: 'running' }, index: { pause_state: 'running', progress: { overall: { state: 'indexing' } } } };
+  const request = async action => {
+    if (action === 'settings_get') return { revision: 'one', values: { roots: [], indexing: {}, runtime_policy: {}, databases: [] } };
+    if (action === 'status') return ++statuses === 1 ? running : new Promise(resolve => { finishOld = resolve; });
+    if (action === 'service_stop') return { service: { status: 'stopped' }, control: { desired_state: 'stopped' }, reconnect: { state: 'stopped' } };
+  };
+  harness.render(Panel, { request }); await tick(); let tree = harness.render(Panel, { request });
+  clock.fire();
+  await all(tree, node => node.type?.name === 'ServiceControls')[0].props.run('service_stop');
+  finishOld(running); await tick(); tree = harness.render(Panel, { request });
+  const service = all(tree, node => node.type?.name === 'ServiceControls')[0];
+  assert.equal(service.props.status.control.desired_state, 'stopped'); assert.equal(service.props.status.index, undefined);
+  assert.equal(all(tree, node => node.type?.name === 'IndexControls')[0].props.busy, true);
+  assert.equal(all(tree, node => node.type?.name === 'Schedules')[0].props.busy, false);
+  assert.equal(all(tree, node => node.type?.name === 'Overview')[0].props.status.index, undefined);
+  assert.match(textOf(tree), /后台已主动停止/);
+  harness.dispose();
+});
+
+test('daemon errors keep service controls available and never present old index activity as current', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Panel } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  const request = async action => {
+    if (action === 'settings_get') throw new Error('offline');
+    if (action === 'status') return { service: { status: 'offline', error: { code: 'service_connection_refused', message: '无法连接后台。' } }, control: { desired_state: 'running' }, reconnect: { state: 'waiting' } };
+  };
+  harness.render(Panel, { request }); await tick(); const tree = harness.render(Panel, { request });
+  assert.match(textOf(tree), /service_connection_refused/);
+  assert.equal(all(tree, node => node.type?.name === 'ServiceControls')[0].props.busy, false);
+  assert.equal(all(tree, node => node.type?.name === 'IndexControls')[0].props.busy, true);
+  assert.equal(all(tree, node => node.type?.name === 'Schedules')[0].props.busy, false);
+  harness.dispose();
+});
+
+test('schedule times use the service machine timezone and validate weekly selections', () => {
+  const { scheduleDraft, scheduleTask, scheduleDate } = load().plugin.__testing;
+  const timezone = { name: 'Asia/Shanghai', offset: '+08:00', now: '2030-04-05T12:00:00+08:00' };
+  const draft = scheduleDraft(null, timezone);
+  assert.equal(draft.date, '2030-04-05');
+  Object.assign(draft, { name: ' 工作日启动 ', time: '18:30' });
+  const once = scheduleTask(draft, timezone);
+  assert.equal(once.name, '工作日启动'); assert.equal(once.schedule.at, '2030-04-05T18:30:00');
+  assert.match(scheduleDate('2030-04-05T10:30:00Z', timezone), /18:30/);
+  assert.throws(() => scheduleTask({ ...draft, date: '2030-02-31' }, timezone), /有效的启动日期/);
+  assert.throws(() => scheduleTask({ ...draft, kind: 'weekly', weekdays: [] }, timezone), /至少一个星期/);
+  assert.throws(() => scheduleTask(draft), /服务器时区/);
+  assert.deepEqual(Array.from(scheduleTask({ ...draft, kind: 'weekly', weekdays: [5, 1, 1] }, timezone).schedule.weekdays), [1, 5]);
+  assert.match(scheduleDate('2030-04-05T10:30:00Z', { offset: '+08:00' }), /18:30.*UTC\+08:00/);
+});
+
+test('schedules load while stopped, preserve editing revision during polling and send complete tasks', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Schedules } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let revision = 'first'; const calls = [];
+  const request = async action => {
+    assert.equal(action, 'schedules_get');
+    return { revision, timezone: { name: 'Asia/Shanghai', offset: '+08:00', now: '2030-04-05T12:00:00+08:00' }, tasks: [], scheduler: { kind: 'windows' } };
+  };
+  const props = { active: true, request, run: (...args) => calls.push(args), busy: false };
+  harness.render(Schedules, props); await tick(); let tree = harness.render(Schedules, props);
+  assert.match(textOf(tree), /尚无定时任务/); assert.match(textOf(tree), /服务所在电脑的时区/);
+  assert.equal(clock.timers.values().next().value.delay, 30000);
+  all(tree, node => textOf(node) === '新建启动任务' && node.props.onClick)[0].props.onClick();
+  tree = harness.render(Schedules, props);
+  all(tree, node => node.type?.name === 'Input' && node.props.placeholder)[0].props.onChange('按时启动');
+  tree = harness.render(Schedules, props);
+  revision = 'second'; clock.fire(); await tick(); tree = harness.render(Schedules, props);
+  all(tree, node => textOf(node) === '保存启动任务' && node.props.onClick)[0].props.onClick();
+  assert.equal(calls[0][0], 'schedule_save'); assert.equal(calls[0][1].revision, 'first');
+  assert.equal(calls[0][1].task.name, '按时启动'); assert.equal(calls[0][1].task.schedule.at, '2030-04-05T09:00:00');
+  // A failed operation never calls this callback, so the form remains available for correction.
+  assert.ok(all(tree, node => node.props['aria-label'] === '新建启动任务').length);
+  calls[0][2]({ revision: 'third', timezone: { offset: '+08:00' }, tasks: [] });
+  tree = harness.render(Schedules, props); assert.equal(all(tree, node => node.props['aria-label'] === '新建启动任务').length, 0);
+  harness.dispose();
+});
+
+test('schedule list shows execution evidence and requires confirmation before deletion', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Schedules } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  const calls = [], scheduled = { id: 'task-one', name: '工作日启动', enabled: true, schedule: { kind: 'weekly', time: '09:00', weekdays: [1, 3] }, next_run_at: 1900000000, last_run_at: 1800000000, last_result: { status: 'failed', code: 'start_failed' } };
+  const snapshot = { revision: 'one', tasks: [scheduled], timezone: { name: 'Asia/Shanghai', offset: '+08:00' }, scheduler: {} };
+  const props = { active: true, busy: false, request: async () => snapshot, run: (...args) => calls.push(args) };
+  harness.render(Schedules, props); await tick(); let tree = harness.render(Schedules, props);
+  assert.match(textOf(tree), /周一、周三 09:00/); assert.match(textOf(tree), /上次结果：执行失败/); assert.match(textOf(tree), /start_failed/);
+  all(tree, node => textOf(node) === '禁用' && node.props.onClick)[0].props.onClick();
+  assert.equal(calls[0][1].task.enabled, false); assert.equal(calls[0][1].revision, 'one'); assert.equal(calls[0][1].task.last_result, undefined);
+  all(tree, node => textOf(node) === '删除' && node.props.onClick)[0].props.onClick();
+  assert.equal(calls.length, 1); tree = harness.render(Schedules, props);
+  all(tree, node => textOf(node) === '确认删除任务' && node.props.onClick)[0].props.onClick();
+  assert.equal(calls[1][0], 'schedule_delete'); assert.equal(calls[1][1].id, 'task-one'); assert.equal(calls[1][1].revision, 'one');
+  harness.dispose();
+});
+
+test('schedule polling is inactive outside its tab and is disposed when leaving it', async () => {
+  const harness = hookHarness(), clock = fakeClock();
+  const { Schedules } = load(harness.React, { document: clock.doc, setTimeout: clock.setTimer, clearTimeout: clock.clearTimer }).plugin.__testing;
+  let reads = 0;
+  const props = { active: false, busy: false, request: async () => { reads++; return { tasks: [] }; }, run() {} };
+  harness.render(Schedules, props); await tick(); assert.equal(reads, 0);
+  harness.render(Schedules, { ...props, active: true }); await tick(); assert.equal(reads, 1);
+  harness.render(Schedules, props); assert.equal(clock.timers.size, 0);
   harness.dispose();
 });

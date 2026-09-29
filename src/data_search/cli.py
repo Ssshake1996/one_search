@@ -24,10 +24,15 @@ def _parser():
     for command in ["init", "daemon", "start", "stop", "status", "scan", "pause", "resume", "search", "fetch", "inspect", "query", "mcp", "model-download", "compact", "preflight",
                     "diagnose", "prioritize", "refresh", "context", "open", "model-status", "model-start", "model-import", "model-cancel", "model-quiesce", "installation-status",
                     "space", "version", "cleanup-backup", "export-config", "restore-config", "relocate-index", "clients", "register-client", "remove-client", "preset",
-                    "discover-database", "propose-database", "store-credential", "credential-status", "delete-credential", "autostart", "lifecycle", "purge-external-index", "web-manage"]:
+                    "discover-database", "propose-database", "store-credential", "credential-status", "delete-credential", "autostart", "lifecycle", "purge-external-index", "web-manage", "force-stop", "service-control", "scheduled-start"]:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--config", default=argparse.SUPPRESS, help="Configuration JSON path")
         commands[command] = subparser
+    commands['start'].add_argument('--automatic', action='store_true', help='Respect a saved user stop (for reconnect/install/login launchers)')
+    commands['stop'].add_argument('--temporary', action='store_true', help='Internal maintenance stop; preserve the saved user intent')
+    commands['daemon'].add_argument('--control-revision', help=argparse.SUPPRESS)
+    commands['scheduled-start'].add_argument('--schedule-id', required=True)
+    commands['scheduled-start'].add_argument('--generation', required=True)
     commands["init"].add_argument("--data-dir", required=True)
     initial_scope = commands["init"].add_mutually_exclusive_group()
     initial_scope.add_argument("--root", action="append", help="Search only this directory; repeat for more directories. Default: the current user's Documents folder")
@@ -141,14 +146,35 @@ def main(argv=None):
             if command == "daemon":
                 from .runtime import configure_native_threads
                 configure_native_threads(config["semantic"]["threads"])
-                run_daemon(config)
+                from .service_control import ServiceControlError
+                try:
+                    run_daemon(config, control_revision=args.control_revision)
+                except ServiceControlError as error:
+                    if error.code not in {'service_stopped', 'service_control_changed'}:
+                        raise
                 return 0
             if command == "mcp":
                 from .mcp_server import run_mcp
                 run_mcp(config)
                 return 0
             if command == "start":
-                result = start_service(config)
+                from .service_control import start, ServiceControlError, read_control
+                try:
+                    result = start(config, reason='automatic' if args.automatic else 'manual')
+                except ServiceControlError as error:
+                    if not args.automatic or error.code != 'service_stopped':
+                        raise
+                    result = {'status': 'stopped', 'started': False, 'service_control': read_control(config)}
+            elif command == 'service-control':
+                from .service_control import control_status
+                result = control_status(config)
+            elif command == 'scheduled-start':
+                from .service_schedules import run_due, ScheduleError
+                from .service_control import ServiceControlError
+                try:
+                    result = run_due(config, args.schedule_id, args.generation)
+                except ScheduleError as error:
+                    raise ServiceControlError(error.code, str(error)) from error
             elif command == 'preflight':
                 from .preflight import check_databases
                 sources = [source for source in config['databases'] if not args.source_id or source['id']==args.source_id]
@@ -156,7 +182,11 @@ def main(argv=None):
                     raise ValueError('Unknown database source')
                 result = check_databases(sources)
             elif command == "stop":
-                result = stop_service(config)
+                from .service_control import stop
+                result = stop_service(config) if args.temporary else stop(config)
+            elif command == 'force-stop':
+                from .service_control import stop
+                result = stop(config, force=True)
             elif command == "status":
                 result = {"service": service_status(config), "index": rpc(config, "index_status", {"node_id": args.node_id} if args.node_id else {})}
             elif command in {"scan", "pause", "resume"}:
@@ -265,12 +295,14 @@ def main(argv=None):
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if args.command=='installation-status' and not result['ok']:
             return 1
+        if args.command == 'scheduled-start' and result.get('status') == 'failed':
+            return 1
         return 0
     except KeyboardInterrupt:
         print("Interrupted", file=sys.stderr)
         return 130
     except (ValueError, OSError, ServiceError, ResourceLimit) as error:
-        print(json.dumps({'ok':False,'operation':args.command,'error':{'code':type(error).__name__,'message':str(error)}}))
+        print(json.dumps({'ok':False,'operation':args.command,'error':{'code':getattr(error, 'code', type(error).__name__),'message':str(error)}}))
         print(f"data-search: {error}", file=sys.stderr)
         return 1
     except Exception as error:

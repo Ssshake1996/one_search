@@ -26,7 +26,7 @@ test('new installations delegate Documents discovery to the backend installer', 
 for (const wholeMachine of [false, true]) {
   test(`Windows provisioning forwards explicit wholeMachine=${wholeMachine} without guessing roots`, { skip: process.platform !== 'win32' }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'one-search-documents-default-'));
-    await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
+    await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.6.0' }));
     let calls = 0;
     await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data'), wholeMachine }, async (_command, args) => {
       calls++;
@@ -168,6 +168,27 @@ test('missing explicit backend is never replaced by an automatic install', async
   assert.equal(called, false);
 });
 
+test('persistent stop blocks bootstrap before loading even the version executable', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'one-search-stopped-bootstrap-'));
+  const configPath = join(dataDir, 'config.json');
+  await writeFile(configPath, JSON.stringify({ data_dir: dataDir }));
+  await writeFile(join(dataDir, 'service-control.json'), JSON.stringify({ schema_version: 1, desired_state: 'stopped', revision: 'user-stop' }));
+  await assert.rejects(prepareService({ command: process.execPath, configPath }, () => assert.fail('stopped bootstrap loaded runtime')), /service_stopped/);
+});
+
+test('current backend receives automatic startup while MCP uses bounded exponential reconnect', async () => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'one-search-automatic-bootstrap-'));
+  const configPath = join(dataDir, 'config.json');
+  await writeFile(configPath, JSON.stringify({ data_dir: dataDir }));
+  const calls = [];
+  const connection = await prepareService({ command: process.execPath, configPath }, async (_command, args) => {
+    calls.push(args); return JSON.stringify({ version: '0.6.0' });
+  });
+  assert.deepEqual(calls[1], ['start', '--automatic', '--config', configPath]);
+  assert.ok(connection.reconnect.initialDelayMs >= 1000 && connection.reconnect.initialDelayMs <= 1200);
+  assert.equal(connection.reconnect.maxDelayMs, 60000);
+});
+
 test('release locator supports installed package copies via explicit release directory', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-release-test-'));
   await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.3.0' }));
@@ -184,12 +205,12 @@ test('rollback backend remains compatible while old incoming installers are reje
   let called = false;
   await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async () => {
     called = true;
-  }), /installer release >= 0\.5\.2/);
+  }), /installer release >= 0\.6\.0/);
   assert.equal(called, false);
   assert.equal(backendCompatible('0.5.0'), true);
   assert.equal(installerCompatible('0.5.0'), false);
   assert.equal(installerCompatible('0.5.1'), false);
-  assert.equal(installerCompatible('0.5.2'), true);
+  assert.equal(installerCompatible('0.5.2'), false);
   assert.equal(installerCompatible('0.6.0'), true);
 });
 
@@ -201,7 +222,7 @@ test('activation provisions a missing Windows backend with JSON arguments, then 
   const root = join(dir, "corpus quote ' and spaces");
   await mkdir(releaseDir);
   await mkdir(root);
-  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
+  await writeFile(join(releaseDir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.6.0' }));
   const calls = [];
   let requestPath;
   const runner = async (command, args) => {
@@ -218,12 +239,13 @@ test('activation provisions a missing Windows backend with JSON arguments, then 
       await mkdir(join(installDir, 'runtime'), { recursive: true });
       await mkdir(dataDir);
       await writeFile(join(installDir, 'runtime/data-search.exe'), 'synthetic runner, never executed');
+      await writeFile(join(installDir, 'install-manifest.json'), JSON.stringify({ version: '0.6.0' }));
       await writeFile(join(dataDir, 'config.json'), JSON.stringify({ scope: 'directories', roots: [root] }));
     }
   };
   const result = await prepareService({ releaseDir, installDir, dataDir, roots: [root], skipModel: true, noAutostart: true }, runner);
   assert.equal(calls.length, 3);
-  assert.deepEqual(calls[1].args, ['start', '--config', join(dataDir, 'config.json')]);
+  assert.deepEqual(calls[1].args, ['start', '--automatic', '--config', join(dataDir, 'config.json')]);
   assert.equal(result.command, join(installDir, 'runtime/data-search.exe'));
   await assert.rejects(readFile(requestPath), { code: 'ENOENT' });
 });
@@ -238,7 +260,7 @@ test('explicit profile client identities remain distinct and reject control char
 
 test('installer failure prevents MCP activation and cleans its temporary request', { skip: process.platform !== 'win32' }, async () => {
   const dir = await mkdtemp(join(tmpdir(), 'one-search-install-fail-test-'));
-  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
+  await writeFile(join(dir, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.6.0' }));
   let requestPath;
   let calls = 0;
   await assert.rejects(prepareService({ releaseDir: dir, installDir: join(dir, 'app'), dataDir: join(dir, 'data') }, async (_command, args) => {
@@ -279,7 +301,7 @@ test('old managed backend upgrades through the verified installer then preserves
   await writeFile(path, original);
   await writeFile(join(app, 'runtime', 'data-search.exe'), 'mock runtime');
   await writeFile(join(app, 'install-manifest.json'), JSON.stringify({ version: '0.3.0' }));
-  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.5.2' }));
+  await writeFile(join(release, 'RELEASE_MANIFEST.json'), JSON.stringify({ kind: 'windows-native', version: '0.6.0' }));
   const calls = [];
   await prepareService({ installDir: app, dataDir: data, releaseDir: release }, async (...args) => {
     calls.push(args);

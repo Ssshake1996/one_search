@@ -7,11 +7,14 @@ import { isAbsolute, join, resolve } from 'node:path';
 
 const MAX_REQUEST = 128 * 1024;
 const MAX_RESPONSE = 2 * 1024 * 1024;
+const SERVICE_ACTIONS = new Set(['service_start', 'service_stop', 'service_force_stop']);
+const SHIELDED_ACTIONS = new Set(['settings_save', ...SERVICE_ACTIONS, 'schedule_save', 'schedule_delete']);
 const MANAGE_ACTIONS = new Set(['settings_get', 'settings_preview', 'settings_save',
   'db_discover', 'db_propose', 'db_preflight', 'credential_store',
-  'model_start', 'model_import', 'model_cancel']);
+  'model_start', 'model_import', 'model_cancel', ...SERVICE_ACTIONS,
+  'schedules_get', 'schedule_save', 'schedule_delete']);
 const READ_ACTIONS = new Set(['status', 'diagnose_path', 'settings_get', 'settings_preview',
-  'db_discover', 'db_propose', 'db_preflight']);
+  'db_discover', 'db_propose', 'db_preflight', 'schedules_get']);
 const DIRECT_ACTIONS = new Set(['status', 'pause', 'resume', 'scan', 'refresh_path', 'diagnose_path']);
 const STATUS_KEYS = new Set(['schema_version', 'version', 'instance_id', 'node_id', 'paused', 'last_error',
   'runtime_policy', 'capabilities', 'file_scope', 'coverage', 'resources', 'indexing', 'vector_index',
@@ -149,13 +152,21 @@ function daemonCall(state, method, params, signal, timeoutMs = 12000) {
   });
 }
 
+/** A bounded identity check for the host supervisor; no runtime subprocess. */
+export async function probeBackend(connection) {
+  const state = await readState(preparedBackend(connection));
+  const health = await daemonCall(state, '_health', {}, undefined, 3000);
+  if (!plain(health) || health.service_id !== state.service_id || health.pid !== state.pid) throw serviceError('service_identity_mismatch', 'health');
+  if (health.status !== 'running') throw serviceError('service_stopping', 'health');
+}
+
 /** Only occasional administration uses a CLI child; status never spawns Python. */
 export function runManagement(backend, request, { signal, timeoutMs = 75000, spawnProcess = spawn } = {}) {
   let markClosed;
   const closed = new Promise((resolve) => { markClosed = resolve; });
   const promise = new Promise((fulfill, reject) => {
     if (signal?.aborted) { markClosed(); return reject(new BridgeError('cancelled', '操作已取消。')); }
-    const shieldSave = request.action === 'settings_save';
+    const shieldSave = SHIELDED_ACTIONS.has(request.action);
     let child;
     try {
       child = spawnProcess(backend.command, [...backend.commandArgs, 'web-manage', '--config', backend.configPath],
@@ -214,6 +225,7 @@ function validateRequest(request) {
       !plain(request.params) || (!DIRECT_ACTIONS.has(request.action) && !MANAGE_ACTIONS.has(request.action)) ||
       Buffer.byteLength(JSON.stringify(request)) > MAX_REQUEST) throw new BridgeError('invalid_request', '请求格式或操作名称无效。');
   const { action, params } = request;
+  if (SERVICE_ACTIONS.has(action) && Object.keys(params).length) throw new BridgeError('invalid_request', '服务控制操作不接受额外参数。');
   const allowed = { status: [], pause: ['seconds'], resume: [], scan: [], refresh_path: ['path'], diagnose_path: ['path'] }[action];
   if (allowed && Object.keys(params).some((key) => !allowed.includes(key))) throw new BridgeError('invalid_request', '此操作包含不支持的参数。');
   if (action === 'pause' && params.seconds !== undefined && params.seconds !== null &&
@@ -227,6 +239,7 @@ function validateRequest(request) {
 
 export function createWebBridge(connection, { manage = runManagement, now = Date.now,
   runRuntime = (callback) => callback(), maintenanceStatus = () => null,
+  syncService = async () => {},
   healthTimeoutMs = 3000, statusTimeoutMs = 12000 } = {}) {
   const active = new Set();
   let disposed = false;
@@ -237,6 +250,7 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
   let queued = 0;
   let previousConnection;
   let wasMaintenance = false;
+  let controlRevision;
   function invalidate() { generation++; cached = undefined; inflight = undefined; }
   function maintenance() {
     const snapshot = maintenanceStatus();
@@ -254,6 +268,27 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
   }
   function requireAvailable() {
     if (maintenance()) throw new BridgeError('upgrade_in_progress', '正在升级 one_search，请等待升级完成后重试。');
+  }
+  function withControl(value) {
+    const snapshot = maintenanceStatus();
+    return snapshot?.control ? { ...value, control: snapshot.control, reconnect: snapshot.reconnect } : value;
+  }
+  async function publicStatus() {
+    await syncService();
+    const revision = maintenanceStatus()?.control?.revision;
+    if (revision !== controlRevision) { invalidate(); controlRevision = revision; }
+    const upgrading = maintenance();
+    if (upgrading) return withControl(upgrading);
+    try { return withControl(await runRuntime(() => readStatus(backend()))); }
+    catch (error) {
+      if (error?.code === 'upgrade_in_progress') return withControl(maintenance() || { service: { status: 'maintenance' } });
+      const snapshot = maintenanceStatus();
+      if (!snapshot?.control || !(error instanceof BridgeError) || error.code.startsWith('configuration_')) throw error;
+      const stopped = snapshot.control.desired_state === 'stopped';
+      const expectedStop = stopped && ['service_state_missing', 'service_connection_refused', 'service_disconnected'].includes(error.code);
+      const detail = snapshot.control.error || (!expectedStop ? { code: error.code, message: error.message, details: error.details } : null);
+      return withControl({ service: { status: stopped ? 'stopped' : 'offline', ...(detail ? { error: detail } : {}) } });
+    }
   }
   async function readStatus(prepared) {
     if (cached && now() - cached.at < 1000) return cached.value;
@@ -298,36 +333,34 @@ export function createWebBridge(connection, { manage = runManagement, now = Date
     if (disposed || externalSignal?.aborted) throw new BridgeError('cancelled', '操作已取消。');
     const upgrading = maintenance();
     if (request.action === 'status') {
-      if (upgrading) return { ok: true, result: upgrading };
-      try {
-        const result = await runRuntime(() => readStatus(backend()));
-        return { ok: true, result: maintenance() || result };
-      } catch (error) {
-        if (error?.code !== 'upgrade_in_progress') throw error;
-        invalidate();
-        return { ok: true, result: maintenance() || { service: { status: 'maintenance' }, upgrade: { maintenance: true, state: 'maintenance' } } };
-      }
+      if (upgrading) return { ok: true, result: withControl(upgrading) };
+      return { ok: true, result: await publicStatus() };
     }
     requireAvailable();
     const controller = new AbortController();
     const cancel = () => controller.abort();
     // Once accepted, saving may be between stopping the old runtime and
     // activating its replacement. Page cancellation must not interrupt it.
-    const shieldSave = request.action === 'settings_save';
+    const shieldSave = SHIELDED_ACTIONS.has(request.action);
     if (!shieldSave) { externalSignal?.addEventListener('abort', cancel, { once: true }); active.add(controller); }
     try {
       if (MANAGE_ACTIONS.has(request.action)) {
-        return await runRuntime(() => {
+        const result = await runRuntime(() => {
           requireAvailable();
           const operation = manage(backend(), request, {
             signal: controller.signal,
-            timeoutMs: request.action === 'settings_save' ? 120000 : request.action === 'settings_preview' ? 60000 : 30000,
+            timeoutMs: request.action === 'settings_save' ? 120000 : SERVICE_ACTIONS.has(request.action) || request.action === 'settings_preview' ? 60000 : 30000,
           });
           if (shieldSave && operation.closed) trackCompletion(operation.closed);
           // Preserve the actual process lifetime for coordinator.prepare(), even
           // when the response times out before an accepted save has finished.
           return operation;
         });
+        if (result.ok && SERVICE_ACTIONS.has(request.action)) {
+          invalidate();
+          return { ok: true, result: await publicStatus() };
+        }
+        return result;
       }
       const result = await runRuntime(async () => {
         requireAvailable();

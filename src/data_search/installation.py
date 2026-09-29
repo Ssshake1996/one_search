@@ -9,6 +9,7 @@ from pathlib import Path
 from .config import atomic_json, load_config
 from .model_manager import model_status
 from .service import rpc, service_status
+from .service_control import read_control
 
 
 def installation_status(config, install_dir=None):
@@ -24,6 +25,17 @@ def installation_status(config, install_dir=None):
               'daemon_running': False, 'basic_search_ready': False, 'dsh_connection': 'not_checked',
               'config': config.get('config_path'), 'data_dir': config['data_dir'], 'error': None,
               'semantic': model_status(config)}
+    control = read_control(config)
+    result['service_control'] = control
+    if control['desired_state'] == 'stopped':
+        try:
+            service_status(config)
+            result['daemon_running'] = True
+        except Exception:
+            pass
+        result.update(ok=runtime and not result['daemon_running'], intentionally_stopped=True,
+                      indexing_complete=None, indexing_completion_note='Service remains stopped by user choice; use Start or a scheduled task to run it')
+        return result
     try:
         service_status(config)
         result['daemon_running'] = True

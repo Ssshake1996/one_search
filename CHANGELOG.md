@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.0
+
+- DSH Web adds manual start, persistent stop and verified force-stop controls, separate from pause/resume indexing. Every automatic launcher and MCP bridge observes the durable stop intent; only a manual start or due enabled startup task clears it. Reinstall and native upgrade preserve this intent.
+- Unexpected daemon or MCP connection failures retry with exponential backoff (approximately 1, 2, 4, 8 seconds, capped at 60 seconds, with jitter). Intentional stop disposes the DSH MCP scope and cancels pending retries across compatible profiles. Offline management stays available with diagnostic codes and retry state.
+- Startup schedules support once, daily and selected weekdays in the server's timezone, with enable/edit/delete, optimistic revisions, next execution and last outcome. Windows Task Scheduler and Linux systemd user timers launch independently of the Web page; no schedule is created by default. Stale callbacks cannot revive deleted/disabled tasks, and launchers coordinate with runtime upgrades.
+- First installations still select Documents and start once; existing scope, index and pause state are preserved. Killing a process outside these controls is indistinguishable from a crash and can trigger recovery. See [service controls and scheduling](docs/SERVICE-CONTROL.md) for OS login, shutdown and version requirements.
+
 ## 0.5.2
 
 - New installations select the current user's Documents folder, including Windows folder redirection and Linux XDG configuration. Missing or disabled Documents requires an explicit directory; whole-machine indexing is an explicit opt-in. Reinstallation preserves the existing saved scope and index.

@@ -4,6 +4,7 @@ import { lstat, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs
 import { createServer } from 'node:http';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { readServiceControl, retryDelay } from './service-control.mjs';
 
 const MAX_BODY = 4096;
 export class MaintenanceError extends Error {
@@ -30,7 +31,9 @@ export async function coordinatorOptions(options) {
 }
 
 /** Registration precedes the first marker check, closing the new-profile admission race. */
-export async function createUpgradeCoordinator(options, { pollMs = 5000, onError = () => {} } = {}) {
+export async function createUpgradeCoordinator(options, { pollMs = 5000, onError = () => {},
+  superviseService = false, probeEveryMs = 5000, initialRetryMs = 1000, maximumRetryMs = 60000,
+  now = Date.now, random = Math.random } = {}) {
   const instanceId = randomUUID();
   const token = randomBytes(32).toString('hex');
   const registryDir = join(options.dataDir, 'host-clients');
@@ -46,8 +49,12 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
   let preparing;
   let disposing;
   let draining;
+  let drainingMcp;
   let resumeAfterStartup = false;
   let lastError = null;
+  let control = { desired_state: 'running', revision: 'initial', reason: null, updated_at: null };
+  let attempts = 0, retryAt = null, probeAt = 0, probe;
+  let syncing;
   const jobs = new Set();
 
   async function readMarker() {
@@ -61,7 +68,50 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
     }
   }
   const snapshot = () => ({ schema_version: 1, instance_id: instanceId, state,
-    maintenance: blocked || marker !== null, transaction_id: marker?.transaction_id ?? null, last_error: lastError });
+    maintenance: blocked || marker !== null, transaction_id: marker?.transaction_id ?? null, last_error: lastError,
+    ...(superviseService ? { control, reconnect: { state: disposed ? 'stopped' : blocked || marker ? 'maintenance'
+      : control.desired_state === 'stopped' ? 'stopped' : retryAt !== null ? 'waiting' : state,
+      attempt: attempts, next_retry_at: retryAt === null ? null : retryAt / 1000 } } : {}) });
+  function scheduleRetry() {
+    if (!superviseService || disposed || blocked || marker || control.desired_state === 'stopped') return;
+    attempts++;
+    retryAt = now() + retryDelay(attempts, { initialMs: initialRetryMs, maximumMs: maximumRetryMs, random });
+  }
+  async function drainMcp() {
+    if (drainingMcp) { await drainingMcp; if (fiber) return drainMcp(); return; }
+    const current = fiber;
+    if (current) {
+      drainingMcp = (async () => {
+        await current.dispose();
+        if (fiber === current) fiber = undefined;
+      })().finally(() => { drainingMcp = undefined; });
+      await drainingMcp;
+    }
+  }
+  async function syncService() {
+    if (!superviseService || disposed) return snapshot();
+    if (syncing) return syncing;
+    syncing = (async () => {
+      const previous = control;
+      control = await readServiceControl(options.dataDir);
+      if (control.desired_state === 'stopped') {
+        retryAt = null; attempts = 0;
+        if (!blocked && !marker) state = 'stopped';
+        await drainMcp();
+      } else if (previous.desired_state === 'stopped') {
+        retryAt = null; attempts = 0;
+        if (!blocked && !marker) {
+          state = 'starting';
+          if (starting) resumeAfterStartup = true;
+          // A scheduled/manual launcher may still own its lifecycle lock. Do
+          // not wait for it through a synchronous host notification callback.
+          queueMicrotask(() => { void start().catch(() => {}); });
+        }
+      }
+      return snapshot();
+    })().finally(() => { syncing = undefined; });
+    return syncing;
+  }
   async function runRuntime(callback) {
     marker = await readMarker();
     if (disposed || blocked || marker) {
@@ -78,11 +128,7 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
   function drain() {
     if (draining) return draining;
     draining = (async () => {
-      const current = fiber;
-      if (current) {
-        await current.dispose();
-        if (fiber === current) fiber = undefined;
-      }
+      await drainMcp();
       while (jobs.size) await Promise.all([...jobs]);
     })().finally(() => { draining = undefined; });
     return draining;
@@ -94,6 +140,7 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
     }
     marker = current;
     blocked = true;
+    retryAt = null;
     state = 'maintenance';
     if (!preparing) {
       preparing = drain().finally(() => { preparing = undefined; });
@@ -103,15 +150,27 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
   }
   async function start() {
     if (disposed) return snapshot();
+    if (superviseService) {
+      control = await readServiceControl(options.dataDir);
+      if (control.desired_state === 'stopped') {
+        retryAt = null; attempts = 0; state = 'stopped'; await drainMcp(); return snapshot();
+      }
+    }
     marker = await readMarker();
     if (marker || blocked) { blocked = true; state = 'maintenance'; return snapshot(); }
     if (starting || state === 'ready') return snapshot();
     state = 'starting';
     lastError = null;
+    const launchRevision = control.revision;
     const task = (async () => {
       try {
         await connector?.();
-        if (!disposed && !blocked) state = 'ready';
+        if (superviseService) control = await readServiceControl(options.dataDir);
+        if (control.desired_state === 'stopped') { state = 'stopped'; await drainMcp(); }
+        else if (superviseService && launchRevision !== control.revision) {
+          await drainMcp(); state = 'starting'; resumeAfterStartup = true;
+        }
+        else if (!disposed && !blocked) { state = 'ready'; attempts = 0; retryAt = null; probeAt = now() + probeEveryMs; }
       } catch (error) {
         if (error instanceof MaintenanceError || blocked) state = 'maintenance';
         else {
@@ -124,6 +183,9 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
           // Keep raw subprocess output, paths and credentials out of status/logs.
           try { onError({ ...lastError }); } catch { /* Diagnostics cannot prevent disposal. */ }
           await drain();
+          if (superviseService) control = await readServiceControl(options.dataDir);
+          if (control.desired_state === 'stopped') state = 'stopped';
+          scheduleRetry();
           throw error;
         }
       } finally {
@@ -181,12 +243,13 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (!body || typeof body !== 'object' || Array.isArray(body) ||
           Object.keys(body).some((key) => !['action', 'transaction_id'].includes(key)) ||
-          !['status', 'prepare', 'resume'].includes(body.action) ||
+          !['status', 'prepare', 'resume', 'service_sync'].includes(body.action) ||
           (body.transaction_id !== undefined && (typeof body.transaction_id !== 'string' || body.transaction_id.length > 160))) {
         throw new Error('invalid_request');
       }
       if (body.action === 'prepare') send(200, { ok: true, result: await prepare(body.transaction_id) });
       else if (body.action === 'resume') send(200, { ok: true, result: await resume() });
+      else if (body.action === 'service_sync') send(200, { ok: true, result: await syncService() });
       else { marker = await readMarker(); send(200, { ok: true, result: snapshot() }); }
     } catch (error) {
       const code = error.message === 'maintenance_marker_mismatch' ? error.message : 'control_failed';
@@ -203,7 +266,7 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
     const registration = { schema_version: 1, instance_id: instanceId, pid: process.pid,
       port: server.address().port, token, config_path: options.configPath, data_dir: options.dataDir,
       command: options.command || null, command_args: options.commandArgs || [], client_id: options.clientId,
-      plugin_version: '0.5.2', created_at: new Date().toISOString() };
+      plugin_version: '0.6.0', created_at: new Date().toISOString() };
     await writeFile(registrationPath + '.tmp', JSON.stringify(registration), { mode: 0o600, flag: 'wx' });
     await rename(registrationPath + '.tmp', registrationPath);
   } catch (error) {
@@ -219,14 +282,30 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
       const current = await readMarker();
       if (current) await prepare();
       else if (blocked) await resume();
+      if (superviseService && !current && !blocked) {
+        await syncService();
+        if (control.desired_state === 'running') {
+          if (retryAt !== null && now() >= retryAt) { retryAt = null; await start(); }
+          else if (state === 'ready' && probe && now() >= probeAt) {
+            probeAt = now() + probeEveryMs;
+            try { await runRuntime(probe); }
+            catch (error) {
+              if (error instanceof MaintenanceError) return;
+              state = 'failed'; lastError = { code: 'service_connection_lost' };
+              await drainMcp(); scheduleRetry();
+            }
+          }
+        }
+      }
     } catch { /* Remain blocked; the installer owns recovery and marker removal. */ }
     finally { polling = false; }
   }, pollMs);
   poll.unref();
   return {
-    registrationPath, runRuntime, prepare, resume, start,
+    registrationPath, runRuntime, prepare, resume, start, syncService,
     status: snapshot,
     setResumeHandler(callback) { connector = callback; },
+    setProbeHandler(callback) { probe = callback; },
     setMcpFiber(value) { fiber = value; },
     async dispose() {
       if (disposing) return disposing;

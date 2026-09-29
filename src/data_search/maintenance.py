@@ -552,7 +552,7 @@ def set_autostart(config: dict, install_dir, enabled: bool, *, runner=subprocess
         old_launcher = launcher.read_bytes() if launcher.exists() else None
         try:
             if enabled:
-                command = ' '.join('"' + str(value) + '"' for value in actions['start'])
+                command = ' '.join('"' + str(value) + '"' for value in [*actions['start'], '--automatic'])
                 if any(c in command for c in ('\r', '\n')):
                     raise ValueError("Startup paths cannot contain line breaks")
                 launcher.write_text('CreateObject("WScript.Shell").Run "' + command.replace('"', '""') + '", 0, False\r\n', encoding='utf-16')
@@ -589,7 +589,7 @@ def set_autostart(config: dict, install_dir, enabled: bool, *, runner=subprocess
                     return '"' + str(value).replace('\\', '\\\\').replace('"', '\\"').replace('%', '%%').replace('$', '$$') + '"'
                 cli, _, _, conf = actions['start']
                 unit_dir.mkdir(parents=True, exist_ok=True)
-                unit.write_text('[Unit]\nDescription=one_search local index service\nAfter=default.target\n\n[Service]\nType=simple\nExecStart=' + quote(cli) + ' daemon --config ' + quote(conf) + '\nRestart=on-failure\nRestartSec=5\nNice=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n', encoding='utf-8')
+                unit.write_text('[Unit]\nDescription=one_search local index service\nAfter=default.target\n\n[Service]\nType=simple\nExecStart=' + quote(cli) + ' daemon --config ' + quote(conf) + '\nRestart=no\nNice=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n', encoding='utf-8')
                 run('daemon-reload')
                 run('enable', name)
             else:

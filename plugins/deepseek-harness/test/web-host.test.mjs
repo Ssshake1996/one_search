@@ -42,6 +42,49 @@ test('prepared backend uses trusted MCP arguments only', () => {
     { command: process.execPath, commandArgs: ['module'], configPath });
 });
 
+test('supervised offline status remains usable and exposes intent/retry without stale index or credentials', async (t) => {
+  const f = await fixture(t);
+  await rm(join(f.directory, 'service.json'));
+  let control = { desired_state: 'running', revision: 'r1' };
+  const bridge = createWebBridge(f.connection, { maintenanceStatus: () => ({ control,
+    reconnect: { state: control.desired_state === 'stopped' ? 'stopped' : 'waiting', attempt: 2, next_retry_at: 123 } }) });
+  t.after(() => bridge.dispose());
+  let response = await bridge.request({ action: 'status', params: {} });
+  assert.equal(response.ok, true); assert.equal(response.result.service.status, 'offline');
+  assert.equal(response.result.service.error.code, 'service_state_missing');
+  assert.equal(response.result.reconnect.attempt, 2); assert.equal(response.result.index, undefined);
+  control = { desired_state: 'stopped', revision: 'r2' };
+  response = await bridge.request({ action: 'status', params: {} });
+  assert.equal(response.result.service.status, 'stopped'); assert.equal(response.result.service.error, undefined);
+  assert.equal(JSON.stringify(response).includes(f.state.token), false);
+});
+
+test('service actions return fresh full status and schedule actions remain available with daemon offline', async (t) => {
+  const f = await fixture(t);
+  let control = { desired_state: 'running', revision: 'r1' }, synced = 0;
+  const calls = [];
+  const bridge = createWebBridge(f.connection, {
+    maintenanceStatus: () => ({ control, reconnect: { state: control.desired_state === 'running' ? 'ready' : 'stopped' } }),
+    syncService: async () => { synced++; },
+    manage: async (_backend, request) => {
+      calls.push(request.action);
+      if (request.action === 'service_force_stop') {
+        control = { desired_state: 'stopped', revision: 'r2' };
+        await rm(join(f.directory, 'service.json'));
+      }
+      return { ok: true, result: { revision: 0, tasks: [] } };
+    },
+  });
+  t.after(() => bridge.dispose());
+  assert.equal((await bridge.request({ action: 'status', params: {} })).result.service.status, 'running');
+  const stopped = await bridge.request({ action: 'service_force_stop', params: {} });
+  assert.equal(stopped.result.service.status, 'stopped'); assert.equal(stopped.result.index, undefined);
+  assert.equal(stopped.result.control.revision, 'r2'); assert.ok(synced >= 2);
+  assert.deepEqual((await bridge.request({ action: 'schedules_get', params: {} })).result.tasks, []);
+  assert.deepEqual(calls, ['service_force_stop', 'schedules_get']);
+  assert.equal((await bridge.request({ action: 'service_start', params: { configPath: 'bad' } })).error.code, 'invalid_request');
+});
+
 test('status is direct local RPC, deduped, cached and excludes backend secrets', async (t) => {
   const f = await fixture(t);
   let time = 1000;

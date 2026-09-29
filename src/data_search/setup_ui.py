@@ -87,14 +87,25 @@ def activate_settings(config_path: Path, current: dict, candidate: dict, tested:
 def _activate_settings_unlocked(config_path: Path, current: dict, candidate: dict, tested: str | None = None):
     from .preflight import require_preflight
     from .service import start_service, stop_service
+    from .service_control import read_control, ServiceControlError
     require_preflight(current, candidate, tested)
+    read_control(current)  # Invalid intent must fail before stopping or saving.
     previous = json.loads(config_path.read_text(encoding="utf-8-sig")) if config_path.exists() else None
     if previous is not None:
         stop_service(load_config(config_path))
     try:
         atomic_json(config_path, candidate)
+        if read_control(load_config(config_path))['desired_state'] == 'stopped':
+            return {'status': 'stopped'}
         return start_service(load_config(config_path))
-    except Exception:
+    except Exception as error:
+        if isinstance(error, ServiceControlError) and error.code in {'service_stopped', 'service_control_changed'}:
+            try:
+                stopped = read_control(load_config(config_path))['desired_state'] == 'stopped'
+            except ServiceControlError:
+                stopped = False
+            if stopped:
+                return {'status': 'stopped'}
         # The service launcher must finish stopping its failed child before this returns.
         stop_service(load_config(config_path))
         if previous is not None:
@@ -103,7 +114,11 @@ def _activate_settings_unlocked(config_path: Path, current: dict, candidate: dic
             saved = json.loads(config_path.read_text(encoding="utf-8-sig"))
             if saved != previous:
                 atomic_json(config_path, previous)
-            start_service(load_config(config_path))
+            try:
+                start_service(load_config(config_path))
+            except ServiceControlError as recovery_error:
+                if recovery_error.code not in {'service_stopped', 'service_control_changed', 'service_control_invalid'}:
+                    raise
         raise
 
 
@@ -401,7 +416,7 @@ def main(argv=None):
     closed = False
     controls = ttk.Frame(container)
     controls.pack(fill="x", pady=(10, 0))
-    activity = tk.StringVar(value="就绪；保存并启动后开始检索范围内的后台索引。")
+    activity = tk.StringVar(value="就绪；保存应用设置。主动停止后，请点击启动服务恢复运行。")
     ttk.Label(container, textvariable=activity, wraplength=840).pack(anchor="w")
 
     def run_task(operation):
@@ -493,10 +508,11 @@ def main(argv=None):
 
     def control(action):
         def operation():
-            from .service import rpc, start_service, stop_service
+            from .service import rpc
+            from .service_control import start, stop
             config = configuration()
-            if action == "start": return start_service(config)
-            if action == "stop": return stop_service(config)
+            if action == "start": return start(config)
+            if action == "stop": return stop(config)
             return rpc(config, action)
         run_task(operation)
 
@@ -523,10 +539,10 @@ def main(argv=None):
         run_task(lambda:rpc(configuration(),'pause',{'seconds':1800}))
     ttk.Button(resource_tab,text='暂停 30 分钟后自动恢复',command=timed_pause).grid(row=11,column=0,columnspan=2,sticky='w',pady=7)
 
-    for label, command in (("保存并启动", save_start), ("刷新状态", lambda: run_task(show_status)),
+    for label, command in (("保存并应用", save_start), ("启动服务", lambda: control("start")), ("刷新状态", lambda: run_task(show_status)),
         ("暂停索引", lambda: control("pause")), ("恢复索引", lambda: control("resume")),
         ("停止服务", lambda: control("stop")), ("下载模型", download)):
-        ttk.Button(controls, text=label, command=command, style="Primary.TButton" if label == "保存并启动" else "TButton").pack(side="left", padx=(0, 5))
+        ttk.Button(controls, text=label, command=command, style="Primary.TButton" if label == "保存并应用" else "TButton").pack(side="left", padx=(0, 5))
 
     def poll():
         nonlocal busy, tested_fingerprint

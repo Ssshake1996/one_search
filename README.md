@@ -1,6 +1,6 @@
 # one_search
 
-面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.5.2 补齐常驻暂停控制、具体连接错误码及文档目录默认范围，保留 Windows 原生升级的 DSH 连接协调、 Web 侧栏设置与进度面板、README 驱动安装、共享后台服务和 11 个 MCP 工具；文件解析、正文索引与语义计算在本机进行。
+面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.6.0 增加 DSH Web 服务启停、持久化强制停止、异常连接指数退避和系统定时启动任务，保留暂停索引、具体错误码、Windows 原生升级协调和 11 个 MCP 工具。安装由 Agent 按本 README 执行；文件解析、正文索引与语义计算在本机进行。
 
 新安装默认只检索当前用户的文档文件夹；可以另选目录或显式开启整机范围。当前交付单机，接口已保留 `node_id`；多机传输、认证与跨机结果合并尚未实现。项目名是 `one_search`，Python 包 `data_search`、命令及 MCP 条目 `data-search` 保持兼容。
 
@@ -40,7 +40,7 @@ bootstrap 的 `$searchCli` 是 `<InstallDir>\venv\Scripts\data-search.exe`。默
 | `-Preset low` | 首次资源档位 `low/balanced/fast`，默认 `balanced`；档位只改预算，不缩小范围 |
 | `-ModelDir 'D:\models\bge-small-zh-v1.5'` | 首次使用离线模型目录，后台按固定模型指纹与 SHA-256 校验 |
 | `-SkipModel` | 首次关闭语义索引；文件名和关键词可用；不更改旧配置开关 |
-| `-NoAutostart` | 不注册当前用户登录启动项，安装末尾仍启动一次服务 |
+| `-NoAutostart` | 不注册当前用户登录启动项，首次安装末尾仍启动一次服务；保留已有主动停止状态 |
 | `-Python PATH` / `-PackagePath WHEEL` / `-Wheelhouse DIR` | 源码/bootstrap 高级入口；离线源码构建还需匹配的构建依赖，使用项目 wheel 可避免现场构建 |
 
 例如用户明确限定范围并提供独立位置：
@@ -96,15 +96,15 @@ bash scripts/install.sh --root /srv/docs --install-dir "$HOME/.local/share/data-
 
 ## 升级或重装
 
-**从 v0.5.0 或更旧的 DSH 插件迁移到 v0.5.2：先停止所有连接该实例的 DSH 服务端/profile，再运行安装器。** 终端运行的 DSH 可用 `Ctrl+C` 正常退出；仅关闭浏览器标签页不会断开 MCP。其他 MCP 宿主也须断开该 server，并关闭 `Settings.vbs` 打开的原生设置窗口。只执行 `data-search stop` 会留下 MCP 桥接进程及宿主自动重连。
+**从 v0.5.0 或更旧的 DSH 插件迁移到 v0.6.0：先停止所有连接该实例的 DSH 服务端/profile，再运行安装器。** 终端运行的 DSH 可用 `Ctrl+C` 正常退出；仅关闭浏览器标签页不会断开 MCP。其他 MCP 宿主也须断开该 server，并关闭 `Settings.vbs` 打开的原生设置窗口。旧版的 `data-search stop` 会留下 MCP 桥接进程及宿主自动重连；不要依靠旧版停止命令完成首次迁移。
 
 已运行 **v0.5.1 或更新兼容 bundle** 的全部 DSH profiles，可在 Windows 原生后台升级时保持打开。新安装器先让它们停止 MCP 重连、释放桥接与管理进程，再停止后台、保留快照并替换运行时；健康检查或成功回滚后恢复连接。DSH Web 页面可保持打开，维护期间显示升级状态。任一旧插件、其他未参与协调的 MCP 客户端或原生设置窗口仍需先关闭。
 
-校验 v0.5.2 原生 ZIP 并完整解压到**现有程序和数据目录之外**。在新解压目录，用原路径运行：
+校验 v0.6.0 原生 ZIP 并完整解压到**现有程序和数据目录之外**。在新解压目录，用原路径运行：
 
 ```powershell
 # 默认安装示例；自定义安装须使用原 install-manifest.json 中的路径。
-Set-Location 'D:\Downloads\one-search-0.5.2-windows-amd64-native'
+Set-Location 'D:\Downloads\one-search-0.6.0-windows-amd64-native'
 $searchApp = Join-Path $env:LOCALAPPDATA 'data-search\app'
 $searchData = Join-Path $env:LOCALAPPDATA 'data-search\data'
 .\scripts\install.ps1 -InstallDir $searchApp -DataDir $searchData
@@ -116,6 +116,10 @@ $searchCli = Join-Path $searchApp 'runtime\data-search.exe'
 ```
 
 本次同时更新 DSH bundle 时，继续使用上面的 `register.mjs` 命令为每个相关 profile 注册新包，再重启这些 profile 使新插件代码生效。随后在 DSH 实际调用 `index_status` 和一次 `search`。后台升级自动协调不等于 DSH 插件代码能够热替换。
+
+启停与定时功能需要 **v0.6.0 后台和 DSH bundle 成套更新**。升级保留检索范围、索引、暂停设置、主动停止状态和定时任务。若升级前用户已停止服务，安装完成后仍保持停止；Agent 用 `service-control` 检查该状态，不应为完成搜索验收擅自执行 `start`。用户允许启动后，再验证 `index_status` 和 `search`。
+
+**连接同一个后台实例的所有 DSH profiles 都必须更新至 v0.6.0 bundle**。旧插件使用不带 `--automatic` 的 `start`，会被解释为明确启动，混用旧插件无法保证主动停止保持。Linux 登录服务改为 `Restart=no`，由运行中的新版 DSH 统一执行指数退避；不再另用固定 5 秒的 systemd 重启策略。
 
 `runtime_in_use` 表示仍有进程占用运行时：安装器在替换前拒绝，不强杀进程；按返回的 PID/角色关闭对应宿主或设置窗口后重试。升级进程意外中断时，保留 `<DataDir>/upgrade-state.json` 和 `.upgrade-*` 快照，修复报错原因后**重跑同一解压包的安装命令**，由安装器恢复中断事务；不要手工删除维护标记强行重连。
 
@@ -131,13 +135,34 @@ Windows bootstrap 与 Linux 安装尚无这套自动事务升级：先停止所�
 - **资源**：选择省电、均衡、快速档位，设置空闲和电源策略，查看后台内存及索引空间。
 - **数据库**：填写连接与只读账号，发现表字段、显式选择允许读取的列和正文索引字段，测试后保存。密码只写入系统凭据库，不在页面回显。
 
-四个页签上方常驻暂停/恢复按钮。暂停覆盖文件发现、正文/语义索引和数据库同步；在途工作退出前显示“正在暂停”，完成后显示“已暂停”，已索引资料仍可搜索。服务断开时状态待确认，页面显示具体错误码及处理建议。完整暂停能力需要 v0.5.2 后台。
+页签上方常驻服务启停和暂停/恢复按钮。暂停覆盖文件发现、正文/语义索引和数据库同步；在途工作退出前显示“正在暂停”，完成后显示“已暂停”，已索引资料仍可搜索。服务断开时状态待确认，页面显示具体错误码及处理建议。
 
 设置保存会验证配置并重新启动后台，失败时尝试恢复原配置。其他页面先保存时，本页会提示重新读取，避免覆盖新的设置。模型准备独立进行，文件名和关键词检索不必等待语义模型。
 
 首次扫描尚不知道整机文件总数，页面显示已知文件数和待遍历目录，不显示虚构的全机百分比。语义比例仅针对已知可处理片段；新文件加入后分母会增加。页面可见时约每 2 秒更新，底层部分计数最多缓存 5 秒；关闭面板不停止后台工作。
 
-建议后台与 DSH bundle 成套升级到 **v0.5.2**。新 bundle 保持对 v0.5.0 后台的兼容，以便失败回滚后恢复连接；自动升级协调要求使用 v0.5.1 或更新兼容的安装器及所有已连接 profiles 的 bundle。若没有按钮，检查是否更新了正确 profile。原有 Windows `Settings.vbs` 和 CLI 继续可用，但原生设置窗口在升级前须关闭。完整操作和状态含义见 [Web 面板说明](docs/DSH-WEB.md)。
+建议后台与 DSH bundle 成套升级到 **v0.6.0**。旧版后台可保留基本 MCP 兼容，但没有新版持久启停和系统任务功能；自动升级协调仍要求所有已连接 profiles 使用 v0.5.1 或更新兼容 bundle。若没有按钮，检查是否更新了正确 profile。原有 Windows `Settings.vbs` 和 CLI 继续可用，但原生设置窗口在升级前须关闭。完整操作和状态含义见 [Web 面板说明](docs/DSH-WEB.md)。
+
+## 启动、停止与定时启动
+
+在 DSH Web 的 **one_search → 服务控制** 中，可手动启动、正常停止或强制停止后台，也可以管理单次、每日、每周的启动任务。后台停止时该控制页面仍可使用。首次安装自动启动一次，默认没有定时任务，默认检索范围仍为用户文档目录。
+
+- **异常断线**：DSH 服务端运行期间，以约 1、2、4、8 秒逐步延长重试间隔，最大 60 秒，并加入少量随机延迟；健康连接恢复后重置。DSH 不运行时，不承诺持续监测或自动修复后台崩溃。
+- **停止 / 强制停止**：先保存停止状态，再结束服务、取消后续自动恢复。刷新网页、检索请求、MCP 重连、重启 DSH 和自动登录启动项都不会解除停止状态。普通停止等待收尾，强制停止结束经身份验证属于该实例的后台进程。
+- **重新运行**：点击“启动服务”、执行 CLI `start`，或启用的定时任务到点，才解除主动停止状态并恢复自动重连。暂停索引是独立设置，启动服务不会自动取消暂停。
+- **任务管理器直接结束进程**：无法可靠区分用户操作和程序崩溃，仍会被视为异常，可触发自动恢复。需要保持停止时，请使用 Web 强制停止或 CLI `force-stop`。
+- **系统定时任务**：关闭网页和 DSH 后仍可触发。Windows 要求对应用户仍登录；Linux 要求 `systemd --user` 管理器运行。关机、退出登录等错过的执行时间不补跑，也不自动申请管理员权限或修改 linger。时间按服务所在机器显示和执行。
+
+CLI 等效操作（沿用安装步骤中的变量）：
+
+```powershell
+& $searchCli service-control --config $searchConfig # 后台停止时也可查看
+& $searchCli stop --config $searchConfig            # 正常停止，并禁止自动重连启动
+& $searchCli force-stop --config $searchConfig      # 强制停止，并禁止自动重连启动
+& $searchCli start --config $searchConfig           # 明确解除停止，启动服务
+```
+
+定时任务登记失败会显示错误码，不会假装保存成功。任务采用版本校验，禁用、编辑或删除后排队的旧回调不能重新启动服务；同一触发时刻不会重复执行。时间、权限、夏令时、升级期间行为和失败恢复见 [服务控制说明](docs/SERVICE-CONTROL.md)。
 
 ## 能检索什么
 

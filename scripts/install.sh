@@ -101,7 +101,11 @@ if [[ -x "$venv_python" && -f "$data_dir/model-job/status.json" ]]; then
 fi
 exec {model_worker_fd}>"$data_dir/model-job/worker.lock"
 flock -n "$model_worker_fd" || { echo 'Model preparation is still running; retry later.' >&2; exit 1; }
-if [[ -x "$cli" ]]; then "$cli" stop --config "$config_path"; fi
+if [[ -x "$cli" ]]; then
+  stop_args=(stop --config "$config_path")
+  if [[ "$("$cli" stop --help)" == *--temporary* ]]; then stop_args+=(--temporary); fi
+  "$cli" "${stop_args[@]}"
+fi
 exec {daemon_fd}>"$data_dir/service.lock"
 flock -n "$daemon_fd" || { echo 'The daemon is still running; retry later.' >&2; exit 1; }
 if [[ ! -x "$venv_python" ]]; then "$python_bin" -m venv "$install_dir/venv"; fi
@@ -159,7 +163,7 @@ if [[ $no_autostart == 0 ]]; then
 import pathlib,sys
 install,config,unit=map(pathlib.Path,sys.argv[1:])
 def quote(s): return '"'+str(s).replace('\\','\\\\').replace('"','\\"').replace('%','%%').replace('$','$$')+'"'
-unit.write_text('[Unit]\nDescription=data_search local index service\nAfter=default.target\n\n[Service]\nType=simple\nExecStart='+quote(install/'venv/bin/data-search')+' daemon --config '+quote(config)+'\nRestart=on-failure\nRestartSec=5\nNice=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n')
+unit.write_text('[Unit]\nDescription=data_search local index service\nAfter=default.target\n\n[Service]\nType=simple\nExecStart='+quote(install/'venv/bin/data-search')+' daemon --config '+quote(config)+'\nRestart=no\nNice=10\nUMask=0077\n\n[Install]\nWantedBy=default.target\n')
 PY
   systemctl --user daemon-reload
   systemctl --user enable --now "$unit_name"
@@ -169,16 +173,20 @@ else
     rm -- "$unit_dir/$unit_name"
     systemctl --user daemon-reload
   fi
-  "$cli" start --config "$config_path"
+  "$cli" start --automatic --config "$config_path"
 fi
 "$venv_python" - "$install_dir/install-manifest.json" "$unit_name" "$unit_dir/$unit_name" "$no_autostart" <<'PY'
 import json,pathlib,sys
 from data_search import __version__
 p=pathlib.Path(sys.argv[1]); m=json.loads(p.read_text()); m.update(version=__version__,cli=str(p.parent/'venv/bin/data-search'),unit_name=sys.argv[2],unit_path=sys.argv[3],autostart='none' if sys.argv[4]=='1' else 'systemd-user'); p.write_text(json.dumps(m,indent=2))
 PY
-for attempt in {1..20}; do if "$cli" status --config "$config_path" >/dev/null; then break; fi; sleep 0.25; done
+intentionally_stopped=0
+if "$venv_python" -c 'import sys; from data_search.config import load_config; from data_search.service_control import read_control; sys.exit(0 if read_control(load_config(sys.argv[1]))["desired_state"] == "stopped" else 1)' "$config_path"; then intentionally_stopped=1; fi
+if [[ $intentionally_stopped == 0 ]]; then
+  for attempt in {1..20}; do if "$cli" status --config "$config_path" >/dev/null; then break; fi; sleep 0.25; done
+fi
 install_stage=model_queued
-if [[ $skip_model == 0 ]] && "$venv_python" -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["semantic"]["enabled"] else 1)' "$config_path"; then
+if [[ $intentionally_stopped == 0 && $skip_model == 0 ]] && "$venv_python" -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["semantic"]["enabled"] else 1)' "$config_path"; then
   if [[ -n "$model_dir" ]]; then
     active_model_dir="$("$venv_python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["semantic"]["model_dir"])' "$config_path")"
     "$cli" model-import --config "$config_path" --source "$active_model_dir" || printf '%s\n' 'Basic search is running; offline model verification needs attention.' >&2

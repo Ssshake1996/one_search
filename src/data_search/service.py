@@ -172,189 +172,222 @@ class _RPCServer(ThreadingHTTPServer):
     request_queue_size = 16
 
 
-def run_daemon(config: dict, *, engine_factory=None):
+def run_daemon(config: dict, *, engine_factory=None, control_revision=None):
+    from .service_control import control_lock, require_running
+    import psutil
     directory = Path(config["data_dir"])
     directory.mkdir(parents=True, exist_ok=True)
+    require_running(config, control_revision)
     with InstanceLock(directory / "service.lock"):
-        if engine_factory is None:
-            from .engine import Engine
-            engine_factory = Engine
-        engine = engine_factory(config)
-        token, service_id = secrets.token_urlsafe(32), secrets.token_hex(16)
-        server = None
-        state = None
-        request_slots = threading.BoundedSemaphore(4)
-        closing = threading.Event()
-        shutdown_lock = threading.Lock()
-        requests_condition = threading.Condition()
-        active_requests = 0
-        allowed_methods = {"search", "fetch", "inspect_source", "query_database", "index_status", "scan", "pause", "resume",
-                           'diagnose_path','read_context','refresh_path','prioritize_path','open_source','scope_preview'}
-
-        def begin_shutdown():
-            with shutdown_lock:
-                if closing.is_set():
-                    return
-                # Dispatch admission and this transition share one lock, so a late
-                # request cannot enter Engine after shutdown has begun.
-                with requests_condition:
-                    closing.set()
-                cancel = getattr(engine, "begin_shutdown", None)
-                if cancel is not None:
-                    cancel()
-
-        class Handler(BaseHTTPRequestHandler):
-            protocol_version = "HTTP/1.1"
-
-            def setup(self):
-                super().setup()
-                self.connection.settimeout(10)
-                self._body_consumed = False
-
-            def log_message(self, *_):
-                pass
-
-            def _discard_request_body(self):
-                """Avoid a TCP reset discarding the rejection on Windows.
-
-                Closing with a pending request body can reset the connection before
-                the client receives our response. Drain only a bounded, explicitly
-                sized body; neither malformed framing nor a slow sender may hold a
-                rejection open indefinitely.
-                """
-                if self._body_consumed:
-                    return
-                self._body_consumed = True
-                try:
-                    lengths = self.headers.get_all("Content-Length", [])
-                    if len(lengths) != 1:
-                        return
-                    remaining = int(lengths[0])
-                    if not 0 <= remaining <= 1024 * 1024:
-                        return
-                    deadline = time.monotonic() + 0.5
-                    while remaining:
-                        timeout = deadline - time.monotonic()
-                        if timeout <= 0:
-                            break
-                        self.connection.settimeout(timeout)
-                        block = self.rfile.read1(min(remaining, 65536))
-                        if not block:
-                            break
-                        remaining -= len(block)
-                except (ValueError, OSError):
-                    pass
-                finally:
-                    self.connection.settimeout(10)
-
-            def _send(self, status, payload):
-                self._discard_request_body()
-                data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-                self.send_response(status)
-                self.send_header("Content-Type", "application/json; charset=utf-8")
-                self.send_header("Content-Length", str(len(data)))
-                self.send_header("Cache-Control", "no-store")
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.wfile.write(data)
-                self.close_connection = True
-
-            def do_GET(self):
-                self._send(405, {"ok": False, "error": "POST required"})
-
-            def do_OPTIONS(self):
-                self._send(403, {"ok": False, "error": "Browser cross-origin access is disabled"})
-
-            def do_POST(self):
-                nonlocal active_requests
-                expected_host = f"127.0.0.1:{self.server.server_port}"
-                if self.path != "/rpc" or self.headers.get("Host") != expected_host:
-                    self._send(403, {"ok": False, "error": "Invalid local RPC endpoint"})
-                    return
-                if self.headers.get("Origin") is not None or self.headers.get("Sec-Fetch-Site") not in (None, "none"):
-                    self._send(403, {"ok": False, "error": "Browser-origin requests are disabled"})
-                    return
-                authorization = self.headers.get("Authorization", "")
-                if not hmac.compare_digest(authorization, "Bearer " + token):
-                    self._send(401, {"ok": False, "error": "Authentication required"})
-                    return
-                if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json" or self.headers.get("Transfer-Encoding"):
-                    self._send(400, {"ok": False, "error": "Expected a bounded JSON body"})
-                    return
-                try:
-                    length = int(self.headers.get("Content-Length", "-1"))
-                    if not 0 <= length <= 1024 * 1024:
-                        raise ValueError()
-                    self._body_consumed = True
-                    raw = self.rfile.read(length)
-                    payload = json.loads(raw)
-                    if not isinstance(payload, dict) or set(payload) - {"method", "params"}:
-                        raise ValueError()
-                    method, params = payload.get("method"), payload.get("params", {})
-                    if not isinstance(method, str) or not isinstance(params, dict):
-                        raise ValueError()
-                except (ValueError, OSError, UnicodeError):
-                    self._send(400, {"ok": False, "error": "Malformed RPC request"})
-                    return
-                if method == "_health":
-                    result = {"status": "stopping" if closing.is_set() else "running", "pid": os.getpid(), "service_id": service_id, "node_id": config["node_id"]}
-                elif method == "_stop":
-                    begin_shutdown()
-                    self._send(200, {"ok": True, "result": {"status": "stopping"}})
-                    threading.Thread(target=self.server.shutdown, daemon=True).start()
-                    return
-                elif method not in allowed_methods:
-                    self._send(400, {"ok": False, "error": "Unknown RPC method"})
-                    return
-                else:
-                    node_id = params.get("node_id")
-                    if node_id is not None and node_id != config["node_id"]:
-                        self._send(200, {"ok": False, "error": "Remote nodes are reserved and not implemented"})
-                        return
-                    with requests_condition:
-                        if closing.is_set():
-                            self._send(200, {"ok": False, "error": "Service is shutting down", "error_code": "service_stopping"})
-                            return
-                        if not request_slots.acquire(blocking=False):
-                            self._send(200, {"ok": False, "error": "Service is busy; retry later", "error_code": "service_busy"})
-                            return
-                        active_requests += 1
-                    try:
-                        result = engine.dispatch(method, params)
-                    except (ValueError, ServiceError) as error:
-                        self._send(200, {"ok": False, "error": str(error)})
-                        return
-                    except Exception:
-                        self._send(200, {"ok": False, "error": "Operation failed; check source availability and service status", "error_code": "backend_operation_failed"})
-                        return
-                    finally:
-                        request_slots.release()
-                        with requests_condition:
-                            active_requests -= 1
-                            requests_condition.notify_all()
-                self._send(200, {"ok": True, "result": result})
-
+        service_id = secrets.token_hex(16)
+        marker = directory / 'service-process.json'
+        with control_lock(config):
+            intent = require_running(config, control_revision)
+            control_revision = intent['revision']
+            _write_state(marker, {'schema_version': 1, 'role': 'data_search_daemon',
+                'pid': os.getpid(), 'create_time': psutil.Process().create_time(),
+                'service_id': service_id, 'config_path': str(Path(config['config_path']).resolve())})
         try:
-            server = _RPCServer(("127.0.0.1", 0), Handler)
-            engine.start_background()
-            state = {"pid": os.getpid(), "port": server.server_port, "token": token, "service_id": service_id,
-                     "node_id": config["node_id"], "config_path": str(Path(config["config_path"]).resolve()),
-                     "started_at": datetime.now(timezone.utc).isoformat()}
-            _write_state(_state_path(config), state)
-            server.serve_forever(poll_interval=0.1)
+            _run_daemon_locked(config, engine_factory, service_id, control_revision)
         finally:
-            begin_shutdown()
-            if server:
-                server.server_close()
+            _remove_owned_state(marker, service_id)
+
+
+def _run_daemon_locked(config, engine_factory, service_id, control_revision):
+    if engine_factory is None:
+        from .engine import Engine
+        engine_factory = Engine
+    engine = engine_factory(config)
+    token = secrets.token_urlsafe(32)
+    server = None
+    state = None
+    request_slots = threading.BoundedSemaphore(4)
+    closing = threading.Event()
+    shutdown_lock = threading.Lock()
+    requests_condition = threading.Condition()
+    active_requests = 0
+    allowed_methods = {"search", "fetch", "inspect_source", "query_database", "index_status", "scan", "pause", "resume",
+                       'diagnose_path','read_context','refresh_path','prioritize_path','open_source','scope_preview'}
+
+    def begin_shutdown():
+        with shutdown_lock:
+            if closing.is_set():
+                return
+            # Dispatch admission and this transition share one lock, so a late
+            # request cannot enter Engine after shutdown has begun.
+            with requests_condition:
+                closing.set()
+            cancel = getattr(engine, "begin_shutdown", None)
+            if cancel is not None:
+                cancel()
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def setup(self):
+            super().setup()
+            self.connection.settimeout(10)
+            self._body_consumed = False
+
+        def log_message(self, *_):
+            pass
+
+        def _discard_request_body(self):
+            """Avoid a TCP reset discarding the rejection on Windows.
+
+            Closing with a pending request body can reset the connection before
+            the client receives our response. Drain only a bounded, explicitly
+            sized body; neither malformed framing nor a slow sender may hold a
+            rejection open indefinitely.
+            """
+            if self._body_consumed:
+                return
+            self._body_consumed = True
             try:
-                with requests_condition:
-                    while active_requests:
-                        requests_condition.wait(timeout=0.2)
-                engine.close()
+                lengths = self.headers.get_all("Content-Length", [])
+                if len(lengths) != 1:
+                    return
+                remaining = int(lengths[0])
+                if not 0 <= remaining <= 1024 * 1024:
+                    return
+                deadline = time.monotonic() + 0.5
+                while remaining:
+                    timeout = deadline - time.monotonic()
+                    if timeout <= 0:
+                        break
+                    self.connection.settimeout(timeout)
+                    block = self.rfile.read1(min(remaining, 65536))
+                    if not block:
+                        break
+                    remaining -= len(block)
+            except (ValueError, OSError):
+                pass
             finally:
-                if state:
-                    _remove_owned_state(_state_path(config), service_id)
+                self.connection.settimeout(10)
+
+        def _send(self, status, payload):
+            self._discard_request_body()
+            data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(data)
+            self.close_connection = True
+
+        def do_GET(self):
+            self._send(405, {"ok": False, "error": "POST required"})
+
+        def do_OPTIONS(self):
+            self._send(403, {"ok": False, "error": "Browser cross-origin access is disabled"})
+
+        def do_POST(self):
+            nonlocal active_requests
+            expected_host = f"127.0.0.1:{self.server.server_port}"
+            if self.path != "/rpc" or self.headers.get("Host") != expected_host:
+                self._send(403, {"ok": False, "error": "Invalid local RPC endpoint"})
+                return
+            if self.headers.get("Origin") is not None or self.headers.get("Sec-Fetch-Site") not in (None, "none"):
+                self._send(403, {"ok": False, "error": "Browser-origin requests are disabled"})
+                return
+            authorization = self.headers.get("Authorization", "")
+            if not hmac.compare_digest(authorization, "Bearer " + token):
+                self._send(401, {"ok": False, "error": "Authentication required"})
+                return
+            if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json" or self.headers.get("Transfer-Encoding"):
+                self._send(400, {"ok": False, "error": "Expected a bounded JSON body"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "-1"))
+                if not 0 <= length <= 1024 * 1024:
+                    raise ValueError()
+                self._body_consumed = True
+                raw = self.rfile.read(length)
+                payload = json.loads(raw)
+                if not isinstance(payload, dict) or set(payload) - {"method", "params"}:
+                    raise ValueError()
+                method, params = payload.get("method"), payload.get("params", {})
+                if not isinstance(method, str) or not isinstance(params, dict):
+                    raise ValueError()
+            except (ValueError, OSError, UnicodeError):
+                self._send(400, {"ok": False, "error": "Malformed RPC request"})
+                return
+            if method == "_health":
+                result = {"status": "stopping" if closing.is_set() else "running", "pid": os.getpid(), "service_id": service_id, "node_id": config["node_id"]}
+            elif method == "_stop":
+                begin_shutdown()
+                self._send(200, {"ok": True, "result": {"status": "stopping"}})
+                threading.Thread(target=self.server.shutdown, daemon=True).start()
+                return
+            elif method not in allowed_methods:
+                self._send(400, {"ok": False, "error": "Unknown RPC method"})
+                return
+            else:
+                node_id = params.get("node_id")
+                if node_id is not None and node_id != config["node_id"]:
+                    self._send(200, {"ok": False, "error": "Remote nodes are reserved and not implemented"})
+                    return
+                with requests_condition:
+                    if closing.is_set():
+                        self._send(200, {"ok": False, "error": "Service is shutting down", "error_code": "service_stopping"})
+                        return
+                    if not request_slots.acquire(blocking=False):
+                        self._send(200, {"ok": False, "error": "Service is busy; retry later", "error_code": "service_busy"})
+                        return
+                    active_requests += 1
+                try:
+                    result = engine.dispatch(method, params)
+                except (ValueError, ServiceError) as error:
+                    self._send(200, {"ok": False, "error": str(error)})
+                    return
+                except Exception:
+                    self._send(200, {"ok": False, "error": "Operation failed; check source availability and service status", "error_code": "backend_operation_failed"})
+                    return
+                finally:
+                    request_slots.release()
+                    with requests_condition:
+                        active_requests -= 1
+                        requests_condition.notify_all()
+            self._send(200, {"ok": True, "result": result})
+
+    try:
+        server = _RPCServer(("127.0.0.1", 0), Handler)
+        from .service_control import control_lock, require_running
+        with control_lock(config):
+            require_running(config, control_revision)
+            engine.start_background()
+        state = {"pid": os.getpid(), "port": server.server_port, "token": token, "service_id": service_id,
+                 "node_id": config["node_id"], "config_path": str(Path(config["config_path"]).resolve()),
+                 "started_at": datetime.now(timezone.utc).isoformat()}
+        _write_state(_state_path(config), state)
+        def follow_control():
+            from .service_control import read_control
+            while not closing.wait(.25):
+                try:
+                    stopped = read_control(config)['desired_state'] == 'stopped'
+                except ServiceError:
+                    stopped = True
+                if stopped:
+                    begin_shutdown()
+                    server.shutdown()
+                    return
+        threading.Thread(target=follow_control, name='one-search-service-control', daemon=True).start()
+        server.serve_forever(poll_interval=0.1)
+    finally:
+        begin_shutdown()
+        if server:
+            server.server_close()
+        try:
+            with requests_condition:
+                while active_requests:
+                    requests_condition.wait(timeout=0.2)
+            engine.close()
+        finally:
+            if state:
+                _remove_owned_state(_state_path(config), service_id)
 
 
 def reap_child(process):
@@ -365,11 +398,29 @@ def reap_child(process):
     threading.Thread(target=process.wait, name="one-search-child-reaper", daemon=True).start()
 
 
-def start_service(config: dict, *, timeout=30):
-    try:
-        return {**service_status(config), "started": False}
-    except ServiceError:
-        pass
+def start_service(config: dict, *, timeout=30, control_revision=None):
+    from .service_control import control_lock, require_running
+    intent = require_running(config, control_revision)
+    with control_lock(config, 'service-action.lock', timeout=max(35, timeout)):
+        require_running(config, intent['revision'])
+        return _start_service_locked(config, timeout=timeout, control_revision=intent['revision'])
+
+
+def _start_service_locked(config: dict, *, timeout=30, control_revision=None):
+    from .service_control import require_running
+    deadline = time.monotonic() + timeout
+    while True:
+        require_running(config, control_revision)
+        try:
+            health = service_status(config)
+        except ServiceError:
+            break
+        if health.get('status', 'running') != 'stopping':
+            require_running(config, control_revision)
+            return {**health, "started": False}
+        if time.monotonic() >= deadline:
+            raise ServiceError('Previous daemon is still stopping; retry Start after it exits')
+        time.sleep(.1)
     config_path = config.get("config_path")
     if not config_path:
         raise ServiceError("A saved configuration path is required to start the daemon")
@@ -381,7 +432,7 @@ def start_service(config: dict, *, timeout=30):
         log_path.replace(directory / "daemon.previous.log")
     with log_path.open("ab") as log:
         from .runtime import process_command
-        args = process_command("data_search", "daemon", "--config", str(Path(config_path).resolve()))
+        args = process_command("data_search", "daemon", "--config", str(Path(config_path).resolve()), "--control-revision", control_revision)
         options = {"stdin": subprocess.DEVNULL, "stdout": log, "stderr": log, "close_fds": True}
         if os.name == "nt":
             options["creationflags"] = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
@@ -389,9 +440,19 @@ def start_service(config: dict, *, timeout=30):
             options["start_new_session"] = True
         process = subprocess.Popen(args, **options)
     deadline = time.monotonic() + timeout
+    interrupted = None
     while time.monotonic() < deadline:
         try:
+            require_running(config, control_revision)
+        except ServiceError as error:
+            interrupted = error
+            break
+        try:
             health = service_status(config)
+            require_running(config, control_revision)
+            if health.get('status', 'running') == 'stopping':
+                time.sleep(.1)
+                continue
             running = process.poll() is None
             if running:
                 reap_child(process)
@@ -409,6 +470,8 @@ def start_service(config: dict, *, timeout=30):
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
+    if interrupted is not None:
+        raise interrupted
     raise ServiceError("Daemon did not become ready; check daemon.log in the configured data directory")
 
 

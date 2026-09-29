@@ -21,7 +21,7 @@ def descendants(window):
 def save_and_wait(window):
     widgets = descendants(window)
     button = next(widget for widget in widgets if 'text' in widget.keys()
-                  and widget.cget('text') == '保存并启动')
+                  and widget.cget('text') == '保存并应用')
     tabs = next(widget for widget in widgets if hasattr(widget, 'one_search_main_busy'))
     button.invoke()
     deadline = time.monotonic() + 5

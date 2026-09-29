@@ -51,21 +51,21 @@ model weights prepare in a detached background job after basic search starts,
 unless disabled or an existing model directory is supplied. Download failure is
 shown by `model-status` and does not block filename/keyword searches.
 Later activations reuse the executable/configuration and
-start the service idempotently. They preserve search roots and model settings.
+start the service idempotently if it has not been intentionally stopped. They preserve search roots and model settings.
 After installation, the release directory environment variable is optional.
 
 The daemon remains available when DSH exits. Unloading this bundle disconnects
-MCP and removes its tools; use the installed one_search uninstaller to remove the
-background service. Updating the npm bundle alone does not upgrade the backend.
+MCP and removes its tools; use Web Stop for a persistent shutdown, or the installed
+uninstaller to remove it. Updating the npm bundle alone does not upgrade the backend.
 Use the newer release installer and the migration rules below.
 
 ## Upgrade and reinstall
 
 For the first migration from a v0.5.0 or older bundle, stop every DSH server/profile
-connected to that backend before running the v0.5.2 installer. Closing its browser
+connected to that backend before running the v0.6.0 installer. Closing its browser
 tab is insufficient; a terminal-launched DSH can exit normally with `Ctrl+C`.
 Disconnect other MCP hosts from this server and close native `Settings.vbs`
-windows too. `data-search stop` only stops the daemon, leaving MCP processes and
+windows too. The old `data-search stop` only stops the daemon, leaving MCP processes and
 the host's reconnect policy active.
 
 With **all connected DSH profiles running v0.5.1 or a newer compatible bundle**,
@@ -78,7 +78,7 @@ and reports maintenance; runtime operations return `upgrade_in_progress`.
 An older bundle or an unrelated MCP client does not gain this capability simply
 because another connected profile supports it.
 
-Verify and extract `one-search-0.5.2-windows-amd64-native.zip` outside the existing
+Verify and extract `one-search-0.6.0-windows-amd64-native.zip` outside the existing
 application and data directories. From the new extracted directory, for a default
 installation:
 
@@ -132,8 +132,8 @@ Available first-install fields: `installDir`, `dataDir`, `releaseDir`, `roots`,
 `excludePaths`, `preset` (`low/balanced/fast`), `skipModel`, `modelDir`,
 `noAutostart`, `wholeMachine`. Empty `roots` uses the Documents default; choose
 `wholeMachine: true` explicitly for machine scope (mutually exclusive with roots).
-Automatic installation requires a release installer >= 0.5.2 so an older installer
-cannot silently use the previous whole-machine default. Presets change resource budgets,
+Automatic installation requires a release installer >= 0.6.0 for durable service
+control and the Documents default. Presets change resource budgets,
 not file/content/semantic scope. Existing configuration is preserved.
 
 For an existing installation, supply an absolute executable and configuration:
@@ -150,14 +150,22 @@ For a source environment, `command` can point to the venv Python and
 and never installs or rewrites it. Optional `serverName` defaults to `one_search`;
 `timeoutMs` bounds each setup command (default 15 minutes).
 
-The v0.5.2 bundle retains compatibility with backend v0.5.0 so a failed upgrade can
-restore its MCP connection after rollback. Prefer matching v0.5.2 components;
+The v0.6.0 bundle retains basic MCP compatibility with backend v0.5.0 so a failed upgrade can
+restore its MCP connection after rollback. New service controls and schedules require matching v0.6.0 components;
 automatic maintenance requires the v0.5.1 (or newer compatible) incoming installer
 and bundle in every connected DSH profile. When an older incompatible managed installation is
 found and `ONE_SEARCH_RELEASE_DIR`/`releaseDir` points to a compatible extracted
 release, activation runs its verified installer and preserves existing settings.
 Otherwise it reports `backend_update_required` with the README action. An
 explicit command/configuration is never upgraded automatically.
+
+Update **every DSH profile** connected to this backend to v0.6.0. Older bundles
+invoke the manual `start` command and cannot honor persistent stop semantics.
+The Web panel remains available while stopped: use Start to resume, Stop for a
+durable shutdown, or Force stop for verified process termination. Only explicit
+Start or an enabled startup schedule clears the stop intent. Unexpected failures
+retry with exponential backoff up to 60 seconds while DSH is running. See
+[service controls and OS scheduling](../../docs/SERVICE-CONTROL.md).
 Set `clientId: 'dsh-web'` and `clientLabel: 'DSH web'` in each profile
 override to distinguish profiles in shared-service maintenance reports. Without
 an explicit ID, one stable registration represents the DSH home/server name;

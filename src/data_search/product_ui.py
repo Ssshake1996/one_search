@@ -390,7 +390,7 @@ def add_product_panels(notebook, config_path):
         if directory:
             run(lambda: maintenance.set_autostart(load_config(config_path), directory, enabled), show_maintenance, mutation=True)
     def exit_service():
-        from .service import stop_service
+        from .service_control import stop as stop_service
         directory = installed_directory()
         if not directory:
             return

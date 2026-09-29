@@ -27,8 +27,25 @@ from .upgrade_hosts import UpgradeCoordinationError, UpgradeSession
 
 APP_FILES = ("install-manifest.json", "mcp.json", "Settings.vbs", "launch-hidden.vbs", "uninstall.ps1", "plugin")
 TRANSIENT_DATA = {"service.lock", "service.json", "daemon.log", "daemon.previous.log",
+                  "service-process.json", "service-control.lock", "service-action.lock", "service-control.json",
+                  "service-schedules.json", "service-schedules-pending.json", "service-schedules.lock", "service-schedules",
                   ".one-search-index.lock", "model-job/manager.lock", "model-job/worker.lock",
                   "upgrade.lock", "upgrade-state.json", "host-clients"}
+
+
+def _control_flags(install, action):
+    """Older runtimes lack these flags; their stop was already temporary."""
+    try:
+        version = json.loads((Path(install) / 'install-manifest.json').read_text(encoding='utf-8-sig')).get('version', '0')
+        supported = tuple(int(part) for part in version.split('.')[:2]) >= (0, 6)
+    except (OSError, ValueError, TypeError):
+        supported = False
+    return ['--temporary' if action == 'stop' else '--automatic'] if supported else []
+
+
+def _wants_running(data):
+    from .service_control import read_control
+    return read_control({'data_dir': str(data)})['desired_state'] == 'running'
 
 
 def _validate_target(path, marker, expected, *, recovery=False):
@@ -316,8 +333,8 @@ def _recover_interrupted(previous, session, *, runner=subprocess.run):
         options = {"creationflags": subprocess.CREATE_NO_WINDOW} if os.name == "nt" else {}
 
         def restart():
-            if record.get("was_running"):
-                result = runner([str(old_cli), "start", "--config", str(data / "config.json")],
+            if record.get("was_running") and _wants_running(data):
+                result = runner([str(old_cli), "start", "--config", str(data / "config.json"), *_control_flags(install, 'start')],
                     capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180, **options)
                 if result.returncode:
                     raise ValueError("Previous runtime was restored but could not restart")
@@ -516,7 +533,7 @@ def _upgrade_native(request: dict, *, session, runner=subprocess.run, copy=shuti
     snapshot_ready = False
     try:
         if old_existed:
-            command([old_cli, "stop", "--config", config_path])
+            command([old_cli, "stop", "--config", config_path, *_control_flags(install, 'stop')])
         with ExitStack() as guards:
             guards.enter_context(MaintenanceGuard(previous_config) if previous_config else InstanceLock(data / "service.lock"))
             if previous_config:
@@ -545,7 +562,7 @@ def _upgrade_native(request: dict, *, session, runner=subprocess.run, copy=shuti
         request_path.write_text(json.dumps(continuation, ensure_ascii=False), encoding="utf-8")
         command([request.get("PowerShell", "powershell.exe"), "-NoProfile", "-File", request["Installer"],
                  "-NativeTransactionChild", "-UpgradeRequest", request_path])
-        command([new_cli, "status", "--config", config_path])
+        command([new_cli, "status" if _wants_running(data) else "installation-status", "--config", config_path])
         mark("complete")
         return {"ok": True, "transaction": str(transaction), "backup_bytes": record["backup_bytes"],
                 "rollback_snapshot_retained": True, "message": "Native installation passed health checks; previous runtime and pre-migration snapshot retained"}
@@ -553,7 +570,7 @@ def _upgrade_native(request: dict, *, session, runner=subprocess.run, copy=shuti
         if swapped or old_runtime.exists():
             mark("rolling_back")
             if new_cli.exists():
-                command([new_cli, "stop", "--config", config_path], check=False)
+                command([new_cli, "stop", "--temporary", "--config", config_path], check=False)
             try:
                 guard_config = _rollback_configuration(previous_config, data, index)
                 with ExitStack() as guards:
@@ -578,8 +595,8 @@ def _upgrade_native(request: dict, *, session, runner=subprocess.run, copy=shuti
                 raise RuntimeError(f"Upgrade failed; automatic restore could not safely complete. Retained recovery snapshot: {transaction}") from rollback_error
         else:
             mark("failed_before_activation")
-        if was_running:
-            command([old_cli, "start", "--config", config_path])
+        if was_running and _wants_running(data):
+            command([old_cli, "start", "--config", config_path, *_control_flags(install, 'start')])
         if record["phase"] == "restored":
             mark("rolled_back")
         raise

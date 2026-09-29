@@ -117,7 +117,7 @@ def test_new_settings_selects_documents_or_requests_a_directory(tmp_path, monkey
             assert str(documents) in texts
         else:
             assert any('文档文件夹不可用' in label for label in buttons)
-            buttons['保存并启动'].invoke()
+            buttons['保存并应用'].invoke()
             assert errors and 'Choose at least' in errors[0][1]
         assert not path.exists()
 
@@ -155,10 +155,10 @@ def test_settings_window_save_restarts_with_selected_scope(tmp_path, monkeypatch
             pending.extend(widget.winfo_children())
             if "text" in widget.keys():
                 buttons[widget.cget("text")] = widget
-        assert "保存并启动" in buttons and "暂停索引" in buttons and "连接并选择表…" in buttons
+        assert "保存并应用" in buttons and "暂停索引" in buttons and "连接并选择表…" in buttons
         machine = next(widget for label, widget in buttons.items() if label.startswith("整个电脑"))
         machine.invoke()
-        buttons["保存并启动"].invoke()
+        buttons["保存并应用"].invoke()
         window.tk.call(window.protocol("WM_DELETE_WINDOW"))
         assert window.winfo_exists(), "Closing must not interrupt an active save/start operation"
         deadline = time.monotonic() + 3

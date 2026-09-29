@@ -47,7 +47,7 @@ window.__ModuleLoader__.load({
 
     // One request at a time, including manual refreshes. Hidden tabs stop scheduling;
     // in-flight replies may settle but never update an unmounted panel.
-    function createPoller({ request, onValue, onError, document: doc, setTimer = setTimeout, clearTimer = clearTimeout }) {
+    function createPoller({ request, onValue, onError, document: doc, intervalMs = 2000, maxDelay = 30000, setTimer = setTimeout, clearTimer = clearTimeout }) {
       let stopped = false, timer = null, running = false, errors = 0, again = false;
       const clear = () => { if (timer !== null) clearTimer(timer); timer = null; };
       const visible = () => doc.visibilityState !== 'hidden';
@@ -58,10 +58,10 @@ window.__ModuleLoader__.load({
         if (running) { again = true; return; }
         running = true;
         try { const value = await request(); if (!stopped) { errors = 0; onValue(value); } }
-        catch (error) { if (!stopped) { errors += 1; onError(error, Math.min(30000, 2000 * 2 ** errors)); } }
+        catch (error) { if (!stopped) { errors += 1; onError(error, Math.min(maxDelay, intervalMs * 2 ** errors)); } }
         finally {
           running = false;
-          if (!stopped) { const delay = again ? 0 : Math.min(30000, 2000 * 2 ** errors); again = false; schedule(delay); }
+          if (!stopped) { const delay = again ? 0 : Math.min(maxDelay, intervalMs * 2 ** errors); again = false; schedule(delay); }
         }
       }
       const visibility = () => { clear(); if (visible()) tick(); };
@@ -89,6 +89,53 @@ window.__ModuleLoader__.load({
       const state = ['running', 'pausing', 'paused'].includes(index.pause_state) ? index.pause_state :
         policy.user_paused === true || index.paused === true ? 'paused' : 'running';
       return { state, until: policy.pause_until || index.pause_until };
+    }
+    function serviceStatus(status, disconnected) {
+      const state = status?.service?.status;
+      if (disconnected) return { state: 'unknown', title: '服务状态待确认' };
+      if (state === 'maintenance') return { state, title: '升级维护中' };
+      if (status?.control?.desired_state === 'stopped') return { state: 'stopped', title: state === 'running' ? '正在停止后台服务' : state === 'stopped' ? '后台已主动停止' : '已禁止自动启动，服务状态待确认' };
+      if (state === 'running') return { state, title: '后台服务运行中' };
+      if (status?.reconnect?.state === 'waiting') return { state: 'waiting', title: '异常断线，等待重连' };
+      if (['connecting', 'starting'].includes(status?.reconnect?.state)) return { state: 'waiting', title: '正在恢复后台连接' };
+      return { state: state || 'unknown', title: status ? '后台服务未连接' : '正在读取服务状态' };
+    }
+    function scheduleDraft(task, timezone) {
+      const schedule = task?.schedule || {};
+      return { id: task?.id, name: task?.name || '', enabled: task?.enabled ?? true,
+        kind: schedule.kind || 'once', date: (schedule.at || timezone?.now || '').slice(0, 10),
+        time: schedule.time || (schedule.at ? schedule.at.slice(11, 16) : '09:00'), weekdays: [...(schedule.weekdays || [1])] };
+    }
+    function scheduleTask(draft, timezone) {
+      if (!draft.name.trim()) throw new Error('请填写任务名称。');
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.time)) throw new Error('请选择有效的启动时间。');
+      let schedule;
+      if (draft.kind === 'once') {
+        const day = new Date(`${draft.date}T00:00:00Z`);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(draft.date) || !Number.isFinite(day.getTime()) || day.toISOString().slice(0, 10) !== draft.date) throw new Error('请选择有效的启动日期。');
+        if (!timezone) throw new Error('尚未读取到服务器时区，请刷新任务后再保存。');
+        // The server resolves local calendar time, including the offset at a future DST date.
+        schedule = { kind: 'once', at: `${draft.date}T${draft.time}:00` };
+      } else if (draft.kind === 'daily') schedule = { kind: 'daily', time: draft.time };
+      else if (draft.kind === 'weekly') {
+        const weekdays = [...new Set(draft.weekdays)].filter(day => Number.isInteger(day) && day >= 1 && day <= 7).sort();
+        if (!weekdays.length) throw new Error('请选择至少一个星期。');
+        schedule = { kind: 'weekly', time: draft.time, weekdays };
+      } else throw new Error('请选择有效的重复方式。');
+      return { ...(draft.id ? { id: draft.id } : {}), name: draft.name.trim(), enabled: draft.enabled, schedule };
+    }
+    function scheduleDate(value, timezone) {
+      if (!value) return '—';
+      const instant = new Date(typeof value === 'number' ? value * 1000 : value);
+      if (!Number.isFinite(instant.getTime())) return '—';
+      if (timezone?.name) {
+        try { return instant.toLocaleString('zh-CN', { timeZone: timezone.name, hour12: false }); } catch {}
+      }
+      const offset = (typeof value === 'string' ? value.match(/([+-]\d{2}:\d{2})$/)?.[1] : null) || timezone?.offset;
+      const match = /^([+-])(\d{2}):(\d{2})$/.exec(offset || '');
+      if (!match) return instant.toISOString().replace('T', ' ').replace('.000Z', ' UTC');
+      const minutes = (Number(match[2]) * 60 + Number(match[3])) * (match[1] === '+' ? 1 : -1);
+      return `${new Date(instant.getTime() + minutes * 60000).toISOString().slice(0, 16).replace('T', ' ')} (UTC${offset})`;
     }
     function diagnosticMessage(result) {
       return (result.diagnostics || result.checks || []).filter(x => x.ok !== true).map(x => [x.message, x.action].filter(Boolean).join(' ')).join('；') || '请检查连接信息与允许读取的字段。';
@@ -140,6 +187,7 @@ window.__ModuleLoader__.load({
 .os-panel{height:100%;overflow:auto;box-sizing:border-box;color:var(--dsw-alias-label-primary,#202329);background:var(--dsw-alias-bg-base,#fff);font-family:inherit;font-size:14px;line-height:1.55;--os-line:var(--dsw-alias-border-l3,#e2e5e9);--os-muted:var(--dsw-alias-label-secondary,#69717e);--os-soft:var(--dsw-alias-interactive-bg-hover,#f4f5f7);--os-blue:var(--dsw-alias-state-business-primary,#4164d6)}
 .os-panel *{box-sizing:border-box}.os-body{max-width:1120px;padding:32px 36px 24px;margin:0 auto}.os-head{display:flex;align-items:flex-start;justify-content:space-between;gap:24px}.os-head h1{font-size:26px;font-weight:650;letter-spacing:-.8px;margin:0 0 3px}.os-subtitle,.os-muted{color:var(--os-muted)}.os-subtitle{margin:0}.os-state{display:inline-flex;align-items:center;gap:8px;white-space:nowrap;font-size:12px;padding:6px 10px;border:1px solid var(--os-line);border-radius:20px}.os-dot{width:7px;height:7px;border-radius:50%;background:#638d73}.os-state[data-state=needs_attention] .os-dot,.os-state[data-state=waiting] .os-dot{background:#b68a34}.os-state[data-state=paused] .os-dot{background:#8a92a0}
 .os-index-controls{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-top:22px;padding:16px 0;border-top:1px solid var(--os-line);border-bottom:1px solid var(--os-line)}.os-index-controls>div{min-width:0}.os-index-controls p{margin:3px 0 0;font-size:12px;color:var(--os-muted)}.os-index-controls .os-select{width:auto;max-width:100%}.os-index-controls .os-actions{flex-shrink:0;max-width:100%}.os-index-controls+.os-tabs{margin-top:18px}
+.os-service-controls{margin-top:22px;padding:18px 0 0;border-top:1px solid var(--os-line)}.os-service-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.os-service-row>div{min-width:0}.os-service-row>.os-actions{flex-shrink:0}.os-service-controls+.os-index-controls{margin-top:14px}.os-schedule{border-bottom:1px solid var(--os-line);padding:17px 0}.os-schedule .os-section-head{margin-bottom:8px}.os-schedule-state{font-size:12px;color:var(--os-muted);margin-left:10px}.os-schedule-editor{margin-top:20px;padding:18px;border:1px solid var(--os-line);border-radius:8px}.os-schedule-editor h3{margin:0 0 16px;font-size:15px}.os-state[data-state=stopped] .os-dot,.os-state[data-state=unknown] .os-dot{background:#8a92a0}.os-state[data-state=offline] .os-dot{background:#b84949}
 .os-tabs{display:flex;gap:24px;border-bottom:1px solid var(--os-line);margin:26px 0 24px;overflow-x:auto}.os-tab{font:inherit;color:var(--os-muted);border:0;border-bottom:2px solid transparent;background:transparent;padding:0 0 12px;white-space:nowrap;cursor:pointer}.os-tab[aria-selected=true]{border-color:var(--os-blue);color:var(--os-blue);font-weight:600}.os-panel button:focus-visible,.os-panel input:focus-visible,.os-panel select:focus-visible,.os-panel textarea:focus-visible,.os-panel summary:focus-visible{outline:2px solid var(--os-blue);outline-offset:3px}.os-panel button:disabled{opacity:.48;cursor:not-allowed}.os-btn{font:inherit;font-size:13px;color:inherit;background:transparent;border:1px solid var(--os-line);border-radius:8px;min-height:34px;padding:6px 12px;cursor:pointer;white-space:normal}.os-btn:hover:enabled{background:var(--os-soft)}.os-btn.os-primary{background:var(--os-blue);border-color:var(--os-blue);color:#fff}.os-btn.os-primary:hover:enabled{filter:brightness(.94)}.os-btn.os-danger{color:#b84949}.os-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.os-section{border-top:1px solid var(--os-line);padding:22px 0}.os-section:first-child{border-top:0;padding-top:0}.os-section h2{margin:0 0 4px;font-size:16px;font-weight:600}.os-section>p{margin:0 0 17px;color:var(--os-muted);font-size:13px}.os-section-head{display:flex;justify-content:space-between;gap:14px;margin-bottom:15px;align-items:center}.os-section-head h2{margin:0}.os-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:4px 0 24px;gap:18px}.os-metric small{display:block;color:var(--os-muted);font-size:12px}.os-metric strong{display:block;font-weight:550;font-size:26px;letter-spacing:-.6px;margin:5px 0}.os-metric span{font-size:12px;color:var(--os-muted)}.os-stage{display:grid;grid-template-columns:150px 1fr;gap:20px;padding:15px 0;border-bottom:1px solid var(--os-line)}.os-stage:last-child{border-bottom:0}.os-stage-title{font-weight:550}.os-stage p{margin:0;color:var(--os-muted);font-size:13px}.os-stage strong{font-weight:500}.os-root{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:8px;padding:10px 0;border-bottom:1px solid var(--os-line);font-size:13px}.os-root:last-child{border:0}.os-path{overflow-wrap:anywhere;font-family:var(--ds-font-family-code,monospace);font-size:12px}.os-note{color:var(--os-muted);font-size:12px;margin:8px 0}.os-alert{border:1px solid var(--os-line);background:var(--os-soft);border-left:3px solid var(--os-blue);padding:10px 13px;border-radius:5px;margin:12px 0;overflow-wrap:anywhere}.os-alert.os-error{border-left-color:#b84949}.os-alert p{margin:3px 0}.os-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 22px}.os-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}.os-field>span{font-weight:500}.os-field input,.os-field textarea,.os-field select,.os-select{font:inherit;color:inherit;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--os-line);border-radius:7px;padding:8px 10px;min-height:36px;width:100%}.os-field textarea{resize:vertical;min-height:82px;line-height:1.65}.os-field small{font-weight:400;color:var(--os-muted)}.os-wide{grid-column:1/-1}.os-check{display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin:10px 0}.os-check input{accent-color:var(--os-blue);margin-top:4px}.os-fields{border:0;margin:0;padding:0;min-width:0}.os-radio-group{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.os-radio{display:flex;align-items:center;gap:8px;padding:11px 15px;border:1px solid var(--os-line);border-radius:8px;cursor:pointer}.os-radio:has(input:checked){border-color:var(--os-blue);background:var(--os-soft)}.os-radio input{accent-color:var(--os-blue)}.os-save{position:sticky;bottom:0;background:var(--dsw-alias-bg-base,#fff);border-top:1px solid var(--os-line);padding:14px 0 6px;display:flex;gap:16px;justify-content:space-between;align-items:center;margin-top:18px;z-index:1}.os-save p{margin:0;font-size:12px;color:var(--os-muted)}.os-pre{font:12px/1.6 var(--ds-font-family-code,monospace);white-space:pre-wrap;overflow-wrap:anywhere;max-height:290px;overflow:auto;background:var(--os-soft);padding:12px;border-radius:6px}.os-details summary{cursor:pointer;font-size:13px;padding:8px 0}.os-db-list{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px}.os-db-item{display:flex;gap:5px;align-items:center}.os-table-wrap{overflow:auto;max-height:350px;margin:10px 0}.os-table{border-collapse:collapse;width:100%;font-size:12px;text-align:left}.os-table th,.os-table td{padding:8px 10px;border-bottom:1px solid var(--os-line);vertical-align:top}.os-table th{color:var(--os-muted);font-weight:500}.os-table input{accent-color:var(--os-blue)}.os-table-picker{border:1px solid var(--os-line);border-radius:8px;padding:12px 16px;margin:10px 0}.os-table-picker>summary{cursor:pointer;font-weight:500;overflow-wrap:anywhere}.os-loading{padding:36px 0;color:var(--os-muted)}.os-preset small{display:block;color:var(--os-muted);font-size:11px}.os-preset .os-radio{flex:1;min-width:160px;align-items:flex-start}.os-empty{padding:14px 0;color:var(--os-muted);font-size:13px}.os-panel [hidden]{display:none!important}
 @media(max-width:760px){.os-body{padding:22px 18px}.os-head{flex-wrap:wrap;gap:14px}.os-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.os-form-grid{grid-template-columns:1fr}.os-stage{grid-template-columns:1fr;gap:5px}.os-save{align-items:flex-start;flex-direction:column}.os-root{grid-template-columns:1fr}.os-tabs{gap:23px}.os-section-head{align-items:flex-start;flex-wrap:wrap}}
 `;
@@ -160,6 +208,33 @@ window.__ModuleLoader__.load({
     function Metric({ title, value, note }) { return h('div', { className: 'os-metric' }, h('small', null, title), h('strong', null, value), h('span', null, note)); }
     function Stage({ title, children }) { return h('div', { className: 'os-stage' }, h('div', { className: 'os-stage-title' }, title), h('div', null, children)); }
 
+    function ServiceControls({ status, run, busy, disconnected }) {
+      const [confirmForce, setConfirmForce] = useState(false);
+      const service = serviceStatus(status, disconnected);
+      const disabled = Boolean(busy) || service.state === 'maintenance';
+      const stopped = status?.control?.desired_state === 'stopped';
+      const running = status?.service?.status === 'running';
+      const retry = status?.reconnect;
+      const operate = action => run(action, {}, () => setConfirmForce(false));
+      return h('section', { className: 'os-service-controls', 'aria-label': '后台服务控制' },
+        h('div', { className: 'os-service-row' }, h('div', null,
+          h('strong', { role: 'status', 'aria-live': 'polite' }, service.title),
+          h('p', { className: 'os-note' }, disconnected ? '当前无法确认服务状态；可尝试手动启动，并检查下方错误信息。' : stopped ?
+            '自动重连已关闭。只有手动启动或已启用的定时任务到点，才会再次启动。' :
+            '异常断线会按指数退避恢复连接；主动停止会关闭自动重连。'),
+          !disconnected && !stopped && retry?.state === 'waiting' && h('p', { className: 'os-note' }, `重试次数：${number(retry.attempt || 0)} · 下次重试：${date(retry.next_retry_at)}`)),
+          h('div', { className: 'os-actions' },
+            h(Button, { primary: !running || disconnected, disabled: disabled || running && !stopped && !disconnected, onClick: () => operate('service_start') }, '启动服务'),
+            h(Button, { disabled: disabled || stopped && !running, onClick: () => operate('service_stop') }, '停止服务'),
+            h(Button, { danger: true, disabled: disabled || stopped && !running, onClick: () => setConfirmForce(true), 'aria-expanded': confirmForce }, '强制结束'))),
+        confirmForce && h('div', { className: 'os-alert os-error', role: 'alert' },
+          h('strong', null, '强制结束这个 one_search 后台？'),
+          h('p', null, '当前扫描与索引工作会立即中断，并关闭自动重连。已启用的定时任务仍可在到点后启动服务。'),
+          h('div', { className: 'os-actions', style: { marginTop: 10 } },
+            h(Button, { danger: true, disabled, onClick: () => operate('service_force_stop') }, '确认强制结束'),
+            h(Button, { disabled: Boolean(busy), onClick: () => setConfirmForce(false) }, '取消'))));
+    }
+
     function IndexControls({ status, run, busy, disconnected }) {
       const [minutes, setMinutes] = useState('0');
       const pause = pauseStatus(status);
@@ -167,11 +242,12 @@ window.__ModuleLoader__.load({
       const available = Boolean(status?.index) && !maintenance && !disconnected && (!status.service?.status || status.service.status === 'running');
       const disabled = Boolean(busy) || !available;
       const paused = pause.state !== 'running';
-      const stateText = maintenance ? '升级维护中' : !available ? '暂停状态待确认' :
+      const stopped = !disconnected && status?.service?.status === 'stopped';
+      const stateText = maintenance ? '升级维护中' : stopped ? '服务已停止，索引操作不可用' : !available ? '暂停状态待确认' :
         pause.state === 'pausing' ? '正在暂停，等待当前任务收尾' : paused ? '后台索引已暂停' : '后台索引可运行';
       return h('section', { className: 'os-index-controls', 'aria-label': '后台索引控制' },
         h('div', null, h('strong', { role: 'status', 'aria-live': 'polite' }, stateText),
-          h('p', null, !available ? '连接恢复后自动更新状态与操作入口。' : '暂停文件扫描、正文解析、语义索引与数据库同步；已有索引仍可检索。'),
+          h('p', null, stopped ? '启动服务后，可单独暂停索引并保留检索能力。' : !available ? '连接恢复后自动更新状态与操作入口。' : '暂停文件扫描、正文解析、语义索引与数据库同步；已有索引仍可检索。'),
           available && paused && h('p', null, pause.until ? `${date(pause.until)} 自动恢复` : '直到手动恢复')),
         h('div', { className: 'os-actions' }, !paused && h(Select, { className: 'os-select', 'aria-label': '暂停时长', value: minutes, disabled,
           options: [['0','直到手动恢复'],['15','15 分钟'],['30','30 分钟'],['60','1 小时']], onChange: setMinutes }),
@@ -187,6 +263,8 @@ window.__ModuleLoader__.load({
       const model = index.semantic?.lifecycle || {};
       const policy = progress?.runtime_policy || index.runtime_policy || {};
       if (status?.service?.status === 'maintenance') return h('p', { className: 'os-muted' }, '扫描与索引进度将在升级完成、后台重新连接后继续显示。');
+      if (status?.service?.status === 'stopped') return h('p', { className: 'os-muted' }, '后台服务已停止。可在上方手动启动，或在“定时启动”中安排任务。');
+      if (status?.service?.status === 'offline') return h('p', { className: 'os-muted' }, '后台尚未连接，当前扫描进度不可用。连接恢复后会自动更新。');
       if (!progress) return h('div', { className: 'os-loading' }, status ? '进度尚不可用。请检查后台服务状态或升级 one_search。' : '正在读取后台状态…');
       const content = progress.content || {}, semantic = progress.semantic || {}, discovery = progress.discovery || {};
       const errors = progress.error_summary || {};
@@ -362,6 +440,73 @@ window.__ModuleLoader__.load({
           h('div', { className: 'os-actions', style: { marginTop: 20 } }, h(Button, { onClick: stage, disabled: busy, primary: true }, '检查并加入待保存设置'), h(Button, { onClick: close, disabled: busy }, '放弃数据库编辑'))));
     }
 
+    function Schedules({ active, request, run, busy }) {
+      const [snapshot, setSnapshot] = useState(null);
+      const [error, setError] = useState(null);
+      const [editor, setEditor] = useState(null);
+      const [validation, setValidation] = useState(null);
+      const [deleting, setDeleting] = useState(null);
+      const poller = useRef(null), epoch = useRef(0);
+      useEffect(() => {
+        if (!active) return;
+        poller.current = createPoller({ document, intervalMs: 30000, maxDelay: 60000,
+          request: async () => { const revision = epoch.current; return { revision, value: await request('schedules_get') }; },
+          onValue: ({ revision, value }) => { if (revision === epoch.current) { setSnapshot(value); setError(null); } },
+          onError: failure => setError(failure) });
+        return () => { poller.current?.dispose(); poller.current = null; };
+      }, [active, request]);
+      useEffect(() => {
+        if (!editor) return;
+        const warn = event => { event.preventDefault(); event.returnValue = ''; };
+        window.addEventListener('beforeunload', warn);
+        return () => window.removeEventListener('beforeunload', warn);
+      }, [Boolean(editor)]);
+      const timezone = snapshot?.timezone;
+      const accept = value => { epoch.current += 1; setSnapshot(value); setError(null); setEditor(null); setDeleting(null); setValidation(null); poller.current?.refresh(); };
+      const edit = task => { setEditor({ ...scheduleDraft(task, timezone), revision: snapshot.revision }); setValidation(null); setDeleting(null); };
+      const update = (key, value) => { setEditor(current => ({ ...current, [key]: value })); setValidation(null); };
+      const save = () => {
+        try { const task = scheduleTask(editor, timezone); return run('schedule_save', { revision: editor.revision, task }, accept); }
+        catch (failure) { setValidation(failure); }
+      };
+      const toggle = task => run('schedule_save', { revision: snapshot.revision, task: { id: task.id, name: task.name, enabled: !task.enabled, schedule: task.schedule } }, accept);
+      const weekdays = [[1,'周一'],[2,'周二'],[3,'周三'],[4,'周四'],[5,'周五'],[6,'周六'],[7,'周日']];
+      const summary = task => task.schedule.kind === 'once' ? `仅一次 · ${scheduleDate(task.schedule.at, timezone)}` :
+        `${task.schedule.kind === 'daily' ? '每天' : (task.schedule.weekdays || []).map(day => weekdays.find(([key]) => key === day)?.[1]).join('、')} ${task.schedule.time}`;
+      const resultText = result => !result ? '尚未执行' : ({ success: '启动成功', succeeded: '启动成功', started: '启动成功', triggered: '已触发，结果待确认', running: '正在执行', failed: '执行失败', skipped: '已跳过' })[result.status] || label(result.status);
+      return h('section', { className: 'os-section', 'aria-label': '定时启动管理' },
+        h('div', { className: 'os-section-head' }, h('h2', null, '定时启动'), h('div', { className: 'os-actions' },
+          h(Button, { onClick: () => poller.current?.refresh(), disabled: busy }, '刷新任务'),
+          h(Button, { primary: true, onClick: () => edit(), disabled: busy || !snapshot || Boolean(editor) }, '新建启动任务'))),
+        h('p', null, '由服务所在电脑的系统调度器执行；关闭网页或 DSH 后仍有效。任务到点会解除主动停止状态并启动服务。'),
+        timezone && h('p', { className: 'os-note' }, `时间均按服务所在电脑的时区：${timezone.name || '本地时区'} (UTC${timezone.offset})。服务器当前时间：${scheduleDate(timezone.now, timezone)}。`),
+        snapshot?.scheduler?.note && h('p', { className: 'os-note' }, snapshot.scheduler.note),
+        error && h('div', { className: 'os-alert os-error', role: 'alert' }, errorContent(error), snapshot && h('p', null, '下方为上次读取的任务。编辑中的内容已保留。')),
+        !snapshot && !error && h('p', { className: 'os-loading' }, '正在读取定时任务…'),
+        snapshot && !snapshot.tasks?.length && h('p', { className: 'os-empty' }, '尚无定时任务。主动停止后，服务会保持停止，直到手动启动。'),
+        (snapshot?.tasks || []).map(task => h('article', { className: 'os-schedule', key: task.id },
+          h('div', { className: 'os-section-head' }, h('div', null, h('strong', null, task.name), h('span', { className: 'os-schedule-state' }, task.enabled ? '已启用' : '已禁用'), h('p', { className: 'os-note' }, summary(task))),
+            h('div', { className: 'os-actions' }, h(Button, { disabled: busy || Boolean(editor), onClick: () => toggle(task) }, task.enabled ? '禁用' : '启用'),
+              h(Button, { disabled: busy || Boolean(editor), onClick: () => edit(task) }, '编辑'),
+              h(Button, { danger: true, disabled: busy || Boolean(editor), onClick: () => setDeleting(task.id) }, '删除'))),
+          h('p', { className: 'os-note' }, `下次执行：${task.enabled ? scheduleDate(task.next_run_at, timezone) : '已禁用'} · 上次执行：${scheduleDate(task.last_run_at, timezone)}`),
+          h('p', { className: 'os-note' }, `上次结果：${resultText(task.last_result)}`, task.last_result?.code && h(React.Fragment, null, ' · 错误码：', h('code', null, task.last_result.code))),
+          deleting === task.id && h('div', { className: 'os-alert', role: 'alert' }, h('p', null, `删除“${task.name}”的启动任务？不会停止当前运行的服务。`),
+            h('div', { className: 'os-actions' }, h(Button, { danger: true, disabled: busy, onClick: () => run('schedule_delete', { revision: snapshot.revision, id: task.id }, accept) }, '确认删除任务'),
+              h(Button, { disabled: busy, onClick: () => setDeleting(null) }, '取消删除'))))),
+        editor && h('section', { className: 'os-schedule-editor', 'aria-label': editor.id ? '编辑启动任务' : '新建启动任务' },
+          h('h3', null, editor.id ? '编辑启动任务' : '新建启动任务'),
+          h('fieldset', { className: 'os-fields', disabled: busy }, h('div', { className: 'os-form-grid' },
+            h(Field, { title: '任务名称' }, h(Input, { value: editor.name, maxLength: 80, onChange: value => update('name', value), placeholder: '例如：工作日开始前启动' })),
+            h(Field, { title: '重复方式' }, h(Select, { value: editor.kind, onChange: value => update('kind', value), options: [['once','仅一次'],['daily','每天'],['weekly','每周']] })),
+            editor.kind === 'once' && h(Field, { title: '启动日期' }, h(Input, { type: 'date', value: editor.date, onChange: value => update('date', value) })),
+            h(Field, { title: '启动时间', hint: `服务所在电脑时间 (UTC${timezone?.offset || '—'})` }, h(Input, { type: 'time', value: editor.time, onChange: value => update('time', value) })),
+            editor.kind === 'weekly' && h('div', { className: 'os-wide' }, h('span', null, '每周执行日期'), h('div', { className: 'os-actions' }, weekdays.map(([day, title]) => h(Check, { key: day, checked: editor.weekdays.includes(day), onChange: enabled => update('weekdays', enabled ? [...editor.weekdays, day] : editor.weekdays.filter(value => value !== day)) }, title))))),
+            h(Check, { checked: editor.enabled, onChange: value => update('enabled', value) }, '启用此任务'),
+            validation && h('div', { className: 'os-alert os-error', role: 'alert' }, validation.message),
+            h('div', { className: 'os-actions' }, h(Button, { primary: true, disabled: busy, onClick: save }, '保存启动任务'), h(Button, { disabled: busy, onClick: () => { setEditor(null); setValidation(null); } }, '放弃编辑')))));
+    }
+
     function Panel({ request }) {
       const [tab, setTab] = useState('overview');
       const [status, setStatus] = useState(null);
@@ -379,7 +524,9 @@ window.__ModuleLoader__.load({
       const mounted = useRef(true), lock = useRef(false), poller = useRef(null), draftRef = useRef(null), statusEpoch = useRef(0);
       draftRef.current = draft;
       const maintenance = status?.service?.status === 'maintenance';
-      const controlsDisabled = Boolean(busy) || maintenance;
+      const managementDisabled = Boolean(busy) || maintenance;
+      const serviceUnavailable = Boolean(connectionError) || ['offline', 'stopped'].includes(status?.service?.status);
+      const controlsDisabled = managementDisabled || serviceUnavailable;
       const dirty = Boolean(draft && !same(draft.values, draft.original));
       useEffect(() => {
         mounted.current = true;
@@ -403,7 +550,7 @@ window.__ModuleLoader__.load({
             if (epoch !== statusEpoch.current) return;
             setStatus(value); setConnectionError(null);
             const recovered = disconnected; disconnected = false;
-            if (value.service?.status !== 'maintenance') readMissingSettings(recovered);
+            if (!['maintenance', 'offline', 'stopped'].includes(value.service?.status)) readMissingSettings(recovered);
           },
           onError: (error, delay) => { disconnected = true; setConnectionError({ error, delay }); } });
         readMissingSettings();
@@ -420,13 +567,16 @@ window.__ModuleLoader__.load({
         if (lock.current || maintenance) return;
         lock.current = true; setBusy(title); setNotice(null);
         try { const message = await operation(); if (mounted.current) { setNotice({ text: typeof message === 'string' ? message : `${title}已完成。`, error: false }); poller.current?.refresh(); } }
-        catch (error) { if (mounted.current) { if (error.code === 'revision_conflict') setConflict(true); setNotice({ detail: error, error: true }); } }
+        catch (error) { if (mounted.current) { if (error.code === 'revision_conflict' && ['保存并应用', '预览设置影响'].includes(title)) setConflict(true); setNotice({ detail: error, error: true }); } }
         finally { lock.current = false; if (mounted.current) setBusy(''); }
       }
-      const run = (action, params = {}, after) => task(({ pause: '暂停请求', resume: '恢复请求', scan: '重新扫描请求', refresh_path: '路径刷新请求', diagnose_path: '路径诊断', model_start: '模型准备请求', model_import: '模型导入请求', model_cancel: '模型取消请求' })[action] || '操作', async () => {
+      const run = (action, params = {}, after) => task(({ pause: '暂停请求', resume: '恢复请求', scan: '重新扫描请求', refresh_path: '路径刷新请求', diagnose_path: '路径诊断', model_start: '模型准备请求', model_import: '模型导入请求', model_cancel: '模型取消请求', service_start: '启动服务', service_stop: '停止服务', service_force_stop: '强制结束', schedule_save: '保存启动任务', schedule_delete: '删除启动任务' })[action] || '操作', async () => {
         const result = await request(action, params);
         if (mounted.current) {
           after?.(result);
+          if (['service_start', 'service_stop', 'service_force_stop'].includes(action) && result?.service) {
+            statusEpoch.current += 1; setStatus(result); setConnectionError(null);
+          }
           if (['pause', 'resume'].includes(action) && result && (typeof result.paused === 'boolean' || ['running', 'pausing', 'paused'].includes(result.pause_state))) {
             // An older in-flight sample must not undo the acknowledged action.
             statusEpoch.current += 1;
@@ -445,19 +595,23 @@ window.__ModuleLoader__.load({
         return '已保存并应用。后台将按新设置继续处理，首次扫描与正文更新可能需要一些时间。';
       });
       const previewSettings = () => task('预览设置影响', async () => { const current = draftRef.current; const value = await request('settings_preview', { revision: current.revision, values: current.values }); if (mounted.current) setPreview(value); return value.can_apply ? '预览完成，可保存并应用。' : '预览发现问题，请先修正后再保存。'; });
-      const tabs = [['overview','概览'],['scope','检索范围'],['resources','资源'],['databases','数据库']];
-      const overallState = maintenance ? 'maintenance' : status?.index && pauseStatus(status).state !== 'running' ? pauseStatus(status).state :
+      const tabs = [['overview','概览'],['scope','检索范围'],['resources','资源'],['databases','数据库'],['schedules','定时启动']];
+      const service = serviceStatus(status, Boolean(connectionError));
+      const overallState = maintenance ? 'maintenance' : serviceUnavailable ? service.state : status?.index && pauseStatus(status).state !== 'running' ? pauseStatus(status).state :
         status?.index?.progress?.overall?.state || (status?.service?.status === 'running' ? 'running_service' : status?.service?.status);
       return h('div', { className: 'os-panel' }, h('style', null, css), h('div', { className: 'os-body' },
-        h('header', { className: 'os-head' }, h('div', null, h('h1', null, 'one_search'), h('p', { className: 'os-subtitle' }, '本地资料，随时可找。')), h('span', { className: 'os-state', 'data-state': connectionError ? 'needs_attention' : overallState }, h('span', { className: 'os-dot' }), connectionError ? '状态连接中断' : label(overallState || '连接中'))),
+        h('header', { className: 'os-head' }, h('div', null, h('h1', null, 'one_search'), h('p', { className: 'os-subtitle' }, '本地资料，随时可找。')), h('span', { className: 'os-state', 'data-state': connectionError ? 'needs_attention' : overallState }, h('span', { className: 'os-dot' }), serviceUnavailable ? service.title : label(overallState || '连接中'))),
+        h(ServiceControls, { status, run, busy: managementDisabled, disconnected: Boolean(connectionError) }),
         h(IndexControls, { status, run, busy: controlsDisabled, disconnected: Boolean(connectionError) }),
         h('div', { className: 'os-tabs', role: 'tablist', 'aria-label': 'one_search 设置' }, tabs.map(([key,text], index) => h('button', { key, type: 'button', className: 'os-tab', role: 'tab', id: `os-tab-${key}`, 'aria-controls': `os-content-${key}`, 'aria-selected': tab === key, tabIndex: tab === key ? 0 : -1, onClick: () => setTab(key), onKeyDown: event => { let next; if (event.key === 'ArrowRight') next = (index + 1) % tabs.length; if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length; if (event.key === 'Home') next = 0; if (event.key === 'End') next = tabs.length - 1; if (next !== undefined) { event.preventDefault(); setTab(tabs[next][0]); event.currentTarget.parentElement.children[next].focus(); } } }, text))),
         maintenance && h('div', { className: 'os-alert', role: 'status' }, h('strong', null, '正在升级或恢复 one_search'), h('p', null, '完成后会自动恢复连接。本页未保存的编辑仍保留，设置操作暂时不可用。'), h('p', null, '如果安装程序已意外退出，请重新运行同一安装命令完成恢复。')),
         connectionError && h('div', { className: 'os-alert os-error', role: 'status' }, errorContent(connectionError.error),
-          h('p', { className: 'os-note' }, `${Math.ceil(connectionError.delay / 1000)} 秒后自动重试；${status ? '下方进度是上次收到的状态。' : '尚未收到后台状态。'}`), h(Button, { onClick: () => poller.current?.refresh() }, '立即重试')),
+          h('p', { className: 'os-note' }, `${Math.ceil(connectionError.delay / 1000)} 秒后重试读取状态；状态读取不会解除主动停止。`), h(Button, { onClick: () => poller.current?.refresh() }, '立即重试')),
+        !connectionError && status?.service?.error && h('div', { className: 'os-alert os-error', role: 'status' }, errorContent(status.service.error)),
         h('div', { role: 'status', 'aria-live': 'polite' }, busy ? h('div', { className: 'os-alert' }, `${busy}中…`) : notice && h('div', { className: `os-alert${notice.error ? ' os-error' : ''}` }, notice.error ? errorContent(notice.detail) : notice.text)),
-        h('div', { id: 'os-content-overview', role: 'tabpanel', 'aria-labelledby': 'os-tab-overview', hidden: tab !== 'overview' }, h(Overview, { status, run, busy: controlsDisabled || Boolean(connectionError) })),
-        !draft && tab !== 'overview' && h('div', { className: 'os-loading' }, settingsError ? errorContent(settingsError) : '正在读取设置…', settingsError && h(React.Fragment, null,
+        h('div', { id: 'os-content-overview', role: 'tabpanel', 'aria-labelledby': 'os-tab-overview', hidden: tab !== 'overview' }, h(Overview, { status: serviceUnavailable ? { ...status, index: undefined } : status, run, busy: controlsDisabled })),
+        h('div', { id: 'os-content-schedules', role: 'tabpanel', 'aria-labelledby': 'os-tab-schedules', hidden: tab !== 'schedules' }, h(Schedules, { active: tab === 'schedules', request, run, busy: managementDisabled })),
+        !draft && !['overview', 'schedules'].includes(tab) && h('div', { className: 'os-loading' }, settingsError ? errorContent(settingsError) : '正在读取设置…', settingsError && h(React.Fragment, null,
           h('p', { className: 'os-note' }, '后台恢复后会自动重新读取设置。'), h(Button, { onClick: reload, disabled: controlsDisabled }, '重新读取'))),
         draft && h('fieldset', { className: 'os-fields', disabled: controlsDisabled },
           h('div', { id: 'os-content-scope', role: 'tabpanel', 'aria-labelledby': 'os-tab-scope', hidden: tab !== 'scope' }, h(Scope, { values: draft.values, update })),
@@ -468,9 +622,9 @@ window.__ModuleLoader__.load({
           preview.databases_changed && h('p', null, `数据库只读预检：${preview.preflight?.ok ? '通过' : '未通过'}`), h(Details, { title: '查看预览详情', value: preview })),
         conflict && h('div', { className: 'os-alert os-error' }, '设置已在其他位置修改。你的编辑仍保留；请复制需要保留的内容，再重新加载最新设置。'),
         discard && h('div', { className: 'os-alert' }, h('p', null, '重新加载会放弃本页未保存的设置与数据库编辑。'), h('div', { className: 'os-actions' }, h(Button, { onClick: reload, disabled: controlsDisabled }, '放弃并重新加载'), h(Button, { onClick: () => setDiscard(false), disabled: controlsDisabled }, '继续编辑'))),
-        draft && (tab !== 'overview' || dirty || dbDirty) && h('footer', { className: 'os-save' }, h('div', null, h('strong', { style: { fontSize: 13 } }, dbDirty ? '数据库尚在编辑' : dirty ? '有未保存的修改' : '设置已同步'), h('p', null, dbDirty ? '先完成或放弃数据库编辑。' : '保存后应用到后台服务；索引会逐步更新。')),
+        draft && (!['overview', 'schedules'].includes(tab) || dirty || dbDirty) && h('footer', { className: 'os-save' }, h('div', null, h('strong', { style: { fontSize: 13 } }, dbDirty ? '数据库尚在编辑' : dirty ? '有未保存的修改' : '设置已同步'), h('p', null, dbDirty ? '先完成或放弃数据库编辑。' : '保存后应用到后台服务；索引会逐步更新。')),
           h('div', { className: 'os-actions' }, h(Button, { onClick: () => dirty || dbDirty ? setDiscard(true) : reload(), disabled: controlsDisabled }, '重新加载'), h(Button, { onClick: previewSettings, disabled: controlsDisabled || !dirty || dbDirty || conflict }, '预览影响'), h(Button, { primary: true, onClick: save, disabled: controlsDisabled || !dirty || dbDirty || conflict || preview?.can_apply === false }, '保存并应用'))),
-        h('p', { className: 'os-note', style: { marginTop: 20 } }, `状态更新：${date(status?.index?.progress?.sampled_at)} · 页面可见时每 2 秒刷新 · 关闭页面不停止后台`)));
+        h('p', { className: 'os-note', style: { marginTop: 20 } }, `状态更新：${date(status?.index?.progress?.sampled_at)} · 页面可见时每 2 秒读取状态 · 关闭页面不停止后台`)));
     }
 
     function SearchIcon({ size = 18 }) { return h('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 1.7, strokeLinecap: 'round', 'aria-hidden': true }, h('circle', { cx: 10, cy: 10, r: 6 }), h('path', { d: 'm14.5 14.5 5 5M7.5 10h5M10 7.5v5' })); }
@@ -480,6 +634,6 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'one-search' }, () => h(Panel, { request })));
     }
     return { name: 'one-search-web', inject: ['slots', 'connection'], apply,
-      __testing: { unwrap, createPoller, freshDraft, packSelections, selectionFor, connectionSource, lines, errorDescription, pauseStatus, Panel, Scope, Overview, IndexControls, Databases } };
+      __testing: { unwrap, createPoller, freshDraft, packSelections, selectionFor, connectionSource, lines, errorDescription, pauseStatus, serviceStatus, scheduleDraft, scheduleTask, scheduleDate, Panel, Scope, Overview, IndexControls, ServiceControls, Schedules, Databases } };
   },
 });

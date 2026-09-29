@@ -6,6 +6,76 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { coordinatorOptions, createUpgradeCoordinator } from '../upgrade-coordinator.mjs';
 import { prepareService } from '../bootstrap.mjs';
+import { retryDelay } from '../service-control.mjs';
+
+async function intent(f, desired_state, revision = String(Date.now())) {
+  await writeFile(join(f.dataDir, 'service-control.json'), JSON.stringify({ schema_version: 1, desired_state, revision, reason: 'manual', updated_at: Date.now() / 1000 }));
+}
+
+test('retry delays double with bounded jitter and cap at sixty seconds', () => {
+  assert.deepEqual([1,2,3,4,5,6,7,8].map((n) => retryDelay(n, { random: () => 0 })), [1000,2000,4000,8000,16000,32000,60000,60000]);
+  assert.equal(retryDelay(1, { random: () => 1 }), 1200);
+  assert.equal(retryDelay(7, { random: () => 1 }), 60000);
+});
+
+test('unexpected failures back off, stop cancels retry, manual start resets it', async (t) => {
+  let clock = 0, calls = 0;
+  const f = await fixture(t, { superviseService: true, pollMs: 10, now: () => clock, random: () => 0 });
+  f.host.setResumeHandler(async () => { calls++; throw new Error('fixture unavailable'); });
+  await assert.rejects(f.host.start());
+  assert.deepEqual(f.host.status().reconnect, { state: 'waiting', attempt: 1, next_retry_at: 1 });
+  clock = 1000;
+  await eventually(() => calls === 2);
+  await eventually(() => f.host.status().reconnect.attempt === 2);
+  assert.equal(f.host.status().reconnect.next_retry_at, 3);
+  await intent(f, 'stopped', 'stop1'); await f.host.syncService();
+  clock = 100000; await delay(35);
+  assert.equal(calls, 2); assert.equal(f.host.status().reconnect.next_retry_at, null);
+  f.host.setResumeHandler(async () => { calls++; });
+  await intent(f, 'running', 'start1'); await f.host.syncService();
+  await eventually(() => f.host.status().state === 'ready');
+  assert.equal(calls, 3); assert.equal(f.host.status().reconnect.attempt, 0);
+});
+
+test('persistent stop prevents a fresh profile and acknowledgement drains MCP without waiting for its own management child', async (t) => {
+  const f = await fixture(t, { superviseService: true, pollMs: 100000 });
+  await intent(f, 'stopped', 'already-stopped');
+  f.host.setResumeHandler(() => assert.fail('stopped profile must not bootstrap'));
+  assert.equal((await f.host.start()).state, 'stopped');
+  await intent(f, 'running', 'manual');
+  let disposed = 0;
+  f.host.setResumeHandler(async () => { f.host.setMcpFiber({ async dispose() { disposed++; } }); });
+  await f.host.start();
+  await f.host.runRuntime(async () => {
+    await intent(f, 'stopped', 'force');
+    const ack = await f.call('service_sync');
+    assert.equal(ack.body.result.reconnect.state, 'stopped');
+  });
+  assert.equal(disposed, 1);
+});
+
+test('stop racing an in-flight connector disposes a late MCP fiber and never schedules retry', async (t) => {
+  const f = await fixture(t, { superviseService: true, pollMs: 100000 });
+  const running = deferred(), release = deferred(); let disposed = 0;
+  f.host.setResumeHandler(async () => { running.resolve(); await release.promise; f.host.setMcpFiber({ async dispose() { disposed++; } }); });
+  const startup = f.host.start(); await running.promise;
+  await intent(f, 'stopped', 'race-stop'); await f.host.syncService();
+  release.resolve(); await startup;
+  assert.equal(disposed, 1); assert.equal(f.host.status().state, 'stopped');
+  assert.equal(f.host.status().reconnect.next_retry_at, null);
+});
+
+test('health loss drains the old bridge and restarts after backoff', async (t) => {
+  let clock = 0, calls = 0, disposed = 0;
+  const f = await fixture(t, { superviseService: true, pollMs: 10, probeEveryMs: 50, now: () => clock, random: () => 0 });
+  f.host.setResumeHandler(async () => { calls++; f.host.setMcpFiber({ async dispose() { disposed++; } }); });
+  f.host.setProbeHandler(async () => { throw new Error('dead daemon'); });
+  await f.host.start(); clock = 50;
+  await eventually(() => f.host.status().reconnect.state === 'waiting');
+  assert.equal(disposed, 1); assert.equal(f.host.status().reconnect.next_retry_at, 1.05);
+  clock = 1050;
+  await eventually(() => calls === 2 && f.host.status().state === 'ready');
+});
 
 const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
 async function fixture(t, options = {}) {
