@@ -59,6 +59,14 @@ def main():
             run(['bash',str(repo/'scripts/uninstall.sh'),'--install-dir',str(app)])
             assert data.is_dir() and cfg.is_file() and (index/'index.sqlite3').exists()
             run(install)
+            # Uninstall now records an intentional stop. A reinstall must honor
+            # it instead of silently reviving the preserved installation.
+            stopped = cli('installation-status', '--install-dir', str(app))
+            assert stopped['ok'] and stopped['intentionally_stopped']
+            assert not stopped['daemon_running'] and not stopped['basic_search_ready']
+            assert cli('service-control')['desired_state'] == 'stopped'
+            assert not (data/'service.json').exists()
+            cli('start')
             assert cli('search','headlesssecondneedle','--mode','keyword')['results']
             extra = index/'unrelated.txt'
             extra.write_text('not an index')
@@ -66,7 +74,7 @@ def main():
             assert not app.exists() and not data.exists() and extra.exists() and fixture.exists()
             print(json.dumps({'ok':True,'platform':sys.platform,'python':sys.version.split()[0],
                               'cases':['headless_install','no_model_basic','repeat_preserves_config','diagnose','paused_refresh',
-                                       'export','index_relocation','preserve_uninstall','reinstall','delete_managed_only'],
+                                       'export','index_relocation','preserve_uninstall','reinstall_keeps_stopped','manual_restart','delete_managed_only'],
                               'user_files_accessed':False,'autostart_tested':False,'semantic_model_tested':False}))
         finally:
             if executable.exists() and cfg.exists():
