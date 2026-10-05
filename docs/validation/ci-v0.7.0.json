@@ -1,0 +1,200 @@
+{
+  "version": "0.7.0",
+  "run_id": 37331786846,
+  "url": "https://github.com/Ssshake1996/one_search/actions/runs/37331786846",
+  "source_commit": "ddcd48de3f4e3be90e05715bd37bfaac2adb7449",
+  "runtime_source_commit": "c0b42eb9ee730eb5c1aafc6b0485108019071dd7",
+  "status": "success",
+  "jobs": [
+    {
+      "name": "test (windows-latest)",
+      "conclusion": "success",
+      "started_at": "2026-10-05T15:18:48Z",
+      "completed_at": "2026-10-05T15:24:30Z",
+      "python": {
+        "passed": 703,
+        "skipped": 7,
+        "seconds": 260.34
+      },
+      "node": {
+        "tests": 97,
+        "pass": 97,
+        "fail": 0,
+        "skipped": 0
+      },
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pip install -e \".[dev]\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pytest -q -rs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -c \"import glob,subprocess; subprocess.run(['node','--test',*sorted(glob.glob('plugins/deepseek-harness/test/*.test.mjs'))],check=True)\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/smoke_linux.py",
+          "conclusion": "skipped"
+        },
+        {
+          "name": "Post Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ],
+      "skip_reasons": [
+        "SKIPPED [1] tests\\test_change_journal.py:314: Non-Windows fallback only",
+        "SKIPPED [2] tests\\test_databases.py:222: Isolated engine fixture not configured",
+        "SKIPPED [2] tests\\test_databases.py:268: Set explicit isolated test database config to run service onboarding",
+        "SKIPPED [1] tests\\test_product_workflows.py:310: The active environment has no installed console launcher",
+        "SKIPPED [1] tests\\test_service_schedules.py:219: Process TZ control is POSIX-only"
+      ],
+      "log_sha256": "a5291bd76eb63081a62a8adc0427d3a4f807eb2d766a52132484796bbcd5aa93"
+    },
+    {
+      "name": "test (ubuntu-24.04)",
+      "conclusion": "success",
+      "started_at": "2026-10-05T15:18:48Z",
+      "completed_at": "2026-10-05T15:21:22Z",
+      "python": {
+        "passed": 668,
+        "skipped": 42,
+        "seconds": 54.08
+      },
+      "node": {
+        "tests": 97,
+        "pass": 92,
+        "fail": 0,
+        "skipped": 5
+      },
+      "steps": [
+        {
+          "name": "Set up job",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pip install -e \".[dev]\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -m pytest -q -rs",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python -c \"import glob,subprocess; subprocess.run(['node','--test',*sorted(glob.glob('plugins/deepseek-harness/test/*.test.mjs'))],check=True)\"",
+          "conclusion": "success"
+        },
+        {
+          "name": "Run python scripts/smoke_linux.py",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065",
+          "conclusion": "success"
+        },
+        {
+          "name": "Post Run actions/checkout@11d5960a326750d5838078e36cf38b85af677262",
+          "conclusion": "success"
+        },
+        {
+          "name": "Complete job",
+          "conclusion": "success"
+        }
+      ],
+      "skip_reasons": [
+        "SKIPPED [1] tests/test_bootstrap_preflight.py:70: Windows bootstrap installer",
+        "SKIPPED [2] tests/test_bootstrap_preflight.py:79: Windows bootstrap installer",
+        "SKIPPED [1] tests/test_bootstrap_preflight.py:94: Windows bootstrap installer",
+        "SKIPPED [1] tests/test_bootstrap_preflight.py:108: Windows bootstrap installer",
+        "SKIPPED [1] tests/test_bootstrap_preflight.py:117: Windows bootstrap installer",
+        "SKIPPED [1] tests/test_credentials.py:14: Windows Credential Manager requires a real Windows login",
+        "SKIPPED [1] tests/test_database_ui.py:51: Real Tk dialog smoke runs on the validated Windows host",
+        "SKIPPED [1] tests/test_database_ui.py:91: Real Tk dialog smoke runs on the validated Windows host",
+        "SKIPPED [2] tests/test_databases.py:222: Isolated engine fixture not configured",
+        "SKIPPED [2] tests/test_databases.py:268: Set explicit isolated test database config to run service onboarding",
+        "SKIPPED [3] tests/test_default_documents.py:145: Windows installer parameter forwarding",
+        "SKIPPED [2] tests/test_packaging.py:90: No X display is configured for Tk",
+        "SKIPPED [1] tests/test_packaging.py:132: No X display is configured for Tk",
+        "SKIPPED [1] tests/test_product_ui.py:59: Tk workflow acceptance uses the validated Windows host",
+        "SKIPPED [1] tests/test_product_ui.py:118: Tk workflow acceptance uses the validated Windows host",
+        "SKIPPED [1] tests/test_product_ui.py:153: Tk workflow acceptance uses the validated Windows host",
+        "SKIPPED [1] tests/test_product_ui.py:172: Tk workflow acceptance uses the validated Windows host",
+        "SKIPPED [1] tests/test_product_ui.py:197: Tk workflow acceptance uses the validated Windows host",
+        "SKIPPED [1] tests/test_product_ui.py:217: Tk workflow acceptance uses the validated Windows host",
+        "SKIPPED [2] tests/test_product_ui.py:235: Tk workflow acceptance uses the validated Windows host",
+        "SKIPPED [1] tests/test_product_workflows.py:302: Windows installer continuation",
+        "SKIPPED [1] tests/test_resources.py:26: Windows Job Object integration",
+        "SKIPPED [1] tests/test_resources.py:58: Windows kill-on-job-close integration",
+        "SKIPPED [1] tests/test_runtime_use.py:177: Windows executable locking",
+        "SKIPPED [1] tests/test_service.py:111: Windows read handles deny delete sharing",
+        "SKIPPED [1] tests/test_service_schedules.py:239: Checks the actual Windows lock primitive",
+        "SKIPPED [1] tests/test_service_schedules.py:261: Checks Windows COM missing-task exit status",
+        "SKIPPED [1] tests/test_service_schedules.py:396: Checks actual schtasks XML decoding",
+        "SKIPPED [2] tests/test_settings_revisions.py:54: No X display is configured for Tk",
+        "SKIPPED [1] tests/test_settings_revisions.py:75: No X display is configured for Tk",
+        "SKIPPED [1] tests/test_settings_revisions.py:91: No X display is configured for Tk",
+        "SKIPPED [1] tests/test_uninstall_schedules.py:11: Windows uninstaller admission",
+        "SKIPPED [1] tests/test_uninstall_schedules.py:33: Windows uninstaller admission",
+        "SKIPPED [1] tests/test_upgrade_lifecycle.py:163: Windows directory rename sharing rules"
+      ],
+      "log_sha256": "5c6c7f90e837cde92586c4e389bc0b7de5d0a42674c2a944a6b8c8f9ae315b13",
+      "linux_install_smoke": {
+        "ok": true,
+        "platform": "linux",
+        "python": "3.11.16",
+        "cases": [
+          "headless_install",
+          "no_model_basic",
+          "repeat_preserves_config",
+          "diagnose",
+          "paused_refresh",
+          "export",
+          "index_relocation",
+          "preserve_uninstall",
+          "reinstall_keeps_stopped",
+          "manual_restart",
+          "delete_managed_only"
+        ],
+        "user_files_accessed": false,
+        "autostart_tested": false,
+        "semantic_model_tested": false
+      }
+    }
+  ],
+  "earlier_failed_run": {
+    "run_id": 37331185172,
+    "source_commit": "c0b42eb9ee730eb5c1aafc6b0485108019071dd7",
+    "ubuntu": "668 passed, 42 skipped, 1 teardown error",
+    "cause": "The daemon listener had already stopped, but the fixture sent a redundant stop while its thread was finishing cleanup. The fixture now waits and only accepts the request failure if the thread actually exits. Engine-closed and background-error assertions remain. Product/runtime code did not change."
+  }
+}

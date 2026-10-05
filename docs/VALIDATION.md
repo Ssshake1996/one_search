@@ -7,7 +7,28 @@
 - [本机完整回归](validation/tests-v0.7.0.json)：Python 704 通过、6 跳过；Node 97 通过。跳过项为平台条件或未配置的隔离数据库，不计为通过。
 - [浏览器验证](validation/web-performance-v0.7.0.json)：真实 Chromium/React 在桌面和 390px 窄屏检查资源编辑、性能展示、暂停、强停、断线及旧后台兼容，无控制台错误和横向溢出。后台数据明确模拟，不等同于实际 DSH E2E。
 
-发行包、真实 DSH 生命周期和跨平台 CI 的结果在候选验收后补充；以上测试不能代替这些验收。
+## 发行包与实际 DSH
+
+[candidate-1 安装包验收](validation/release-v0.7.0.json)对 Windows 原生和 Python 3.11 Bootstrap ZIP 分别核对 2800 / 215 个文件及 44 项源码摘要，然后从包中实际安装和检索，约 136 秒完成。原生包另通过暂停/恢复、重装保留配置和索引、停止后重装不拉起、强停后拒绝自动启动、明确启动恢复，以及中文/空格路径下禁用系统任务的 COM 回读与卸载清理。默认 Documents 只检查系统目录，不扫描用户资料。两个测试后台与禁用任务均已清理。
+
+[实际 DSH 原生包验收](validation/service-controls-native-v0.7.0.json)使用本机官方 DeepSeek Harness `0.2.0-rc.2`、独立 profiles、真实认证 Web RPC 和 MCP。双 profile 各恢复 11 个工具及真实关键词检索；主动停止后轮询和新开 profile 不会重新启动；明确启动能够恢复；身份核对后的合成 daemon 异常退出触发真实退避及恢复；强停保持停止。真实 Windows once task 于 `2026-10-06 00:22:56 +09:00` 到期，记录 `00:22:57 / started`，随后恢复双 profile 的 MCP 检索。最终复核合成任务和进程均为 0。
+
+本机 DSH 已由先前的 `0.1.5-rc.1` 更新至 `0.2.0-rc.2`。旧验收 adapter 从 CLI 中匹配生成文件名，在新版启动前失败；[v070 adapter](../scripts/acceptance/v070/README.md)依据本机实际源码改用 `lib/profile-boot.js`，复用原有生命周期断言。失败记录保留，没有通过模拟宿主绕过验收，也没有改动用户实际 DSH 配置。
+
+候选 runtime 来自提交 `c0b42eb9ee730eb5c1aafc6b0485108019071dd7`。最终归档补入公开记录和已实际运行的验收脚本后，再核对文件树、逐文件校验和、已验收 exe/wheel 及安装器/插件字节不变。候选 ZIP 的摘要不是最终 Release 摘要；下载以 `SHA256SUMS.txt` 为准。
+
+## 跨平台回归与限制
+
+[GitHub Actions 37331786846](https://github.com/Ssshake1996/one_search/actions/runs/37331786846)在提交 `ddcd48de3f4e3be90e05715bd37bfaac2adb7449` 的两个平台均通过，[结构化记录](validation/ci-v0.7.0.json)保留步骤、跳过原因及前次失败：
+
+| 平台 | Python | Node |
+|---|---|---|
+| Windows CI | 703 通过，7 跳过 | 97 通过 |
+| Ubuntu 24.04 | 668 通过，42 跳过 | 92 通过，5 跳过 |
+
+Ubuntu 还通过真实无界面安装、暂停期显式刷新、索引迁移、保留数据卸载、重装保持停止及手动恢复。首次 Ubuntu CI 暴露测试清理竞争：监听器已退出但线程尚在清理，fixture 再次停止请求失败。修正仅在确认线程退出后接受这个重复停止失败，并保留后台无异常及已关闭断言；相关 Windows 测试 31 项通过，随后两平台完整 CI 通过。该提交只修正测试，产品代码与已冻结 runtime 源码一致。
+
+实际语义与大批正文使用不同合成语料，分别报告；浏览器截图使用模拟后台。物理 8GB 电脑、几百 GB 真实资料、远端用户安装、跨机检索、Linux 用户 systemd 实际任务触发，以及旧版到新版的多 profile 完整升级尚未在本轮实机验收。没有将这些边界计入通过项。
 
 ---
 

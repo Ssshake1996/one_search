@@ -30,5 +30,13 @@
   "limitations": [
     "Local source tests; release archive and actual DSH acceptance are separate",
     "External MySQL/PostgreSQL instances were not configured for this run"
-  ]
+  ],
+  "additional_validation": {
+    "service_fixture_cleanup": {
+      "passed": 31,
+      "seconds": 10.01,
+      "command": "python -m pytest tests/test_service.py -q",
+      "reason": "CI exposed a teardown race after a test had already stopped the daemon. Cleanup now accepts a failed redundant stop only after verifying the daemon thread has exited; assertions for closed engine and no background errors remain."
+    }
+  }
 }

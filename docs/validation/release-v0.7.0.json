@@ -1,0 +1,433 @@
+{
+  "schema_version": 1,
+  "version": "0.7.0",
+  "status": "passed",
+  "started_at": "2026-10-05T15:17:42.108823+00:00",
+  "finished_at": "2026-10-05T15:19:57.985509+00:00",
+  "synthetic_only": true,
+  "real_machine_scan_performed": false,
+  "user_documents_init_only": true,
+  "autostart_registered": false,
+  "semantic_models_downloaded": false,
+  "enabled_os_tasks_created": 0,
+  "disabled_os_tasks_created": 1,
+  "linux_installation_tested": false,
+  "assets": [
+    {
+      "name": "data_search-0.7.0-py3-none-any.whl",
+      "bytes": 198202,
+      "sha256": "1daa28a8b068ba6f7a174376dd1601f0803c42cd376c7b057b2c954844686d29"
+    },
+    {
+      "name": "one-search-0.7.0-windows-amd64-native.manifest.json",
+      "bytes": 5115,
+      "sha256": "5968e2a65850f9b717f1e943f71ca8700883ea4dde563527c68012fdafbf9284"
+    },
+    {
+      "name": "one-search-0.7.0-windows-amd64-native.zip",
+      "bytes": 75200770,
+      "sha256": "3a12f8b8d8a2fa54553335b09da017203b7291a4b9789826122eb8e9a73c7eb8"
+    },
+    {
+      "name": "one-search-0.7.0-windows-amd64-py311-bootstrap.manifest.json",
+      "bytes": 7954,
+      "sha256": "ad2318dc07af0cc7fb76d66a6edf72f1fa7020f4dcfb435588a509b76e582b1a"
+    },
+    {
+      "name": "one-search-0.7.0-windows-amd64-py311-bootstrap.zip",
+      "bytes": 70120066,
+      "sha256": "2168c69d6f3532a1ed65313df1ec0382b8be20554587d91349d21f2f98567be7"
+    }
+  ],
+  "archives": [
+    {
+      "archive": "one-search-0.7.0-windows-amd64-native.zip",
+      "kind": "windows-native",
+      "all_file_checksums": true,
+      "checked_files": 2800,
+      "manifest_and_versions": true,
+      "default_scope": "documents",
+      "source_hashes_match_working_tree": true,
+      "source_hashes_match_HEAD": true,
+      "frozen_build_payload_unchanged": true,
+      "source_files": 44,
+      "payload_sha256": "9303823488ff88f4608a2d7b01e2d6e601fe4f5dc81e31f7aeab05e090f9c58d"
+    },
+    {
+      "archive": "one-search-0.7.0-windows-amd64-py311-bootstrap.zip",
+      "kind": "python-bootstrap",
+      "all_file_checksums": true,
+      "checked_files": 215,
+      "manifest_and_versions": true,
+      "default_scope": "documents",
+      "source_hashes_match_working_tree": true,
+      "source_hashes_match_HEAD": true,
+      "frozen_build_payload_unchanged": true,
+      "source_files": 44,
+      "payload_sha256": "1daa28a8b068ba6f7a174376dd1601f0803c42cd376c7b057b2c954844686d29"
+    }
+  ],
+  "installations": [
+    {
+      "kind": "windows-native",
+      "status": "passed",
+      "real_installation": true,
+      "basic_search_ready": true,
+      "autostart": "none",
+      "semantic_enabled": false,
+      "cached_result_id": "d:1",
+      "pause_resume": {
+        "settled_state": "paused",
+        "background_activity": {
+          "scan": false,
+          "embedding": false,
+          "vector_build": false
+        },
+        "cached_search_works_while_paused": true,
+        "added_file_not_discovered_while_paused": true,
+        "added_content_not_indexed_while_paused": true,
+        "restart_changes_service_identity": true,
+        "pause_survives_restart": true,
+        "absolute_pause_deadline_preserved": true,
+        "resume_indexes_added_file": true,
+        "resumed_result_id": "d:2"
+      },
+      "reinstall": {
+        "saved_config_byte_identical": true,
+        "broader_root_argument_ignored": true,
+        "instance_identity_preserved": true,
+        "document_identity_preserved": true,
+        "existing_results_retained": true
+      },
+      "reinstall_while_stopped": {
+        "stop_intent_byte_identical": true,
+        "no_daemon_launched": true,
+        "installation_ok_without_claiming_search_ready": true
+      },
+      "service_control": {
+        "force_stop_completes": true,
+        "forced_intent_persisted": true,
+        "automatic_start_preserves_stop_revision": true,
+        "automatic_start_creates_no_daemon": true,
+        "explicit_start_recovers_existing_results": true
+      },
+      "web_bridge": {
+        "passed": true,
+        "transport": "real Node createWebBridge to installed native daemon",
+        "full_dsh_host_tested": false,
+        "status_pause_state": "running",
+        "pause_response_state": "paused",
+        "settled_pause_state": "paused",
+        "resume_response_state": "running",
+        "stopped_service_error": "service_state_missing",
+        "actionable_retry_details": true,
+        "restart_recovers_status": true,
+        "backend_token_excluded": true
+      },
+      "uninstall": {
+        "disabled_system_task_registered_and_verified": true,
+        "registered_unicode_launcher_path_verified_via_COM": true,
+        "system_task_removed_by_uninstaller": true,
+        "application_removed": true,
+        "configuration_byte_identical": true,
+        "index_preserved": true,
+        "indexed_rows_unchanged": true,
+        "stop_intent_persisted": true,
+        "no_enabled_task_created": true
+      }
+    },
+    {
+      "kind": "python-bootstrap",
+      "status": "passed",
+      "real_installation": true,
+      "basic_search_ready": true,
+      "autostart": "none",
+      "semantic_enabled": false,
+      "cached_result_id": "d:1"
+    }
+  ],
+  "cleanup": [
+    {
+      "kind": "python-bootstrap",
+      "own_service_stopped": true
+    },
+    {
+      "kind": "windows-native",
+      "own_service_stopped": true,
+      "application_already_uninstalled": true
+    },
+    {
+      "kind": "own_disabled_scheduled_task",
+      "removed": true
+    }
+  ],
+  "runtime_source_commit": "c0b42eb9ee730eb5c1aafc6b0485108019071dd7",
+  "duration_seconds": 135.877,
+  "platform": {
+    "system": "Windows",
+    "version": "10.0.22631",
+    "machine": "AMD64"
+  },
+  "method": "Actual native and Python-bootstrap installations from candidate-1 archives into isolated synthetic directories. Native app and data paths contain Chinese characters and spaces. No model download or login autostart; real Node WebBridge, pause/reinstall/stop controls and disabled Windows task COM readback/uninstall. Real full DSH acceptance is recorded separately.",
+  "archive_stage": "Candidate after runtime freeze. Final archives may contain refreshed public docs and an independently run acceptance harness. The accepted exe, wheel, installer and plugin bytes must remain unchanged.",
+  "init_defaults": {
+    "scope": "directories",
+    "matches_system_documents": true,
+    "explicit_machine_preserved": true,
+    "no_daemon_started": true,
+    "no_index_created": true
+  },
+  "commands": [
+    {
+      "label": "system-documents",
+      "returncode": 0,
+      "seconds": 0.141
+    },
+    {
+      "label": "native-init-default-documents",
+      "returncode": 0,
+      "seconds": 0.5
+    },
+    {
+      "label": "native-init-explicit-machine",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-install",
+      "returncode": 0,
+      "seconds": 26.187
+    },
+    {
+      "label": "windows-native-version",
+      "returncode": 0,
+      "seconds": 0.156
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.141
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-status",
+      "returncode": 0,
+      "seconds": 0.14
+    },
+    {
+      "label": "windows-native-pause",
+      "returncode": 0,
+      "seconds": 0.141
+    },
+    {
+      "label": "windows-native-status",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-scan",
+      "returncode": 0,
+      "seconds": 0.141
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.14
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.141
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-stop",
+      "returncode": 0,
+      "seconds": 0.344
+    },
+    {
+      "label": "windows-native-start",
+      "returncode": 0,
+      "seconds": 0.453
+    },
+    {
+      "label": "windows-native-status",
+      "returncode": 0,
+      "seconds": 0.156
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.141
+    },
+    {
+      "label": "windows-native-resume",
+      "returncode": 0,
+      "seconds": 0.14
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.14
+    },
+    {
+      "label": "windows-native-status",
+      "returncode": 0,
+      "seconds": 0.157
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "native-reinstall",
+      "returncode": 0,
+      "seconds": 20.422
+    },
+    {
+      "label": "windows-native-status",
+      "returncode": 0,
+      "seconds": 0.156
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.14
+    },
+    {
+      "label": "windows-native-stop",
+      "returncode": 0,
+      "seconds": 0.344
+    },
+    {
+      "label": "native-reinstall-while-stopped",
+      "returncode": 0,
+      "seconds": 20.125
+    },
+    {
+      "label": "windows-native-start",
+      "returncode": 0,
+      "seconds": 0.453
+    },
+    {
+      "label": "windows-native-force-stop",
+      "returncode": 0,
+      "seconds": 0.172
+    },
+    {
+      "label": "windows-native-start",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "windows-native-start",
+      "returncode": 0,
+      "seconds": 0.453
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.141
+    },
+    {
+      "label": "windows-native-search",
+      "returncode": 0,
+      "seconds": 0.125
+    },
+    {
+      "label": "native-real-node-web-bridge",
+      "returncode": 0,
+      "seconds": 4.265
+    },
+    {
+      "label": "native-schedules_get",
+      "returncode": 0,
+      "seconds": 0.156
+    },
+    {
+      "label": "native-schedule_save",
+      "returncode": 0,
+      "seconds": 0.219
+    },
+    {
+      "label": "native-disabled-task-proof",
+      "returncode": 0,
+      "seconds": 0.031
+    },
+    {
+      "label": "native-registered-unicode-task-action",
+      "returncode": 0,
+      "seconds": 0.235
+    },
+    {
+      "label": "native-uninstall-clears-disabled-task",
+      "returncode": 0,
+      "seconds": 3.047
+    },
+    {
+      "label": "native-task-removed-proof",
+      "returncode": 1,
+      "seconds": 0.032
+    },
+    {
+      "label": "python-bootstrap-install",
+      "returncode": 0,
+      "seconds": 37.484
+    },
+    {
+      "label": "python-bootstrap-version",
+      "returncode": 0,
+      "seconds": 0.219
+    },
+    {
+      "label": "python-bootstrap-search",
+      "returncode": 0,
+      "seconds": 0.203
+    },
+    {
+      "label": "python-bootstrap-cleanup-stop",
+      "returncode": 0,
+      "seconds": 0.406
+    },
+    {
+      "label": "own-disabled-task-cleanup-check",
+      "returncode": 1,
+      "seconds": 0.015
+    }
+  ],
+  "raw_report_sha256": "1cabc588b55e9cd50175f9013f45b99b0c3bea5bf27f4f9cfff29297d7682b22"
+}

@@ -1,0 +1,855 @@
+{
+  "schema_version": 1,
+  "tested_at_utc": "2026-10-05T15:21:21.192971+00:00",
+  "mode": "native",
+  "fixture": ".packaging-smoke\\service-v060-v070-native-02",
+  "host_cli_version": "0.2.0-rc.2",
+  "synthetic_only": true,
+  "default_dsh_profile_modified": false,
+  "model_requests": 0,
+  "enabled_os_tasks_created": 1,
+  "checks": {
+    "initial_profiles": {
+      "profiles": 2,
+      "tools_per_profile": 11,
+      "real_mcp_search": true
+    },
+    "normal_stop": {
+      "seconds": 8,
+      "samples": 16,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "new_profile_after_stop": {
+      "seconds": 8,
+      "samples": 16,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "manual_restart": {
+      "both_profiles_tools_restored": true,
+      "real_mcp_search": true
+    },
+    "unexpected_exit": {
+      "killed_pid": 56816,
+      "service_id": "15d6fed7fb35c81f3d15f2d226d0793f",
+      "process_identity_verified": true,
+      "recovered_automatically": true,
+      "real_mcp_search": true,
+      "observed_reconnect_samples": [
+        {
+          "profile": "a",
+          "observed_at": 1791213722.3226721,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213722.4808784,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213722.6389084,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213722.6429083,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213722.7977226,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213722.8017232,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213722.955745,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213722.9597452,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213723.1137197,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213723.117719,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213723.275066,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213723.281287,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213723.4362037,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213723.4402032,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213723.5941305,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213723.5981297,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213723.7523265,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213723.7563255,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213723.912378,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213723.9160066,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213724.0695534,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213724.0735528,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213724.2289314,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.459,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213724.2353277,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213724.3903399,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213724.39434,
+          "state": "waiting",
+          "attempt": 1,
+          "next_retry_at": 1791213723.738,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213724.5491896,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213724.5531905,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213724.709187,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213724.7121868,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213724.8669314,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213724.8704345,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213725.024239,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213725.0272427,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213725.1826172,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213725.1856182,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213725.3395343,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213725.3435347,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213725.4994905,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213725.5024886,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213725.6569777,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213725.660977,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213725.8148875,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213725.8188891,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213725.9737928,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213725.978223,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213726.1352901,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213726.1402938,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213726.2945518,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213726.2975562,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213726.4517894,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213726.4558632,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213726.6099,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213726.6145597,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213726.7685316,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213726.7725332,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "offline"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213726.951542,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213726.957538,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213727.1110215,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213727.113022,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213727.2666423,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213727.269022,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213727.4228,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213727.4258008,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213727.578102,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213727.5811017,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213727.734047,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213727.7360516,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213727.8898883,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213727.891888,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213728.0694458,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213728.0756526,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213728.2295702,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213728.231576,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213728.3847284,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213728.3867288,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213728.5403466,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213728.5433445,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213728.6961036,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213728.6986337,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213728.8517349,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213728.8547382,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213729.034461,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213729.0379517,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "a",
+          "observed_at": 1791213729.1903157,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213729.1963146,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        },
+        {
+          "profile": "stopped-entrant",
+          "observed_at": 1791213729.352038,
+          "state": "starting",
+          "attempt": 1,
+          "next_retry_at": null,
+          "service_status": "running"
+        }
+      ],
+      "scope": "Real first retry and recovery; full delay progression and jitter bounds are covered by coordinator tests"
+    },
+    "forced_stop": {
+      "seconds": 12,
+      "samples": 24,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "offline_schedule_crud": {
+      "created": true,
+      "edited_from_second_profile": true,
+      "deleted": true,
+      "tasks_left": 0,
+      "enabled_tasks_created": 0,
+      "daemon_absent": true
+    },
+    "after_schedule_crud": {
+      "seconds": 3,
+      "samples": 6,
+      "tools_unregistered": true,
+      "daemon_absent": true,
+      "retry_disabled": true
+    },
+    "real_os_once_trigger": {
+      "scheduler": "windows-task-scheduler",
+      "requested_at": "2026-10-06T00:22:56+09:00",
+      "last_run_at": "2026-10-06T00:22:57+09:00",
+      "last_result": {
+        "status": "started"
+      },
+      "control_reason": "scheduled",
+      "both_profiles_tools_restored": true,
+      "real_mcp_search": true,
+      "task_deleted": true,
+      "direct_scheduled_start_command_used_by_harness": false
+    }
+  },
+  "source_commit": "ddcd48de3f4e3be90e05715bd37bfaac2adb7449",
+  "runtime_source_commit": "c0b42eb9ee730eb5c1aafc6b0485108019071dd7",
+  "plugin_hashes": {
+    "index.mjs": "022a5f3bf3965a87d4824ad7854967ea9c2799bf4709f7759c18b865adcb3e2f",
+    "bootstrap.mjs": "d4c54695e6495e8e240c56ec2c3c573f06215d838c267a9f0a02ca8218e9406a",
+    "upgrade-coordinator.mjs": "0c2110d6715652f4486c682f23f12add59438d9487f2e4dedea0b837c80b62aa",
+    "web-host.mjs": "5eb97a2b8bbae66547bf4e28cdc246ef3f6a9d955b1c7e1d0a883d82bf7b523c",
+    "service-control.mjs": "e7743ee4301a2c3fc77976e08978c0e795d14962f49477f7751f21eaea5e8c60"
+  },
+  "backend_source_hashes": {
+    "service.py": "42f6b2b4bcaca14e22321bba2999828584faa932bae5bc494aa8c2e6d58a5c16",
+    "service_control.py": "75fa87f27d02149422c53ce24e46dd82bcc75e1dd94361250c7b858f1f832705",
+    "service_schedules.py": "e6a40f0ff68aaf087be1fceee2e6ec3322dbf1e2f6bccd4ca9ddb35bbbdabdca",
+    "web_management.py": "f575bec19936890371b35ed0f2d4784c90e4b5b8ee27e1d2ae799c506cc39b29",
+    "cli.py": "17e1658c5b0542a237fabff186dd77bf7d54175c7573bd2a34253f6807c85a22"
+  },
+  "runtime_sha256": "9303823488ff88f4608a2d7b01e2d6e601fe4f5dc81e31f7aeab05e090f9c58d",
+  "acceptance_adapter": {
+    "controller": "scripts/acceptance/v060/verify_service_controls_v060.py",
+    "worker": "scripts/acceptance/v070/dsh_service_profile_v070.mjs",
+    "host_boot_entry": "lib/profile-boot.js",
+    "file_sha256": {
+      "scripts/acceptance/v070/dsh_service_profile_v070.mjs": "5fa89f1192ed4d747d4e7f7694800f2c94df8985a99fa4e89d5a89d30c16b699",
+      "scripts/acceptance/v070/verify_service_controls_v070.py": "dc3c898d139dceb95c0bcb33192a2f5293f1c6919eabcee0412b29f237342427",
+      "scripts/acceptance/v060/verify_service_controls_v060.py": "115c02594de146621f966cb0b5eaea8b39bd322cc45be41e7646f1eb3439f5d4",
+      "scripts/acceptance/v051/verify_upgrade_v051.py": "946bd82af51583b3506574ce372fb766f2b0b0cda25fdffc4e39c356938bb46d"
+    }
+  },
+  "schedule_busy_read_retries": 1,
+  "passed": true,
+  "unverified": [
+    "No LLM/model request or real user data is included",
+    "Task validation, weekly calendar timing and once-task timezone conversion are covered separately by scheduler tests",
+    "This is Windows Task Scheduler acceptance; real Linux systemd timer execution is not exercised here"
+  ],
+  "cleaned_up": true,
+  "native_package": "one-search-0.7.0-windows-amd64-native (candidate-1)",
+  "path_coverage": {
+    "runtime_directory": "运行时 space",
+    "data_directory": "数据 space",
+    "dsh_home": "ASCII fixture path",
+    "non_ascii_and_spaces_runtime_and_config": true
+  },
+  "earlier_runs": [
+    {
+      "fixture": ".packaging-smoke\\service-v060-v070-native",
+      "tested_at_utc": "2026-10-05T15:17:53.098000+00:00",
+      "host_cli_version": "0.2.0-rc.2",
+      "runtime_source_commit": "c0b42eb9ee730eb5c1aafc6b0485108019071dd7",
+      "runtime_sha256": "9303823488ff88f4608a2d7b01e2d6e601fe4f5dc81e31f7aeab05e090f9c58d",
+      "passed": false,
+      "checks": {},
+      "enabled_os_tasks_created": 0,
+      "failure": {
+        "type": "AssertionError",
+        "message": "{'event': 'failed', 'error': {'name': 'AssertionError', 'message': 'Installed DSH boot adapter changed'}}"
+      },
+      "reason": "The v0.6 acceptance worker expected a dynamic hashed import in DSH bin.js; DSH 0.2.0-rc.2 provides lib/profile-boot.js. No product behavior was tested by the failed attempt.",
+      "fix": "Use the shipped profile-boot.js entry from a v0.7 acceptance worker; retain the v0.6 lifecycle controller and v0.5.1 process support unchanged.",
+      "cleaned_up": true,
+      "original_report_sha256": "0a9ba5964ed5e7d356c23d13660a621f244bec18a7a56ae7fc6acc84dfd04ba8"
+    }
+  ],
+  "post_cleanup_verification": {
+    "checked_at_utc": "2026-10-05T15:24:28.008043+00:00",
+    "fixture_scheduled_task_prefix": "one-search-5f4af2722172-",
+    "scheduled_task_count": 0,
+    "fixture_process_count": 0,
+    "methods": [
+      "Get-ScheduledTask scoped to the fixture scheduler prefix",
+      "psutil process command lines scoped to the exact fixture path"
+    ]
+  },
+  "boundaries": [
+    "Only synthetic Windows fixtures were used; no default DSH profile or real user-file scope was changed.",
+    "DSH homes used ASCII fixture paths; DSH_HOME paths containing spaces were not exercised.",
+    "No product code or frozen candidate package was changed to adapt the acceptance worker."
+  ]
+}
