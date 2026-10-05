@@ -69,7 +69,14 @@ def daemon(tmp_path):
         yield config, engine, state
     finally:
         if thread.is_alive():
-            _call_state(state, "_stop", {})
+            try:
+                _call_state(state, "_stop", {})
+            except ServiceError:
+                # A test may have already stopped the listener while its
+                # daemon thread is finishing cleanup. Accept only proven exit.
+                thread.join(5)
+                if thread.is_alive():
+                    raise
         thread.join(5)
         assert not thread.is_alive()
         assert not errors
