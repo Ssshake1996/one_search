@@ -158,6 +158,94 @@ test('overview distinguishes unknown discovery total, stale/error states and que
   assert.equal(all(tree, node => node.type === 'progress' || node.props.role === 'progressbar').length, 0);
   status.index.progress.error_summary.scan_errors.count = 2;
   assert.match(textOf(Overview({ status, run() {}, busy: false })), /需要关注/);
+  status.index.progress.error_summary.scan_errors.count = 0;
+  status.index.progress.error_summary.semantic_error = 'worker_timeout';
+  assert.match(textOf(Overview({ status, run() {}, busy: false })), /语义计算需要关注/);
+  assert.match(textOf(Overview({ status, run() {}, busy: false })), /错误码：worker_timeout/);
+  status.index.progress.semantic.enabled = false;
+  assert.doesNotMatch(textOf(Overview({ status, run() {}, busy: false })), /错误码：worker_timeout/);
+});
+
+test('performance displays measured throughput and queue age while keeping overlapping timers distinct', () => {
+  const React = { createElement: element, Fragment: 'fragment' };
+  const { Performance } = load(React).plugin.__testing;
+  const performance = { schema_version: 1, uptime_seconds: 90,
+    throughput: { files_per_second: 12.345, window_seconds: 60 },
+    queue: { oldest_seconds: 125, pending_files: 48, recent_files: 3 },
+    stages: { parse: { seconds: 140, calls: 12, active: 2 }, write: { seconds: 0, calls: 0, active: 0 }, embedding: { seconds: 5, calls: 2, active: 1 } },
+    last_batch: { files: 8, seconds: 1.2, workers: 2 } };
+  const tree = Performance({ performance });
+  const metrics = all(tree, node => node.type?.name === 'Metric');
+  assert.equal(metrics[0].props.value, '12.35 文件/秒');
+  assert.equal(metrics[1].props.value, '2 分 5 秒');
+  assert.match(metrics[1].props.note, /待处理 48 · 新增或修改 3/);
+  assert.match(textOf(tree), /解析 2 分 20 秒/);
+  assert.match(textOf(tree), /写入 0 秒/);
+  assert.match(textOf(tree), /2 项进行中/);
+  assert.match(textOf(tree), /并行工作可能重叠/);
+  assert.match(textOf(tree), /最近一批：8 个文件 · 1.2 秒 · 2 个解析进程/);
+  assert.equal(all(tree, node => node.type === 'progress' || node.props.role === 'progressbar').length, 0);
+});
+
+test('missing performance is unavailable rather than zero throughput or a completed stage', () => {
+  const { Performance, duration } = load({ createElement: element }).plugin.__testing;
+  assert.match(textOf(Performance({})), /尚未提供性能指标/);
+  assert.match(textOf(Performance({ performance: { schema_version: 99 } })), /尚未提供性能指标/);
+  assert.equal(duration(null), '—'); assert.equal(duration(Infinity), '—'); assert.equal(duration(-1), '—');
+  assert.equal(duration(0), '0 秒'); assert.equal(duration(7260), '2 小时 1 分');
+  const tree = Performance({ performance: { schema_version: 1, throughput: {}, queue: {}, stages: {} } });
+  assert.ok(all(tree, node => node.type?.name === 'Metric').every(node => node.props.value === '—'));
+});
+
+test('resource status distinguishes configured ceilings, effective admission and actual RSS', () => {
+  const { Resources } = load({ createElement: element, Fragment: 'fragment' }).plugin.__testing;
+  const resource = { budget_mode: 'adaptive', memory_mb: 4096, workers: 4, memory_fraction: .2, reserve_fraction: .125 };
+  const props = { values: { preset: 'balanced', runtime_policy: {}, resource }, update() {}, settings: {},
+    status: { index: { resources: { rss_mb: 380, available_mb: 6000, system_cpu_percent: 20,
+      configured_budget: resource, effective_budget: { budget_mode: 'adaptive', memory_limit_mb: 1600, parser_workers: 2, batch_files: 16, system_reserve_mb: 1000, reason: 'memory_capacity' } } } } };
+  const tree = Resources(props), metrics = all(tree, node => node.type?.name === 'Metric');
+  assert.equal(metrics.find(node => node.props.title === '实际内存 RSS').props.value, '380 MiB');
+  assert.equal(metrics.find(node => node.props.title === '当前有效内存预算').props.value, '1,600 MiB');
+  assert.match(metrics.find(node => node.props.title === '当前有效内存预算').props.note, /4,096 MiB/);
+  assert.match(textOf(tree), /当前允许 2 个解析进程/);
+  assert.match(textOf(tree), /可用内存限制了并发/);
+  assert.match(textOf(tree), /预算不是占用目标/);
+  assert.equal(resource.memory_mb, 4096);
+});
+
+test('resource presets update editable bounds and percent fields serialize as fractions', () => {
+  const { Resources } = load({ createElement: element, Fragment: 'fragment' }).plugin.__testing;
+  const writes = [], values = { preset: 'balanced', runtime_policy: {}, resource: { budget_mode: 'fixed', memory_mb: 1024, workers: 1, memory_fraction: .2, reserve_fraction: .125 } };
+  const tree = Resources({ values, update: (...args) => writes.push(args), status: {}, settings: {} });
+  all(tree, node => node.props.name === 'one-search-preset')[2].props.onChange();
+  const updated = writes.find(([key]) => key === 'resource')[1];
+  assert.deepEqual(JSON.parse(JSON.stringify(updated)), { budget_mode: 'adaptive', memory_mb: 8192, workers: 8, memory_fraction: .25, reserve_fraction: .125 });
+  const field = all(tree, node => node.props.title === '最多使用总内存（%）')[0];
+  assert.equal(field.children[0].props.value, 20); assert.equal(field.children[0].props.disabled, true);
+  field.children[0].props.onChange('25');
+  assert.equal(writes.at(-1)[1].memory_fraction, .25);
+  assert.equal(values.resource.memory_mb, 1024);
+});
+
+test('old balanced limits can explicitly adopt new balanced defaults without changing preset', () => {
+  const { Resources } = load({ createElement: element, Fragment: 'fragment' }).plugin.__testing;
+  const writes = [], values = { preset: 'balanced', runtime_policy: {}, resource: { budget_mode: 'fixed', memory_mb: 1024, workers: 1, memory_fraction: .2, reserve_fraction: .125 } };
+  const tree = Resources({ values, update: (...args) => writes.push(args), status: {}, settings: {} });
+  all(tree, node => node.props.onClick && textOf(node) === '应用此档位默认值')[0].props.onClick();
+  assert.equal(writes.find(([key]) => key === 'preset')[1], 'balanced');
+  assert.equal(writes.find(([key]) => key === 'resource')[1].budget_mode, 'adaptive');
+  assert.equal(writes.find(([key]) => key === 'resource')[1].memory_mb, 4096);
+  assert.equal(writes.find(([key]) => key === 'resource')[1].workers, 4);
+  assert.equal(values.resource.memory_mb, 1024); // Only the draft update is requested.
+});
+
+test('older resource settings remain editable without sending unsupported adaptive fields', () => {
+  const { Resources } = load({ createElement: element, Fragment: 'fragment' }).plugin.__testing;
+  const writes = [], tree = Resources({ values: { preset: 'balanced', runtime_policy: {} }, update: (...args) => writes.push(args), status: {}, settings: { resource: { memory_mb: 1024 } } });
+  assert.doesNotMatch(textOf(tree), /预算与并发上限/);
+  all(tree, node => node.props.name === 'one-search-preset')[0].props.onChange();
+  assert.ok(writes.every(([key]) => key !== 'resource'));
+  assert.equal(all(tree, node => node.type?.name === 'Metric' && node.props.title === '当前有效内存预算')[0].props.value, '—');
 });
 
 test('pause control works without progress and supports indefinite and timed pauses', async () => {

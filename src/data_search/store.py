@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from .model import MODEL_ID
@@ -68,6 +69,7 @@ class Store:
         self.path = Path(directory) / "index.sqlite3"
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self._transaction_id = 0
         self.db = sqlite3.connect(self.path, check_same_thread=False, timeout=5)
         self.db.row_factory = sqlite3.Row
         self.db.create_function('search_tokens', 1, lambda value: ' '.join(terms(value)), deterministic=True)
@@ -101,6 +103,19 @@ class Store:
         if not any(r[1] == 'semantic' for r in self.db.execute('PRAGMA table_info(chunks)')):
             self.db.execute('ALTER TABLE chunks ADD COLUMN semantic INTEGER NOT NULL DEFAULT 1')
             self.db.commit()
+        if not any(r[1] == 'ordinal' for r in self.db.execute('PRAGMA table_info(chunks)')):
+            with self.db:
+                self.db.execute('BEGIN IMMEDIATE')
+                self.db.execute('ALTER TABLE chunks ADD COLUMN ordinal INTEGER NOT NULL DEFAULT 0')
+                # Existing IDs already encode document order; no large rewrite is needed.
+                self.db.execute('UPDATE chunks SET ordinal=id')
+                self.db.execute('CREATE INDEX IF NOT EXISTS chunks_document_order ON chunks(doc_id,ordinal,id)')
+        for column in ('content_size', 'content_mtime_ns'):
+            if not any(r[1] == column for r in self.db.execute('PRAGMA table_info(documents)')):
+                with self.db:
+                    self.db.execute('BEGIN IMMEDIATE')
+                    self.db.execute('ALTER TABLE documents ADD COLUMN '+column+' INTEGER')
+                    self.db.execute('UPDATE documents SET '+column+'='+column.removeprefix('content_')+' WHERE indexed_at IS NOT NULL')
         # External-content FTS keeps just the inverted index, not a second copy
         # of Chinese unigram/bigram token text or file paths. Views reconstruct
         # tokens for rebuild/integrity checks from the canonical source rows.
@@ -242,14 +257,57 @@ class Store:
         return rows[0]['value'] if rows else default
 
     def set_setting(self, key: str, value: str):
-        with self.lock, self.db:
-            self.db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, value))
+        with self.lock:
+            owned = not self.db.in_transaction
+            try:
+                self.db.execute("INSERT OR REPLACE INTO settings VALUES(?,?)", (key, value))
+            except BaseException:
+                if owned:
+                    self.db.rollback()
+                raise
+            else:
+                if owned:
+                    self.db.commit()
+
+    @contextmanager
+    def transaction(self, *, join=False):
+        """A nested writer must never commit its caller's unfinished document."""
+        with self.lock:
+            # Helpers whose exceptions propagate to the document boundary can
+            # join it. Extra SQLite virtual-table savepoints flush FTS buffers.
+            if join and self.db.in_transaction:
+                yield
+                return
+            if not self.db.in_transaction:
+                self.db.execute('BEGIN')
+                try:
+                    yield
+                    self.db.commit()
+                except BaseException:
+                    self.db.rollback()
+                    raise
+                return
+            self._transaction_id += 1
+            name = 'write_' + str(self._transaction_id)
+            self.db.execute('SAVEPOINT '+name)
+            try:
+                yield
+            except BaseException:
+                self.db.execute('ROLLBACK TO '+name)
+                self.db.execute('RELEASE '+name)
+                raise
+            else:
+                self.db.execute('RELEASE '+name)
+
+    def cache_budget(self, megabytes):
+        with self.lock:
+            self.db.execute('PRAGMA cache_size=-'+str(max(8192, int(megabytes * 1024))))
 
     def clear_chunks(self, doc_id: int):
         self.db.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
 
     def remove(self, doc_ids: list[int]):
-        with self.lock, self.db:
+        with self.transaction():
             for doc_id in doc_ids:
                 self.clear_chunks(doc_id)
                 self.db.execute("DELETE FROM documents WHERE id=?", (doc_id,))

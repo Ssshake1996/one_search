@@ -1,0 +1,42 @@
+{
+  "scope": "Real Chromium browser rendering and interactions against a synthetic React fixture; no live DSH backend, OS service or user files",
+  "ui_source": "plugins/deepseek-harness/client.js",
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 900,
+      "horizontal_overflow": false
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "horizontal_overflow": false
+    }
+  ],
+  "console_errors": 0,
+  "checks": [
+    "Measured-contract throughput, oldest task wait and overlapping stage timing rendered",
+    "Actual RSS, effective budget and configured ceilings remain separate",
+    "Expanded adaptive controls fit narrow viewport",
+    "Editing 25 percent sends memory_fraction 0.25 and save acknowledgement renders",
+    "Old backend performance omission renders unavailable without removing service controls",
+    "Pause acknowledgement remains visible",
+    "Force stop requires confirmation and clears old performance display",
+    "Offline status clears current performance display and retains manual start",
+    "Only owned browser session and fixture server cleaned up"
+  ],
+  "screenshots": [
+    "../images/performance-v070-desktop.png",
+    "../images/performance-v070-narrow.png",
+    "../images/performance-v070-narrow-detail.png",
+    "../images/resources-v070-narrow.png"
+  ],
+  "limitations": [
+    "Synthetic values do not measure real index throughput",
+    "Fixture is not authenticated DSH integration",
+    "One initial Node CLI launch failed during V8 deserialization; child-only 256 MiB Node heap bound permitted subsequent validation; unrelated user processes untouched"
+  ],
+  "version": "0.7.0",
+  "backend_mocked": true,
+  "full_dsh_host_tested": false
+}

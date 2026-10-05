@@ -175,8 +175,8 @@ def test_event_arriving_during_processing_is_not_lost(tmp_path,monkeypatch):
     source.write_text('firstvalue')
     engine=Engine(config)
     original=engine._metadata_batch
-    def raced(records,seen):
-        original(records,seen)
+    def raced(records,seen,**kwargs):
+        original(records,seen,**kwargs)
         source.write_text('secondlongervalue')
         engine.catalog.enqueue_events([{'path':str(source)}])
     try:

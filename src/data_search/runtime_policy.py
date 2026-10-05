@@ -19,24 +19,27 @@ import psutil
 
 PRESETS = {
     "low": {
-        "resource": {"memory_mb": 768, "min_available_mb": 768, "worker_memory_mb": 512,
-                     "worker_cpu_percent": 15, "batch_sleep_ms": 100},
+        "resource": {"budget_mode": "adaptive", "memory_mb": 768, "memory_fraction": .10,
+                     "reserve_fraction": .15, "workers": 1, "min_available_mb": 768,
+                     "worker_memory_mb": 512, "worker_cpu_percent": 15, "batch_sleep_ms": 0},
         "scheduler": {"metadata_items_per_tick": 1000, "directories_per_tick": 32,
                       "files_per_tick": 8, "embedding_batches_per_tick": 1, "phase_seconds": .5,
                       "tick_seconds": 2},
         "semantic": {"threads": 1, "batch_size": 4, "idle_seconds": 60},
     },
     "balanced": {
-        "resource": {"memory_mb": 1024, "min_available_mb": 768, "worker_memory_mb": 512,
-                     "worker_cpu_percent": 25, "batch_sleep_ms": 50},
+        "resource": {"budget_mode": "adaptive", "memory_mb": 4096, "memory_fraction": .20,
+                     "reserve_fraction": .125, "workers": 4, "min_available_mb": 768,
+                     "worker_memory_mb": 512, "worker_cpu_percent": 25, "batch_sleep_ms": 0},
         "scheduler": {"metadata_items_per_tick": 2000, "directories_per_tick": 64,
                       "files_per_tick": 32, "embedding_batches_per_tick": 4, "phase_seconds": 2,
                       "tick_seconds": 1},
         "semantic": {"threads": 1, "batch_size": 8, "idle_seconds": 120},
     },
     "fast": {
-        "resource": {"memory_mb": 2048, "min_available_mb": 1024, "worker_memory_mb": 768,
-                     "worker_cpu_percent": 50, "batch_sleep_ms": 10},
+        "resource": {"budget_mode": "adaptive", "memory_mb": 8192, "memory_fraction": .25,
+                     "reserve_fraction": .125, "workers": 8, "min_available_mb": 1024,
+                     "worker_memory_mb": 768, "worker_cpu_percent": 50, "batch_sleep_ms": 0},
         "scheduler": {"metadata_items_per_tick": 4000, "directories_per_tick": 128,
                       "files_per_tick": 64, "embedding_batches_per_tick": 8, "phase_seconds": 3,
                       "tick_seconds": .5},
@@ -109,6 +112,7 @@ class RuntimePolicy:
         self._busy = False
         self._sample_at, self._sample_value = -float("inf"), {}
         self._last_tick, self._last_reason = -float("inf"), None
+        self._lane_ticks = {}
         self._state_warning = None
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
@@ -206,7 +210,7 @@ class RuntimePolicy:
                     "reason": "user_pause" if self._paused else self._last_reason,
                     "state_warning": self._state_warning, "sample": dict(self._sample_value)}
 
-    def decision(self, snapshot: dict | None = None) -> dict:
+    def decision(self, snapshot: dict | None = None, *, lane: str = 'indexing') -> dict:
         """Call once when deciding whether to start a background tick.
 
         Battery throttling reserves its allowed tick here. Status reads do not
@@ -251,7 +255,7 @@ class RuntimePolicy:
                     level = state.get("battery_percent")
                     if level is not None and level <= self.settings["battery_percent"]:
                         reason = "battery_low"
-                    elif moment - self._last_tick < self._tick_seconds * self.settings["battery_tick_multiplier"]:
+                    elif moment - (self._last_tick if lane == 'indexing' else self._lane_ticks.get(lane, -float('inf'))) < self._tick_seconds * self.settings["battery_tick_multiplier"]:
                         reason = "battery_saving"
                 if self.settings['idle_only'] and state.get('idle_seconds') is None:
                     self._state_warning = 'idle_detection_unavailable_policy_not_enforced'
@@ -259,7 +263,10 @@ class RuntimePolicy:
                     self._state_warning = None
             self._last_reason = reason
             if reason is None:
-                self._last_tick = moment
+                if lane == 'indexing':
+                    self._last_tick = moment
+                else:
+                    self._lane_ticks[lane] = moment
                 if self._foreground_until > moment:
                     # Continuous result polling cannot starve the catalog forever.
                     self._foreground_since = moment

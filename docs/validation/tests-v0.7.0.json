@@ -1,0 +1,34 @@
+{
+  "version": "0.7.0",
+  "platform": "Windows 10.0.22631 / Python 3.11.3",
+  "tested_at_utc": "2026-10-05T15:14:00.349066+00:00",
+  "source_sha256": "7a12255778b95272eed504bcd0786cca35b422b4351fed2923ce5c528f45fa9c",
+  "python": {
+    "passed": 704,
+    "skipped": 6,
+    "failed": 0,
+    "seconds": 241.73,
+    "command": "python -m pytest -q -rs",
+    "skip_reasons": [
+      "SKIPPED [1] tests\\test_change_journal.py:314: Non-Windows fallback only",
+      "SKIPPED [2] tests\\test_databases.py:222: Isolated engine fixture not configured",
+      "SKIPPED [2] tests\\test_databases.py:268: Set explicit isolated test database config to run service onboarding",
+      "SKIPPED [1] tests\\test_service_schedules.py:219: Process TZ control is POSIX-only"
+    ]
+  },
+  "node": {
+    "passed": 97,
+    "skipped": 0,
+    "failed": 0,
+    "seconds": 1.766,
+    "command": "node --test plugins/deepseek-harness/test/*.test.mjs"
+  },
+  "log_sha256": {
+    "pytest-v070-final.log": "56bad6be5cabe416200d4f4b197714ffb0cc811bde2dca41a6292eb58d189205",
+    "node-v070-final.log": "84a8116269bfb3cc84f41174402beaaa1eb61c5f506e257ad2c663a9eebef541"
+  },
+  "limitations": [
+    "Local source tests; release archive and actual DSH acceptance are separate",
+    "External MySQL/PostgreSQL instances were not configured for this run"
+  ]
+}

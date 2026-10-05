@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.7.0
+
+- Adds bounded parallel file extraction, adaptive memory/CPU/backlog admission, separate parser/model/ANN CPU placement and demand-driven SQLite/result buffers. New balanced installations allow up to 4 GiB / 4 parser workers; old configurations retain their fixed ceilings until users apply a new preset.
+- Replaces per-file fixed sleeps with batch admission, prioritizes changed files while reserving progress for initial discovery, coalesces save events, and reconciles directory changes locally. Idle NTFS journal polling no longer waits the full fallback scan interval.
+- Publishes complete file revisions transactionally, reuses unchanged chunks and embeddings, preserves chunk IDs and document order, and labels the previous content snapshot stale during refresh. Interrupted writes keep the durable queue and previously committed content.
+- Runs semantic work independently of discovery/content processing and coalesces ANN publication by batch, deadline or completed queues. Pause, cancellation, persistent stop, upgrade and restart recovery remain supported.
+- Optimizes text extraction and uses bounded XML streaming for large Office parts. Large Word parsing trades some single-file speed for lower memory; measured format-specific and end-to-end results are reported separately.
+- DSH Web reports measured stage times, throughput, queue age, configured/effective budgets, actual RSS, concurrency and limiting reasons, with editable adaptive limits and old-backend fallback.
+
 ## 0.6.0
 
 - DSH Web adds manual start, persistent stop and verified force-stop controls, separate from pause/resume indexing. Every automatic launcher and MCP bridge observes the durable stop intent; only a manual start or due enabled startup task clears it. Reinstall and native upgrade preserve this intent.

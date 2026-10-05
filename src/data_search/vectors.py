@@ -31,6 +31,8 @@ class Vectors:
         self.reader = self.generation = self.reader_path = None
         self.last_sync = None
         self.lock = threading.RLock()
+        self.build_lock = threading.Lock()
+        self.cancelled = threading.Event()
         self.worker = None
         self.building = False
         self.local_io = local_io
@@ -87,6 +89,7 @@ class Vectors:
             self.readers.clear()
 
     def cancel(self):
+        self.cancelled.set()
         if self.worker:
             self.worker.cancel()
 
@@ -191,6 +194,12 @@ class Vectors:
             connection.close()
 
     def sync(self, cancelled=None, *, isolated=None):
+        external_cancelled = cancelled
+        cancelled = lambda: self.cancelled.is_set() or bool(external_cancelled and external_cancelled())
+        if cancelled():
+            raise ResourceLimit('indexing_paused_or_stopping')
+        if not self.build_lock.acquire(blocking=False):
+            return
         if isolated is None:
             isolated = hasattr(self.budget, 'config')
         self.building = True
@@ -198,7 +207,7 @@ class Vectors:
             if isolated:
                 from .workers import Worker
                 if self.worker is None:
-                    self.worker = Worker(self.budget)
+                    self.worker = Worker(self.budget, role='vectors')
                 try:
                     self.last_sync = self.worker.request({'method': 'vector_sync', 'config': self.budget.config},
                                                         timeout=3600, cancelled=cancelled)
@@ -208,11 +217,15 @@ class Vectors:
                 self._build(cancelled)
         finally:
             self.building = False
+            self.build_lock.release()
 
     def _read_connection(self, *, catalog=False):
         connection = sqlite3.connect(self.store.path.as_uri() + '?mode=ro', uri=True, timeout=5, isolation_level=None)
         connection.execute('PRAGMA temp_store=FILE')
-        connection.execute('PRAGMA cache_size=-4096')
+        cache = 4
+        if hasattr(self.budget, 'work_capacity'):
+            cache = max(4, min(64, self.budget.work_capacity()['sqlite_cache_mb'] // 4))
+        connection.execute('PRAGMA cache_size=-' + str(cache * 1024))
         if catalog:
             connection.execute('ATTACH DATABASE ? AS anncat', (str(self.catalog),))
         return connection

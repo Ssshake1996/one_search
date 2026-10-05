@@ -157,7 +157,7 @@ def context(engine, id, before=1, after=2):
         doc = engine.fetch(id,limit=1)['document']
         doc_id = int(doc['document_id'].split(':')[1])
         anchor = int(id.split(':')[1]) if id.startswith('c:') else None
-        rank = engine.store.rows('SELECT count(*) n FROM chunks WHERE doc_id=? AND id<?', (doc_id,anchor))[0]['n'] if anchor else 0
+        rank = engine.store.rows('SELECT count(*) n FROM chunks WHERE doc_id=? AND ordinal<(SELECT ordinal FROM chunks WHERE id=?)', (doc_id,anchor))[0]['n'] if anchor else 0
         start = max(0,rank-before)
         result = engine.fetch(doc['document_id'],offset=start,limit=rank-start+after+1)
         result['citation'] = cite(doc)
@@ -198,7 +198,7 @@ def group_evidence(engine, results, fold=False):
     groups, output = {}, []
     for hit in results:
         doc_id = int(hit['document_id'].split(':')[1])
-        hashes = engine.store.rows('SELECT hash FROM chunks WHERE doc_id=? ORDER BY id LIMIT 20001', (doc_id,))
+        hashes = engine.store.rows('SELECT hash FROM chunks WHERE doc_id=? ORDER BY ordinal,id LIMIT 20001', (doc_id,))
         digest = hashlib.sha256(''.join(r['hash'] for r in hashes).encode()).hexdigest() if hashes and len(hashes)<=20000 and hit['status']=='ready' and not hit['stale'] else None
         hit['duplicate_basis'] = 'complete_extracted_text_in_returned_candidates' if digest else None
         hit['content_group'] = digest

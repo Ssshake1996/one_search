@@ -31,6 +31,7 @@ TLS_KEYS = frozenset(('ca', 'cert', 'key', 'check_hostname', 'verify_mode',
                      'sslmode', 'sslrootcert', 'sslcert', 'sslkey'))
 VALUE_KEYS = frozenset(('scope', 'roots', 'exclude_paths', 'exclude_names',
     'semantic_enabled', 'indexing', 'runtime_policy', 'databases', 'preset'))
+RESOURCE_KEYS = frozenset(('budget_mode', 'memory_mb', 'workers', 'memory_fraction', 'reserve_fraction'))
 ACTION_FIELDS = {
     'settings_get': set(), 'settings_preview': {'revision', 'values'},
     'settings_save': {'revision', 'values'}, 'db_discover': {'source'},
@@ -88,6 +89,7 @@ def snapshot(config_path):
     values = {key: deepcopy(current[key]) for key in ('scope', 'roots', 'exclude_paths',
                                                      'exclude_names', 'indexing', 'runtime_policy')}
     values.update(semantic_enabled=current['semantic']['enabled'],
+                  resource={key: current['resource'][key] for key in RESOURCE_KEYS},
                   databases=[_public_source(source) for source in current['databases']],
                   preset=current['runtime_policy']['preset'])
     try:
@@ -107,7 +109,7 @@ def _candidate(path, params):
     if revision != settings_revision(path):
         raise ManagementError('revision_conflict', '设置已更新，请重新读取。')
     values = params.get('values')
-    if not isinstance(values, dict) or set(values) != VALUE_KEYS:
+    if not isinstance(values, dict) or set(values) not in (VALUE_KEYS, VALUE_KEYS | {'resource'}):
         raise ManagementError('invalid_settings', '请提交完整的设置表单，不支持修改内部路径或运行命令。')
     if not isinstance(values['semantic_enabled'], bool):
         raise ManagementError('invalid_settings', '语义索引开关必须为布尔值。')
@@ -116,10 +118,15 @@ def _candidate(path, params):
     if not isinstance(values['indexing'], dict) or set(values['indexing']) - set(current['indexing']):
         raise ManagementError('invalid_settings', '正文和语义范围设置无效。')
     clean = deepcopy(values)
+    if 'resource' in values and (not isinstance(values['resource'], dict) or set(values['resource']) - RESOURCE_KEYS):
+        raise ManagementError('invalid_settings', '资源设置只允许预算模式、内存上限、并发和系统保留比例。')
     clean['databases'] = [_source(source, current) for source in values['databases']]
     clean['runtime_policy'] = validate_policy({**values['runtime_policy'], 'preset': values['preset']})
     base = (apply_preset(current, values['preset'])
             if values['preset'] != current['runtime_policy']['preset'] else current)
+    if (values['preset'] != current['runtime_policy']['preset'] and clean.get('resource') ==
+            {key: current['resource'][key] for key in RESOURCE_KEYS}):
+        clean.pop('resource', None)
     candidate = settings_config(base, clean)
     return revision, current, candidate
 

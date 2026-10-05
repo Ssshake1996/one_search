@@ -93,6 +93,66 @@ def test_preset_changes_budget_without_scope_change(configured, monkeypatch):
     assert load_config(configured)['resource']['memory_mb'] == 913
 
 
+def test_resource_form_roundtrips_only_editable_budget_fields(configured, monkeypatch):
+    params = edit(configured)
+    assert set(params['values']['resource']) == {
+        'budget_mode', 'memory_mb', 'workers', 'memory_fraction', 'reserve_fraction'}
+    resource = {'budget_mode': 'adaptive', 'memory_mb': 6144, 'workers': 6,
+                'memory_fraction': .3, 'reserve_fraction': .15}
+    params['values']['resource'] = resource
+    before = load_config(configured)
+    def apply(path, current, candidate, tested, **kwargs):
+        atomic_json(path, candidate)
+    monkeypatch.setattr(web, 'activate_settings', apply)
+    result = request(configured, 'settings_save', params)
+    assert result['ok'], result
+    assert result['result']['values']['resource'] == resource
+    after = load_config(configured)
+    assert after['resource']['worker_memory_mb'] == before['resource']['worker_memory_mb']
+    assert after['resource']['max_disk_mb'] == before['resource']['max_disk_mb']
+    assert after['custom_internal_value'] == before['custom_internal_value']
+
+
+@pytest.mark.parametrize('key,value', [
+    ('budget_mode', 'fill_all_memory'), ('memory_mb', 0), ('memory_mb', True),
+    ('workers', 0), ('workers', 9), ('workers', True), ('workers', 1.5),
+    ('memory_fraction', 0), ('memory_fraction', .51), ('memory_fraction', True),
+    ('reserve_fraction', -.1), ('reserve_fraction', .51),
+    ('worker_memory_mb', 99999), ('command', 'private-untrusted-command'),
+])
+def test_invalid_resource_form_never_activates_or_changes_config(configured, monkeypatch, key, value):
+    params = edit(configured)
+    params['values']['resource'][key] = value
+    before = configured.read_bytes()
+    monkeypatch.setattr(web, 'activate_settings', lambda *a, **k: pytest.fail('invalid resources must not activate'))
+    result = request(configured, 'settings_save', params)
+    assert result['ok'] is False
+    assert configured.read_bytes() == before
+    assert 'private-untrusted-command' not in json.dumps(result)
+
+
+def test_old_resource_form_preserves_limits_until_preset_explicitly_changes(configured):
+    params = edit(configured)
+    params['values'].pop('resource')
+    _, _, unchanged = web._candidate(configured, params)
+    assert unchanged['resource']['memory_mb'] == 913
+    params['values']['preset'] = 'fast'
+    _, _, changed = web._candidate(configured, params)
+    assert changed['resource']['budget_mode'] == 'adaptive'
+    assert changed['resource']['memory_mb'] == 8192
+    assert changed['resource']['workers'] == 8
+
+
+def test_preset_keeps_explicitly_edited_budget_override(configured):
+    params = edit(configured)
+    params['values']['preset'] = 'fast'
+    params['values']['resource'].update(memory_mb=3072, workers=3)
+    _, _, candidate = web._candidate(configured, params)
+    assert candidate['resource']['memory_mb'] == 3072
+    assert candidate['resource']['workers'] == 3
+    assert candidate['resource']['worker_cpu_percent'] == 50
+
+
 def test_changed_database_preflight_failure_prevents_save(configured, monkeypatch):
     params = edit(configured)
     params['values']['databases'] = [{'id': 'missing', 'kind': 'sqlite', 'path': 'absent.sqlite', 'allowed_tables': []}]

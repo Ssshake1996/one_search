@@ -131,9 +131,12 @@ def test_docx_body_tables_and_no_fake_page_locator(tmp_path):
     assert_contract(result)
 
 
-def test_xlsx_formula_cache_cells_and_sheet_names(tmp_path):
+@pytest.mark.parametrize("stream_xml", [False, True])
+def test_xlsx_formula_cache_cells_and_sheet_names(tmp_path, monkeypatch, stream_xml):
     from openpyxl import Workbook
 
+    if stream_xml:
+        monkeypatch.setattr("data_search.extractors._STREAM_XML_BYTES", 0)
     path = tmp_path / "data.xlsx"
     book = Workbook()
     sheet = book.active
@@ -271,9 +274,12 @@ def test_archive_expansion_and_xml_entity_budgets(tmp_path):
     assert "DTDForbidden" in result["reason"]
 
 
-def test_office_character_limit_reports_partial(tmp_path):
+@pytest.mark.parametrize("stream_xml", [False, True])
+def test_office_character_limit_reports_partial(tmp_path, monkeypatch, stream_xml):
     from docx import Document
 
+    if stream_xml:
+        monkeypatch.setattr("data_search.extractors._STREAM_XML_BYTES", 0)
     path = tmp_path / "long.docx"
     document = Document()
     document.add_paragraph("中文内容" * 1000)
@@ -282,6 +288,7 @@ def test_office_character_limit_reports_partial(tmp_path):
     assert result["status"] == "partial"
     assert len(content(result)) == 500
     assert_contract(result, 500)
+    path.unlink()  # A truncated streaming parse must release its ZIP reader.
 
 
 def test_non_supported_format_and_bad_budget(tmp_path):
@@ -298,3 +305,142 @@ def test_binary_disguised_as_text_is_rejected(tmp_path):
     # It is structurally possible UTF-16, so a BOM is needed before accepting
     # this ambiguous all-control-character sample as a text file.
     assert result["status"] == "error"
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-8-sig", "utf-16", "utf-32", "gb18030"])
+def test_text_block_chunk_and_line_boundaries_match_normalized_source(tmp_path, encoding):
+    path = tmp_path / "boundaries.txt"
+    # Both byte decoding and 1,200-character chunks split Chinese and CRLF.
+    source = ("中" * 1199 + "\r\n" + "a" * 8191 + "\r" + "末尾\n") * 4 + "\r"
+    path.write_bytes(source.encode(encoding))
+    expected = source.replace("\r\n", "\n").replace("\r", "\n")
+    result = extract(str(path))
+    assert result["status"] == "ready"
+    assert content(result) == expected
+    offset = 0
+    for chunk in result["chunks"]:
+        text = expected[offset:offset + CHUNK_CHARS]
+        start = 1 + expected[:offset].count("\n")
+        assert chunk == {"text": text, "locator": {
+            "line_start": start,
+            "line_end": start + text.count("\n") - int(text.endswith("\n")),
+        }}
+        offset += len(text)
+
+
+def test_small_text_reads_source_once(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    path = tmp_path / "small.txt"
+    payload = ("中文资料\n" * 100).encode("utf-8")
+    path.write_bytes(payload)
+    original = Path.open
+    counts = {"opens": 0, "bytes": 0}
+
+    class CountedStream:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            self.stream.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.stream.__exit__(*args)
+
+        def read(self, size=-1):
+            result = self.stream.read(size)
+            counts["bytes"] += len(result)
+            return result
+
+        def seek(self, offset):
+            return self.stream.seek(offset)
+
+    def counted_open(target, *args, **kwargs):
+        stream = original(target, *args, **kwargs)
+        if target == path:
+            counts["opens"] += 1
+            return CountedStream(stream)
+        return stream
+
+    monkeypatch.setattr(Path, "open", counted_open)
+    result = extract(str(path))
+    assert result["status"] == "ready"
+    assert content(result).encode("utf-8") == payload
+    assert counts == {"opens": 1, "bytes": len(payload)}
+
+
+def test_docx_streaming_preserves_block_order_and_nested_table_locators(tmp_path, monkeypatch):
+    monkeypatch.setattr("data_search.extractors._STREAM_XML_BYTES", 0)
+    path = tmp_path / "nested.docx"
+    body = (
+        '<w:p><w:r><w:t>first</w:t><w:tab/><w:t>tab</w:t><w:br/><w:t>line</w:t></w:r></w:p>'
+        '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>table</w:t></w:r></w:p>'
+        '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>nested</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+        '</w:tc></w:tr></w:tbl>'
+        '<w:sdt><w:sdtContent><w:p><w:r><w:t>wrapped</w:t></w:r></w:p></w:sdtContent></w:sdt>'
+        '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>second table</w:t></w:r></w:p></w:tc></w:tr></w:tbl>'
+    )
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("word/document.xml", f'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}</w:body></w:document>')
+    result = extract(str(path))
+    assert result["status"] == "ready"
+    assert result["chunks"] == [
+        {"text": "first\ttab\nline", "locator": {"paragraph": 1}},
+        {"text": "table", "locator": {"paragraph": 2, "table": 1}},
+        {"text": "nested", "locator": {"paragraph": 3, "table": 1}},
+        {"text": "wrapped", "locator": {"paragraph": 4}},
+        {"text": "second table", "locator": {"paragraph": 5, "table": 2}},
+    ]
+
+
+def test_xlsx_streaming_keeps_shared_rich_text_and_cell_order(tmp_path, monkeypatch):
+    monkeypatch.setattr("data_search.extractors._STREAM_XML_BYTES", 0)
+    path = tmp_path / "shared.xlsx"
+    ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"'
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("xl/workbook.xml", f'<workbook {ns} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Sheet" r:id="one"/></sheets></workbook>')
+        archive.writestr("xl/_rels/workbook.xml.rels", '<Relationships><Relationship Id="one" Target="worksheets/sheet1.xml"/></Relationships>')
+        archive.writestr("xl/sharedStrings.xml", f'<sst {ns}><si><r><t>中文</t></r><r><t>资料</t></r></si><si><t>second</t></si></sst>')
+        rows = ''.join(f'<row r="{i}"><c r="A{i}" t="s"><v>{i % 2}</v></c><c r="B{i}" t="inlineStr"><is><r><t>inline</t></r><r><t>{i}</t></r></is></c></row>' for i in range(1, 301))
+        archive.writestr("xl/worksheets/sheet1.xml", f'<worksheet {ns}><sheetData>{rows}</sheetData></worksheet>')
+    result = extract(str(path))
+    assert result["status"] == "ready"
+    assert len(result["chunks"]) == 601
+    assert result["chunks"][1] == {"text": "second", "locator": {"sheet": "Sheet", "cells": "A1"}}
+    assert result["chunks"][3]["text"] == "中文资料"
+    assert result["chunks"][-1] == {"text": "inline300", "locator": {"sheet": "Sheet", "cells": "B300"}}
+
+
+def test_streaming_archive_counts_decompressed_bytes_across_members(tmp_path, monkeypatch):
+    from data_search.extractors import _Archive, _Limit
+
+    monkeypatch.setattr("data_search.extractors._STREAM_XML_BYTES", 0)
+    path = tmp_path / "budget.docx"
+    xml = '<root><item>value</item></root>'
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("one.xml", xml)
+        archive.writestr("two.xml", xml)
+    archive = _Archive(path, 100)
+    try:
+        archive.budget = len(xml) * 2 - 1
+        assert [element.text for element in archive.elements("one.xml", "item")] == ["value"]
+        with pytest.raises(_Limit, match="archive_expansion_limit"):
+            list(archive.elements("two.xml", "item"))
+    finally:
+        archive.close()
+
+
+@pytest.mark.parametrize("suffix,member,xml", [
+    ("docx", "word/document.xml", '<!DOCTYPE document [<!ENTITY x "secret">]><document><body><p>&x;</p></body></document>'),
+    ("xlsx", "xl/sharedStrings.xml", '<!DOCTYPE sst [<!ENTITY x "secret">]><sst><si>&x;</si></sst>'),
+])
+def test_streaming_xml_keeps_dtd_rejection(tmp_path, suffix, member, xml, monkeypatch):
+    monkeypatch.setattr("data_search.extractors._STREAM_XML_BYTES", 0)
+    path = tmp_path / f"entity.{suffix}"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(member, xml)
+    result = extract(str(path))
+    assert result["status"] == "error"
+    assert "DTDForbidden" in result["reason"]
+    assert result["chunks"] == []

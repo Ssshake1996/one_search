@@ -3,6 +3,13 @@
 This is a real DSH bundle (`dsh.bundle.patch` + Cordis plugin), using the official
 `@deepseek-ai/dsh-mcp-client` bridge. It is separate from the Codex plugin shell.
 
+Version 0.7.0 adds content-index performance metrics and adaptive resource
+controls to the Web panel. Existing configurations retain their previous fixed
+limits. To adopt the new balanced limits, open Resources, select Balanced,
+apply that preset's defaults, preview, and save. The panel reports actual
+backend/child RSS separately from the configured ceiling and effective budget;
+it does not count the shared DSH host. See the [performance guide](../../docs/INDEXING-PERFORMANCE.md).
+
 ## Install from an extracted one_search release
 
 Keep the complete release directory until first activation finishes. In its root:

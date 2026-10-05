@@ -21,6 +21,7 @@ class FileCatalog:
     def __init__(self, engine):
         self.engine, self.store = engine, engine.store
         self.iterator = self.current = None
+        self.parse_round = 0
         with self.store.lock:
             self.store.db.executescript("""
                 CREATE TABLE IF NOT EXISTS file_scan_roots(
@@ -42,14 +43,21 @@ class FileCatalog:
                 self.store.db.execute('ALTER TABLE file_events ADD COLUMN version INTEGER NOT NULL DEFAULT 1')
                 self.store.db.commit()
             for table, column, declaration in [('file_work','priority','INTEGER NOT NULL DEFAULT 0'),
+                    ('file_work','enqueued_at','REAL NOT NULL DEFAULT 0'),
+                    ('file_events','available_at','REAL NOT NULL DEFAULT 0'),
+                    ('file_events','first_at','REAL NOT NULL DEFAULT 0'),
                     ('file_scan_dirs','priority','INTEGER NOT NULL DEFAULT 0'),
                     ('file_scan_roots','scan_kind',"TEXT NOT NULL DEFAULT 'full'")]:
                 if not any(row[1]==column for row in self.store.db.execute('PRAGMA table_info('+table+')')):
                     self.store.db.execute('ALTER TABLE '+table+' ADD COLUMN '+column+' '+declaration)
             self.store.db.commit()
+            with self.store.db:
+                self.store.db.execute('UPDATE file_work SET enqueued_at=? WHERE enqueued_at=0', (time.time(),))
+                self.store.db.execute("CREATE TRIGGER IF NOT EXISTS file_work_timestamp AFTER INSERT ON file_work "
+                    "WHEN new.enqueued_at=0 BEGIN UPDATE file_work SET enqueued_at=strftime('%s','now') WHERE doc_id=new.doc_id; END")
             # Existing v0.2 unfinished documents enter the durable queue once.
             with self.store.db:
-                self.store.db.execute("INSERT OR IGNORE INTO file_work(doc_id) SELECT id FROM documents "
+                self.store.db.execute("INSERT OR IGNORE INTO file_work(doc_id,enqueued_at) SELECT id,strftime('%s','now') FROM documents "
                     "WHERE source_id='files' AND (status IN ('pending','error') OR (status='budget' AND reason<>'file_size_limit'))")
                 self.store.db.execute("INSERT OR REPLACE INTO settings VALUES('file_queue_version','1')")
         self.restrict()
@@ -69,7 +77,7 @@ class FileCatalog:
             for row in rows:
                 if row['source_id']=='files' and row['chunking_version']<3 and row['status'] in {'ready','partial'}:
                     self.store.db.execute("UPDATE documents SET status='pending' WHERE id=?",(row['id'],))
-                    self.store.db.execute('INSERT OR IGNORE INTO file_work(doc_id) VALUES(?)',(row['id'],))
+                    self.store.db.execute('INSERT OR IGNORE INTO file_work(doc_id,enqueued_at) VALUES(?,?)',(row['id'],time.time()))
             state.update(after=rows[-1]['id'] if rows else state['after'],done=len(rows)<batch)
             self.store.db.execute("UPDATE settings SET value=? WHERE key='file_chunking_migration'",(json.dumps(state),))
         self.engine.budget.note_write(len(rows)*4096)
@@ -109,7 +117,7 @@ class FileCatalog:
     def active(self):
         return bool(self.store.rows("SELECT 1 FROM file_scan_roots WHERE phase<>'done' LIMIT 1"))
 
-    def enqueue_events(self, events, *, state_key=None, state=None, reconcile=False):
+    def enqueue_events(self, events, *, state_key=None, state=None, reconcile=False, debounce=False):
         """A journal cursor is never committed without its durable events."""
         self.engine.budget.check(disk=True,reserve_mb=.016+len(events)*.004)
         with self.store.lock, self.store.db:
@@ -118,9 +126,12 @@ class FileCatalog:
                 # A durable reconciliation request is the overflow recovery
                 # contract, including when a journal cursor advances here.
                 events, reconcile = [], True
-            self.store.db.executemany('INSERT INTO file_events(path,directory) VALUES(?,?) '
-                'ON CONFLICT(path) DO UPDATE SET directory=max(directory,excluded.directory),version=version+1',
-                [(str(event['path']),int(event.get('is_directory',False))) for event in events if event.get('path')])
+            moment = time.time()
+            self.store.db.executemany('INSERT INTO file_events(path,directory,first_at,available_at) VALUES(?,?,?,?) '
+                'ON CONFLICT(path) DO UPDATE SET directory=max(directory,excluded.directory),version=version+1,'
+                'available_at=min(excluded.available_at,first_at+3)',
+                [(str(event['path']),int(event.get('is_directory',False)),moment,moment+.5 if debounce else 0)
+                 for event in events if event.get('path')])
             if reconcile:
                 self.store.db.execute("INSERT OR REPLACE INTO settings VALUES('file_reconcile_requested','true')")
             if state_key and state is not None:
@@ -264,8 +275,8 @@ class FileCatalog:
 
     def process_events(self):
         settings = self.engine.config['scheduler']
-        rows = self.store.rows('SELECT path,directory,version FROM file_events ORDER BY rowid LIMIT ?',
-                               (settings['metadata_batch_size'],))
+        rows = self.store.rows('SELECT path,directory,version FROM file_events WHERE available_at<=? ORDER BY rowid LIMIT ?',
+                               (time.time(),settings['metadata_batch_size']))
         if not rows:
             return
         records = []
@@ -277,7 +288,12 @@ class FileCatalog:
             if not self.engine.allowed(path):
                 continue
             if row['directory']:
-                self.enqueue_events([],reconcile=True)
+                # Renames/deletions reconcile the surviving parent; unrelated roots keep progressing.
+                target = path if path.is_dir() else path.parent
+                if self.engine.allowed(target):
+                    self.prioritize_directory(target)
+                else:
+                    self.enqueue_events([],reconcile=True)
                 continue
             # The current file wins over queued rename/delete history when a path is reused.
             try:
@@ -290,7 +306,7 @@ class FileCatalog:
             except OSError as error:
                 self.engine._file_error(path,type(error).__name__)
                 self.enqueue_events([],reconcile=True)
-        self.engine._metadata_batch(records,seen)
+        self.engine._metadata_batch(records,seen,priority=True)
         with self.store.lock, self.store.db:
             self.store.db.executemany('DELETE FROM file_events WHERE path=? AND version=?',
                                      [(row['path'],row['version']) for row in rows])
@@ -298,39 +314,48 @@ class FileCatalog:
     def parse(self):
         settings = self.engine.config['scheduler']
         deadline = time.monotonic() + settings['phase_seconds']
-        rows = self.store.rows('SELECT d.*,w.attempts FROM file_work w JOIN documents d ON d.id=w.doc_id '
-            'WHERE w.available_at<=? ORDER BY w.priority DESC,w.available_at,w.doc_id LIMIT ?', (time.time(),settings['files_per_tick']))
+        remaining = settings['files_per_tick']
         processed = 0
-        for row in rows:
-            if self.engine.paused or self.engine.stop_event.is_set() or time.monotonic() >= deadline:
+        while remaining and time.monotonic() < deadline:
+            if self.engine._background_cancelled():
                 break
-            try:
-                self.engine._file(Path(row['path']),row['seen'])
-            except ResourceLimit as error:
-                if self.engine._indexing_interrupted(error):
-                    raise
-                # A post-extraction disk reservation can fail after expensive
-                # parser work. Persist backoff instead of repeating it each tick.
-                with self.store.lock,self.store.db:
-                    self.store.db.execute("UPDATE documents SET status='budget',reason=? WHERE id=?",
-                                          (str(error)[:200],row['id']))
-            except OSError as error:
-                self.engine._file_error(row['path'],type(error).__name__)
-                with self.store.lock,self.store.db:
-                    self.store.db.execute("UPDATE documents SET status='error',reason=? WHERE id=?",
-                                          (type(error).__name__,row['id']))
-            current = self.store.rows('SELECT status,reason FROM documents WHERE id=?',(row['id'],))
-            retry = bool(current and current[0]['status'] in {'pending','budget','error'} and
-                         current[0]['reason'] != 'file_size_limit')
-            with self.store.lock,self.store.db:
-                if retry:
-                    delay = min(3600, max(5,self.engine.config['scan_interval_seconds']) * 2**min(row['attempts'],4))
-                    self.store.db.execute('UPDATE file_work SET available_at=?,attempts=attempts+1 WHERE doc_id=?',
-                                          (time.time()+delay,row['id']))
-                else:
-                    self.store.db.execute('DELETE FROM file_work WHERE doc_id=?',(row['id'],))
-            processed += 1
+            pending = self.store.rows('SELECT count(*) n FROM file_work WHERE available_at<=?', (time.time(),))[0]['n']
+            if not pending:
+                break
+            capacity = self.engine.budget.work_capacity(pending)
+            self.store.cache_budget(capacity['sqlite_cache_mb'])
+            # Bound worst-case retained Unicode results, not merely compressed file sizes.
+            result_bytes = max(1, self.engine.config['extraction']['max_chars']) * 8
+            count = min(remaining, max(1, capacity['batch_files']), capacity['parser_workers']*2,
+                        max(1, capacity['batch_bytes']//result_bytes))
+            base = 'SELECT d.*,w.attempts FROM file_work w JOIN documents d ON d.id=w.doc_id WHERE w.available_at<=?'
+            due = time.time()
+            # Reserve a quarter for the oldest initial work. A stream of saves must not starve it.
+            self.parse_round += 1
+            old_quota = (int(self.parse_round % 4 == 0) if count == 1 else max(1, count//4))
+            old = self.store.rows(base+' AND w.priority=0 ORDER BY w.enqueued_at,w.doc_id LIMIT ?', (due, old_quota))
+            urgent = self.store.rows(base+' AND w.priority>0 ORDER BY w.enqueued_at,w.doc_id LIMIT ?', (due, count-len(old)))
+            rows = urgent + old
+            if len(rows) < count:
+                used = [r['id'] for r in rows]
+                clause = ' AND w.doc_id NOT IN ('+','.join('?' for _ in used)+')' if used else ''
+                rows += self.store.rows(base+clause+' ORDER BY w.priority DESC,w.enqueued_at,w.doc_id LIMIT ?', [due,*used,count-len(rows)])
+            if not rows:
+                break
+            completed = self.engine._parse_batch(rows, capacity, deadline=deadline)
+            processed += completed
+            remaining -= completed
+            delay = capacity['delay_seconds']
+            if delay:
+                with self.engine.telemetry.measure('wait'):
+                    self.engine.stop_event.wait(delay)
         return processed
+
+    def queue_metrics(self):
+        row = self.store.rows('SELECT count(*) pending_files,coalesce(sum(priority>0),0) recent_files,'
+                              'min(NULLIF(enqueued_at,0)) oldest FROM file_work')[0]
+        return {'pending_files': row['pending_files'], 'recent_files': row['recent_files'],
+                'oldest_seconds': max(0, time.time()-row['oldest']) if row['oldest'] else 0}
 
     def progress(self):
         roots = self.store.rows('SELECT * FROM file_scan_roots ORDER BY path')

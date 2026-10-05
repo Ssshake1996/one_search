@@ -16,6 +16,7 @@ dist/
 .demo-agent-validation/
 .packaging-smoke/
 output/playwright/
+.playwright-cli/
 
 # Local credentials and service state
 .env

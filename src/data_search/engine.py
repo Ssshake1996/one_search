@@ -17,6 +17,10 @@ from .scope import FileScope, link_directory
 from .store import Store, pack_vector, query_terms, text_hash
 from .vectors import Vectors
 from .workers import Worker
+from .workers import ParserPool
+from .telemetry import Telemetry
+from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict, deque
 from .catalog import FileCatalog
 from .product import file_identity
 from .search_filters import build_filters
@@ -38,7 +42,10 @@ class Engine:
         self.store = Store(config.get('index_dir', config['data_dir']), self.budget)
         self.instance_id = self.store.setting('instance_id') or str(uuid.uuid4())
         self.store.set_setting('instance_id', self.instance_id)
-        self.parser, self.model, self.database = [Worker(self.budget) for _ in range(3)]
+        self.telemetry = Telemetry()
+        self.parser = ParserPool(self.budget)
+        self.model = Worker(self.budget, role='model')
+        self.database = Worker(self.budget, role='database')
         self.vectors = Vectors(self.store, self.budget)
         self.vector_lock = threading.RLock()
         self.scan_lock = threading.Lock()
@@ -61,6 +68,14 @@ class Engine:
         self.observer = self.thread = None
         self.vector_thread = None
         self.vector_error = None
+        self.semantic_thread = None
+        self.semantic_active = False
+        self.semantic_error = None
+        self.semantic_lock = threading.Lock()
+        self._vector_publish_lock = threading.Lock()
+        self._vector_pending_chunks = 0
+        self._vector_pending_since = None
+        self._vector_last_launch = 0.0
         self.journals, self.journal_reports = {}, {}
         self._coverage_cache = None
         self._coverage_time = 0
@@ -120,8 +135,7 @@ class Engine:
                     if old['size']==size and old['mtime_ns']==mtime_ns:
                         continue
                     doc_id = old['id']
-                    self.store.clear_chunks(doc_id)
-                    self.store.db.execute("UPDATE documents SET size=?,mtime_ns=?,status='pending',reason=NULL,indexed_at=NULL WHERE id=?",
+                    self.store.db.execute("UPDATE documents SET size=?,mtime_ns=?,status='pending',reason=NULL WHERE id=?",
                                           (size,mtime_ns,doc_id))
                     changed = True
                 else:
@@ -130,11 +144,12 @@ class Engine:
                     doc_id = row.lastrowid
                     self.store.db.execute('UPDATE documents SET file_identity=? WHERE id=?',(identity,doc_id))
                 if not self._tier_allowed(p,'content'):
+                    self.store.clear_chunks(doc_id)
                     self.store.db.execute("UPDATE documents SET status='metadata',reason='content_scope_excluded' WHERE id=?",(doc_id,))
                     self.store.db.execute('DELETE FROM file_work WHERE doc_id=?',(doc_id,))
                     continue
-                self.store.db.execute('INSERT INTO file_work(doc_id,priority) VALUES(?,?) '
-                    'ON CONFLICT(doc_id) DO UPDATE SET available_at=0,attempts=0,priority=max(priority,excluded.priority)',(doc_id,int(priority)))
+                self.store.db.execute('INSERT INTO file_work(doc_id,priority,enqueued_at) VALUES(?,?,?) '
+                    'ON CONFLICT(doc_id) DO UPDATE SET available_at=0,attempts=0,priority=max(priority,excluded.priority)',(doc_id,int(priority),time.time()))
         self.budget.note_write(len(records)*4096)
         self._coverage_cache = None
         if changed:
@@ -257,91 +272,217 @@ class Engine:
         from .chunking import split_chunks
         document = self.store.rows('SELECT path,source_id FROM documents WHERE id=?', (doc_id,))[0]
         semantic = int(self._tier_allowed(document['path'] if document['source_id'] == 'files' else None, 'semantic'))
-        with self.vector_lock, self.store.lock, self.store.db:
-            self.store.clear_chunks(doc_id)
-            for chunk in split_chunks(chunks, max_chars=self.config['extraction']['max_chars']):
-                self.store.db.execute('INSERT INTO chunks(doc_id,text,hash,locator,semantic) VALUES(?,?,?,?,?)',
-                    (doc_id, chunk['text'], text_hash(chunk['text']), json.dumps(chunk['locator'], ensure_ascii=False), semantic))
-            self.store.db.execute('UPDATE documents SET chunking_version=3 WHERE id=?',(doc_id,))
-            self._changed()
+        counts = {'chunks_written': 0, 'chunks_reused': 0, 'chunks_removed': 0}
+        with self.vector_lock, self.store.transaction(join=True):
+            old = defaultdict(deque)
+            semantic_changed = False
+            for row in self.store.rows('SELECT id,hash,text,locator,ordinal,semantic FROM chunks WHERE doc_id=? ORDER BY ordinal,id', (doc_id,)):
+                old[row['hash']].append(row)
+            for ordinal, chunk in enumerate(split_chunks(chunks, max_chars=self.config['extraction']['max_chars'])):
+                digest = text_hash(chunk['text'])
+                locator = json.dumps(chunk['locator'], ensure_ascii=False)
+                previous = old[digest].popleft() if old[digest] else None
+                if previous and previous['text'] == chunk['text']:
+                    # Locator/order changes do not retokenize unchanged text or discard its vector.
+                    if previous['locator'] != locator or previous['ordinal'] != ordinal:
+                        self.store.db.execute('UPDATE chunks SET locator=?,ordinal=? WHERE id=?',
+                                              (locator, ordinal, previous['id']))
+                    if previous['semantic'] != semantic:
+                        self.store.db.execute('UPDATE chunks SET semantic=? WHERE id=?', (semantic, previous['id']))
+                        semantic_changed = True
+                    counts['chunks_reused'] += 1
+                else:
+                    if previous:
+                        self.store.db.execute('DELETE FROM chunks WHERE id=?', (previous['id'],))
+                        counts['chunks_removed'] += 1
+                    self.store.db.execute('INSERT INTO chunks(doc_id,text,hash,locator,semantic,ordinal) VALUES(?,?,?,?,?,?)',
+                        (doc_id, chunk['text'], digest, locator, semantic, ordinal))
+                    counts['chunks_written'] += 1
+            removed = [(row['id'],) for group in old.values() for row in group]
+            self.store.db.executemany('DELETE FROM chunks WHERE id=?', removed)
+            counts['chunks_removed'] += len(removed)
+            self.store.db.execute('UPDATE documents SET chunking_version=3 WHERE id=?', (doc_id,))
+            if counts['chunks_written'] or counts['chunks_removed'] or semantic_changed:
+                self._changed()
+        return counts
 
-    def _file(self, path: Path, seen: str, metadata_only=False, *, explicit=False):
+    def _prepare_file(self, path, seen, metadata_only=False, *, explicit=False):
         if self.stop_event.is_set() or (self.paused and not explicit):
             raise ResourceLimit('paused')
         if not self.allowed(path) or link_directory(path):
-            return
+            return None
         key = str(path.resolve())
         existing = self.store.rows('SELECT * FROM documents WHERE key=?', ('file:' + key,))
         if not path.exists():
             if existing:
                 self.store.remove([existing[0]['id']])
                 self._changed()
-            return
+            return None
         if not path.is_file():
-            return
+            return None
         stat = path.stat()
         identity = file_identity(stat)
-        if existing and (existing[0].get('file_identity') is None or existing[0]['file_identity'] != identity):
+        if existing and existing[0].get('file_identity') != identity:
             self.store.remove([existing[0]['id']])
             self._changed()
             existing = []
         self.budget.check(disk=True, reserve_mb=8)
-        preserve_old = False
-        with self.vector_lock, self.store.lock, self.store.db:
+        with self.store.transaction():
             if existing:
                 doc = existing[0]
                 self.store.db.execute('UPDATE documents SET seen=? WHERE id=?', (seen, doc['id']))
                 if doc['mtime_ns'] == stat.st_mtime_ns and doc['size'] == stat.st_size and doc['status'] not in {'pending','budget','error'}:
-                    return
+                    return None
                 doc_id = doc['id']
-                preserve_old = (doc['chunking_version']<3 and doc['mtime_ns']==stat.st_mtime_ns and doc['size']==stat.st_size)
-                if not preserve_old:
-                    self.store.clear_chunks(doc_id)
-                    self._changed()
-                self.store.db.execute('UPDATE documents SET size=?,mtime_ns=?,status=?,reason=NULL,'
-                                      'indexed_at=CASE WHEN ? THEN indexed_at ELSE NULL END WHERE id=?',
-                                      (stat.st_size, stat.st_mtime_ns, 'pending', preserve_old, doc_id))
+                self.store.db.execute("UPDATE documents SET size=?,mtime_ns=?,status='pending',reason=NULL WHERE id=?",
+                                      (stat.st_size, stat.st_mtime_ns, doc_id))
             else:
                 cursor = self.store.db.execute('INSERT INTO documents(key,source_id,path,name,extension,size,mtime_ns,status,seen) VALUES(?,?,?,?,?,?,?,?,?)',
                     ('file:'+key, 'files', key, path.name, path.suffix.lower(), stat.st_size, stat.st_mtime_ns, 'pending', seen))
                 doc_id = cursor.lastrowid
-            self.store.db.execute('UPDATE documents SET file_identity=? WHERE id=?',(identity,doc_id))
+            self.store.db.execute('UPDATE documents SET file_identity=? WHERE id=?', (identity, doc_id))
+            self.store.db.execute('INSERT INTO file_work(doc_id,priority,enqueued_at) VALUES(?,?,?) '
+                'ON CONFLICT(doc_id) DO NOTHING', (doc_id, int(explicit), time.time()))
         if metadata_only:
-            return
+            return None
+        result = None
         if not self._tier_allowed(path, 'content'):
-            with self.store.lock, self.store.db:
-                self.store.clear_chunks(doc_id)
-                self.store.db.execute("UPDATE documents SET status='metadata',reason='content_scope_excluded' WHERE id=?", (doc_id,))
-            return
-        status, reason, chunks = 'budget', 'file_size_limit', []
-        if stat.st_size <= self.config['extraction']['max_file_mb'] * 1048576:
+            result = {'status': 'metadata', 'reason': 'content_scope_excluded', 'chunks': []}
+        elif stat.st_size > self.config['extraction']['max_file_mb'] * 1048576:
+            result = {'status': 'budget', 'reason': 'file_size_limit', 'chunks': []}
+        return {'id': doc_id, 'path': key, 'size': stat.st_size, 'mtime_ns': stat.st_mtime_ns,
+                'identity': identity, 'explicit': explicit, 'result': result,
+                'was_indexed': bool(existing and existing[0]['indexed_at'])}
+
+    def _extract_file(self, job):
+        if job['result'] is not None:
+            return job['result']
+        with self.telemetry.measure('parse'):
             try:
-                result = self.parser.request({'method': 'extract', 'path': key,
+                return self.parser.request({'method': 'extract', 'path': job['path'],
                     'max_chars': self.config['extraction']['max_chars']}, self.config['extraction']['timeout_seconds'],
-                    cancelled=None if explicit else self._background_cancelled)
-                latest = path.stat()
-                if (latest.st_mtime_ns, latest.st_size) != (stat.st_mtime_ns, stat.st_size):
-                    result = {'status': 'pending', 'reason': 'changed_during_read', 'chunks': []}
-                status, reason, chunks = result['status'], result.get('reason'), result['chunks']
+                    cancelled=None if job['explicit'] else self._background_cancelled)
             except ResourceLimit as exc:
                 if self._indexing_interrupted(exc):
                     raise
-                status, reason = 'budget', str(exc)
+                return {'status': 'budget', 'reason': str(exc), 'chunks': []}
             except Exception as exc:
-                status, reason = 'error', type(exc).__name__
+                return {'status': 'error', 'reason': type(exc).__name__, 'chunks': []}
+
+    def _commit_file(self, job, result):
+        if self.stop_event.is_set() or (self.paused and not job['explicit']):
+            raise ResourceLimit('paused')
+        # Validate both metadata and OS file identity after parsing and before publication.
+        latest = Path(job['path']).stat()
+        if (latest.st_size, latest.st_mtime_ns, file_identity(latest)) != (job['size'], job['mtime_ns'], job['identity']):
+            result = {'status': 'pending', 'reason': 'changed_during_read', 'chunks': []}
+        chunks, status = result['chunks'], result['status']
+        write_bytes = sum(len(c['text'].encode('utf-8')) for c in chunks) * 8 + 4096
         if chunks:
-            self.budget.check(disk=True, reserve_mb=sum(len(c['text'].encode('utf-8')) for c in chunks)*8/1048576 + 4)
-            self._write_chunks(doc_id, chunks)
-            self.budget.note_write(sum(len(c['text'].encode('utf-8')) for c in chunks)*8 + 4096)
-        elif preserve_old and status not in {'pending','budget','error'}:
-            with self.vector_lock,self.store.lock,self.store.db:
-                self.store.clear_chunks(doc_id)
-                self.store.db.execute('UPDATE documents SET chunking_version=3 WHERE id=?',(doc_id,))
-                self._changed()
-        with self.store.lock, self.store.db:
-            self.store.db.execute('UPDATE documents SET status=?,reason=?,indexed_at=? WHERE id=?',
-                                  (status, reason, now(), doc_id))
-        time.sleep(self.config['resource'].get('batch_sleep_ms', 50)/1000)
+            self.budget.check(disk=True, reserve_mb=write_bytes / 1048576 + 4)
+        counts = {}
+        with self.vector_lock, self.store.transaction(join=True):
+            document = self.store.db.execute('SELECT file_identity FROM documents WHERE id=?', (job['id'],)).fetchone()
+            if not document or document[0] != job['identity']:
+                return {}
+            if status not in {'pending', 'budget', 'error'}:
+                counts = self._write_chunks(job['id'], chunks)
+                self.store.db.execute('UPDATE documents SET indexed_at=?,content_size=?,content_mtime_ns=?,version=? WHERE id=?',
+                    (now(), job['size'], job['mtime_ns'], str(job['mtime_ns'])+':'+str(job['size']), job['id']))
+                counts['files_indexed'] = int(status in {'ready', 'partial'})
+                counts['files_updated'] = int(job['was_indexed'] and status in {'ready', 'partial'})
+            self.store.db.execute('UPDATE documents SET status=?,reason=? WHERE id=?',
+                                  (status, result.get('reason'), job['id']))
+        self.budget.note_write(write_bytes)
+        return counts
+
+    def _finish_file_work(self, row):
+        current = self.store.rows('SELECT status,reason FROM documents WHERE id=?', (row['id'],))
+        retry = current and current[0]['status'] in {'pending','budget','error'} and current[0]['reason'] != 'file_size_limit'
+        if retry:
+            changed = current[0]['reason'] == 'changed_during_read'
+            delay = .5 if changed else min(3600, max(5,self.config['scan_interval_seconds']) * 2**min(row['attempts'],4))
+            self.store.db.execute('UPDATE file_work SET available_at=?,attempts=attempts+?,priority=max(priority,?) WHERE doc_id=?',
+                                  (time.time()+delay, int(not changed), int(changed), row['id']))
+        else:
+            self.store.db.execute('DELETE FROM file_work WHERE doc_id=?', (row['id'],))
+
+    def _file(self, path: Path, seen: str, metadata_only=False, *, explicit=False):
+        job = self._prepare_file(path, seen, metadata_only, explicit=explicit)
+        if job:
+            result = self._extract_file(job)
+            with self.telemetry.measure('write'), self.vector_lock, self.store.transaction():
+                counts = self._commit_file(job, result)
+                if self.store.db.execute('SELECT 1 FROM file_work WHERE doc_id=?', (job['id'],)).fetchone():
+                    self._finish_file_work({'id':job['id'], 'attempts':0})
+            self.telemetry.count(**counts)
+
+    def _parse_batch(self, rows, capacity, *, deadline=None):
+        started = time.monotonic()
+        jobs, failures = [], []
+        # No database lock is held while parser subprocesses do I/O and CPU work.
+        with self.vector_lock, self.store.transaction():
+            for row in rows:
+                try:
+                    job = self._prepare_file(Path(row['path']), row['seen'])
+                    jobs.append((row, job))
+                except (ResourceLimit, OSError) as error:
+                    if self._indexing_interrupted(error):
+                        raise
+                    failures.append((row, error))
+        workers = min(capacity['parser_workers'], max(1, len(jobs)))
+        def extract(job):
+            # Queued tasks have not consumed parser resources yet. Leave them
+            # durable for the next tick when the phase's admission window ends.
+            if deadline is not None and time.monotonic() >= deadline:
+                return None
+            return self._extract_file(job)
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='file-parser') as pool:
+            futures = [(row, job, pool.submit(extract, job) if job else None) for row, job in jobs]
+            results = [(row, job, future.result() if future else None) for row, job, future in futures]
+        totals = defaultdict(int)
+        deferred = 0
+        failed_commit = None
+        def record_failures():
+            for row, error in failures:
+                status = 'budget' if isinstance(error, ResourceLimit) else 'error'
+                reason = str(error)[:200] if status == 'budget' else type(error).__name__
+                self.store.db.execute('UPDATE documents SET status=?,reason=? WHERE id=?', (status, reason, row['id']))
+                self._finish_file_work(row)
+        with self.telemetry.measure('write'), self.vector_lock:
+            try:
+                # All publications share one rollback boundary. Nested FTS5
+                # savepoints flush pending tokens and defeat write batching.
+                with self.store.transaction():
+                    for row, job, result in results:
+                        if job and result is None:
+                            deferred += 1
+                            continue
+                        current = {**row, 'id': job['id']} if job else row
+                        try:
+                            if job:
+                                for key, value in self._commit_file(job, result).items():
+                                    totals[key] += value
+                        except (ResourceLimit, OSError) as error:
+                            if self._indexing_interrupted(error):
+                                raise
+                            failed_commit = (current, error)
+                            raise
+                        self._finish_file_work(current)
+                    record_failures()
+            except (ResourceLimit, OSError):
+                if failed_commit is None:
+                    raise
+                # The entire publication batch has rolled back, including queue
+                # removals and generations. Only the failing file backs off;
+                # other files remain pending and can be replayed immediately.
+                totals.clear()
+                failures.append(failed_commit)
+                with self.store.transaction():
+                    record_failures()
+        self.telemetry.count(**totals)
+        self.telemetry.batch(totals.get('files_indexed', 0), time.monotonic()-started, workers)
+        return len(rows) - deferred
 
     def _poll_journals(self):
         if self.file_scope.mode != 'machine' or platform.system() != 'Windows':
@@ -393,8 +534,9 @@ class Engine:
             self.catalog.enqueue_events([{'path':path,'is_directory':Path(path).is_dir()} for path in dirty])
         if full or self.store.setting('file_reconcile_requested')=='true':
             self.catalog.begin()
-        self.catalog.discover()
-        self.catalog.process_events()
+        with self.telemetry.measure('discovery'):
+            self.catalog.process_events()
+            self.catalog.discover()
         self.catalog.parse()
 
     def _database_progress(self):
@@ -566,47 +708,101 @@ class Engine:
                 self.database.idle_close(5)
 
     def _embed_pending(self):
-        if not self.config['semantic']['enabled'] or not model_ready(self.config['semantic']['model_dir']):
-            return
-        batch = self.config['semantic']['batch_size']
-        deadline = time.monotonic() + self.config['scheduler']['phase_seconds']
-        batches = 0
-        while not self.paused and not self.stop_event.is_set() and time.monotonic()<deadline:
-            if batches >= self.config['scheduler']['embedding_batches_per_tick']:
-                break
-            pending = self.store.rows('SELECT q.hash,(SELECT c.text FROM chunks c WHERE c.hash=q.hash '
-                'AND c.semantic=1 LIMIT 1) text FROM embedding_queue q ORDER BY q.hash LIMIT ?',(batch,))
-            if not pending:
-                break
-            self.budget.check(disk=True, reserve_mb=8)
-            encoded = self._encode([r['text'] for r in pending])
-            with self.store.lock, self.store.db:
-                for row, vector in zip(pending, encoded):
-                    blob = pack_vector(vector)
-                    self.store.db.execute('INSERT OR REPLACE INTO embeddings VALUES(?,?,?)', (row['hash'],MODEL_ID,blob))
-            self._changed()
-            self.budget.note_write(len(pending)*4096)
-            batches += 1
-            time.sleep(self.config['resource'].get('batch_sleep_ms',50)/1000)
-        if not self.paused and not self.stop_event.is_set():
-            self._publish_vectors()
+        if not self.config['semantic']['enabled'] or not self.semantic_lock.acquire(blocking=False):
+            return 0
+        self.semantic_active = True
+        total = 0
+        try:
+            deadline = time.monotonic() + self.config['scheduler']['phase_seconds']
+            batches = 0
+            ready = model_ready(self.config['semantic']['model_dir'])
+            while ready and not self._background_cancelled() and time.monotonic() < deadline:
+                if batches >= self.config['scheduler']['embedding_batches_per_tick']:
+                    break
+                capacity = self.budget.work_capacity()
+                pending = self.store.rows('SELECT q.hash,(SELECT c.text FROM chunks c WHERE c.hash=q.hash '
+                    'AND c.semantic=1 LIMIT 1) text FROM embedding_queue q ORDER BY q.hash LIMIT ?',
+                    (capacity['embedding_batch_size'],))
+                if not pending:
+                    break
+                self.budget.check(disk=True, reserve_mb=8)
+                with self.telemetry.measure('embedding'):
+                    encoded = self._encode([row['text'] for row in pending])
+                if self._background_cancelled():
+                    raise ResourceLimit('indexing_paused_or_stopping')
+                if len(encoded) != len(pending):
+                    raise RuntimeError('embedding_result_count_mismatch')
+                written = 0
+                with self.vector_lock, self.store.transaction():
+                    for row, vector in zip(pending, encoded):
+                        # Content can change while a separate parser is running.
+                        # Never recreate a cached vector for a revoked/deleted hash.
+                        if self.store.db.execute('SELECT 1 FROM chunks WHERE hash=? AND semantic=1 LIMIT 1',
+                                                 (row['hash'],)).fetchone():
+                            blob = pack_vector(vector)
+                            self.store.db.execute('INSERT OR REPLACE INTO embeddings VALUES(?,?,?)',
+                                                  (row['hash'], MODEL_ID, blob))
+                            written += 1
+                    if written:
+                        self._changed()
+                self.budget.note_write(written * 4096)
+                with self._vector_publish_lock:
+                    self._vector_pending_chunks += written
+                total += written
+                batches += 1
+                if capacity['delay_seconds']:
+                    self.stop_event.wait(capacity['delay_seconds'])
+            if (not self._background_cancelled() and
+                    (ready or self.vectors.meta.exists() or self.store.rows('SELECT 1 FROM embeddings LIMIT 1'))):
+                self._publish_vectors()
+            return total
+        finally:
+            self.semantic_active = False
+            self.semantic_lock.release()
 
-    def _publish_vectors(self):
-        if self.vector_thread is not None and self.vector_thread.is_alive():
-            return
-        if not self.vectors.status()['pending']:
-            return
-        def publish():
-            try:
-                self.vectors.sync(cancelled=lambda: self.paused or self.stop_event.is_set())
-                self.vector_error = None
-            except Exception as error:
-                self.vector_error = (None if self._indexing_interrupted(error) else
-                    str(error)[:200] if isinstance(error,ResourceLimit) else type(error).__name__)
-        self.vector_thread = threading.Thread(target=publish,daemon=True)
-        self.vector_thread.start()
+    def _publish_vectors(self, *, force=False):
+        with self._vector_publish_lock:
+            if self._background_cancelled() or (self.vector_thread is not None and self.vector_thread.is_alive()):
+                return False
+            if not self.vectors.status()['pending']:
+                self._vector_pending_since = None
+                self._vector_pending_chunks = 0
+                return False
+            moment = time.monotonic()
+            if self._vector_pending_since is None:
+                self._vector_pending_since = moment
+            # Queue exhaustion flushes a completed scan, but a short empty gap
+            # between concurrently parsed files must not build one ANN per file.
+            drained = ((not self.scanning or self.semantic_thread is None) and not self.catalog.active and
+                       not self.store.rows('SELECT 1 FROM embedding_queue LIMIT 1') and
+                       not self.store.rows('SELECT 1 FROM file_work WHERE available_at<=? LIMIT 1', (time.time(),)))
+            options = self.config['semantic']
+            due = (self._vector_pending_chunks >= options.get('vector_publish_chunks', 256) or
+                   moment - self._vector_pending_since >= options.get('vector_publish_seconds', 10))
+            if not (force or drained or due):
+                return False
+            if not force and moment - self._vector_last_launch < 1:
+                return False
+            self._vector_last_launch = moment
+            submitted = self._vector_pending_chunks
+            self._vector_pending_chunks = 0
+            self._vector_pending_since = None
 
-    def scan_once(self, full=True) -> dict:
+            def publish():
+                try:
+                    with self.telemetry.measure('vectors'):
+                        self.vectors.sync(cancelled=self._background_cancelled)
+                    self.vector_error = None
+                except Exception as error:
+                    self.vector_error = (None if self._indexing_interrupted(error) else
+                        str(error)[:200] if isinstance(error, ResourceLimit) else type(error).__name__)
+                    with self._vector_publish_lock:
+                        self._vector_pending_chunks += submitted
+            self.vector_thread = threading.Thread(target=publish, name='semantic-publication', daemon=True)
+            self.vector_thread.start()
+            return True
+
+    def scan_once(self, full=True, *, semantic=True) -> dict:
         if not self.scan_lock.acquire(blocking=False):
             return {'accepted': False, 'reason': 'already_scanning'}
         self.scanning, self.last_error = True, None
@@ -617,7 +813,7 @@ class Engine:
             # One bad/slow source must not permanently starve all later phases.
             for phase in (lambda:self._files(full),
                           lambda:self._database_scan(time.monotonic()+self.config['scheduler']['phase_seconds'],full),
-                          self._embed_pending):
+                          *([self._embed_pending] if semantic else [])):
                 if self.paused or self.stop_event.is_set():
                     break
                 try:
@@ -665,33 +861,53 @@ class Engine:
         return bool(self.store.rows('SELECT 1 FROM orphan_embedding_queue LIMIT 1'))
 
     def start_background(self):
+        from contextlib import nullcontext
         from watchdog.events import FileSystemEventHandler
         from watchdog.observers import Observer
         engine = self
+        pending_events, pending_lock = {}, threading.Lock()
         class Handler(FileSystemEventHandler):
             def on_any_event(self, event):
                 if event.event_type not in {'created','modified','deleted','moved'}:
                     return
-                if event.is_directory:
-                    # A parent's modified event accompanies every file write; treating it
-                    # as a rescan request makes our own index trigger endless full scans.
-                    if event.event_type != 'modified' and (engine.allowed(Path(event.src_path)) or
-                       (getattr(event, 'dest_path', None) and engine.allowed(Path(event.dest_path)))):
-                        engine.scan_event.set()
+                # Parent directory modification accompanies every file write.
+                # Real directory create/move/delete events get localized repair.
+                if event.is_directory and event.event_type == 'modified':
                     return
                 names = [p for p in (event.src_path, getattr(event, 'dest_path', None)) if p and engine.allowed(Path(p))]
                 if not names:
                     return
-                with engine.dirty_lock:
-                    if len(engine.dirty) > 10000:
-                        engine.scan_event.set()
-                        engine.dirty.clear()
-                    else:
-                        engine.dirty.update(names)
+                moment = time.monotonic()
+                with pending_lock:
+                    for name in names:
+                        if name not in pending_events and len(pending_events) >= 10000:
+                            # A bounded full reconciliation is also the crash
+                            # recovery path for not-yet-flushed watcher events.
+                            pending_events.clear()
+                            engine.scan_event.set()
+                            return
+                        previous = pending_events.get(name)
+                        pending_events[name] = {'path': name, 'is_directory': event.is_directory or bool(previous and previous['is_directory']),
+                            'first': previous['first'] if previous else moment, 'last': moment}
+
+        def flush_events(moment):
+            with pending_lock:
+                ready = []
+                for name, event in pending_events.items():
+                    if moment - event['last'] >= .5 or moment - event['first'] >= 3:
+                        ready.append({'path': name, 'is_directory': event['is_directory']})
+                        if len(ready) >= self.config['scheduler']['metadata_batch_size']:
+                            break
+                for event in ready:
+                    pending_events.pop(event['path'])
+            if ready:
+                import sqlite3
                 try:
-                    engine.catalog.enqueue_events([{'path':name} for name in names])
-                except ResourceLimit:
-                    engine.scan_event.set()
+                    self.catalog.enqueue_events(ready)
+                    self.source_errors.pop('watcher', None)
+                except (ResourceLimit, OSError, sqlite3.Error) as error:
+                    self.source_errors['watcher'] = 'event_flush_' + type(error).__name__
+                    self.scan_event.set()
         # Whole disks and Linux recursive inotify can require one watch per
         # directory and unbounded setup memory. Use periodic scans for these
         # scopes; selected Windows roots use native recursive directory handles.
@@ -711,27 +927,55 @@ class Engine:
                 self.source_errors['watcher'] = 'unavailable; periodic scanning active'
         self.scan_event.set()
         def loop():
-            last_tick = last_full = 0
-            while not self.stop_event.wait(.2):
+            last_tick = last_full = last_journal = 0
+            waiting = False
+            while True:
+                with self.telemetry.measure('wait') if waiting else nullcontext():
+                    if self.stop_event.wait(.2):
+                        break
                 moment = time.monotonic()
+                flush_events(moment)
                 self.paused = self.policy.status()['user_paused']
+                waiting = self.paused
                 full = self.scan_event.is_set() or moment-last_full >= self.config['reconcile_interval_seconds']
                 if self.observer is None and self.monitoring!='journal_and_reconciliation' and moment-last_full >= self.config['scan_interval_seconds']:
                     full = True
                 active = self._has_work() or any(row.get('has_more') for row in self.journal_reports.values())
                 interval = self.config['scheduler']['tick_seconds'] if active else self.config['scan_interval_seconds']
-                if not self.paused and (full or moment-last_tick >= interval):
-                    if self.policy.decision()['background_allowed']:
+                # USN discovers incremental changes cheaply while idle; it must
+                # not inherit the 180-second full-directory polling interval.
+                journal_due = self.monitoring == 'journal_and_reconciliation' and moment - last_journal >= 2
+                if not self.paused and (full or journal_due or moment-last_tick >= interval):
+                    allowed = self.policy.decision()['background_allowed']
+                    waiting = not allowed
+                    if allowed:
                         self.scan_event.clear()
-                        self.scan_once(full=full)
+                        self.scan_once(full=full, semantic=False)
                         last_tick = time.monotonic()
+                        last_journal = last_tick
                         if full:
                             last_full = last_tick
                 self.model.idle_close(self.config['semantic']['idle_seconds'])
                 self.database.idle_close(5)
                 self.parser.idle_close(5)
         self.thread = threading.Thread(target=loop, daemon=True)
+        def semantic_loop():
+            while not self.stop_event.wait(max(.2, self.config['scheduler']['tick_seconds'])):
+                self.paused = self.policy.status()['user_paused']
+                if self.paused or not self.config['semantic']['enabled']:
+                    continue
+                if not self.policy.decision(lane='semantic')['background_allowed']:
+                    continue
+                try:
+                    self._embed_pending()
+                    self.semantic_error = None
+                except Exception as error:
+                    self.semantic_error = (None if self._indexing_interrupted(error) else
+                        str(error)[:200] if isinstance(error, ResourceLimit) else type(error).__name__)
+                self.model.idle_close(self.config['semantic']['idle_seconds'])
+        self.semantic_thread = threading.Thread(target=semantic_loop, name='semantic-indexing', daemon=True)
         self.thread.start()
+        self.semantic_thread.start()
 
     def _result(self, row: dict, match: str, score: float) -> dict | None:
         if row['source_id'] == 'files':
@@ -745,7 +989,10 @@ class Engine:
                     stat = p.stat()
                 if row.get('file_identity') and row['file_identity'] != file_identity(stat):
                     return None
-                stale = row['file_identity']=='unavailable' or stat.st_mtime_ns != row['mtime_ns'] or stat.st_size != row['size']
+                content = bool(row.get('chunk_id') or match == 'fetch')
+                stale = (row['file_identity']=='unavailable' or
+                         stat.st_mtime_ns != (row.get('content_mtime_ns') if content else row['mtime_ns']) or
+                         stat.st_size != (row.get('content_size') if content else row['size']))
             except OSError:
                 return None
         else:
@@ -918,9 +1165,9 @@ class Engine:
                        'filters':[{'column':index['id_column'],'op':'eq','value':locator['id']}],'limit':1}
             return self.query_database(row['source_id'],request)
         offset = max(0,int(offset))
-        anchor = self.store.rows('SELECT count(*) n FROM chunks WHERE doc_id=? AND id<?',
+        anchor = self.store.rows('SELECT count(*) n FROM chunks WHERE doc_id=? AND ordinal<(SELECT ordinal FROM chunks WHERE id=?)',
                                 (row['id'], number))[0]['n'] if prefix == 'c' else 0
-        chunks = self.store.rows('SELECT id chunk_id,text,locator chunk_locator FROM chunks WHERE doc_id=? ORDER BY id LIMIT ? OFFSET ?',
+        chunks = self.store.rows('SELECT id chunk_id,text,locator chunk_locator FROM chunks WHERE doc_id=? ORDER BY ordinal,id LIMIT ? OFFSET ?',
                                 (row['id'],max(1,min(int(limit),20)),anchor+offset))
         return {'document':self._result(row,'fetch',0), 'chunks':[{**c,'locator':json.loads(c['chunk_locator'])} for c in chunks],
                 'snapshot':True, 'offset':offset, 'next_offset':offset+len(chunks)}
@@ -980,8 +1227,11 @@ class Engine:
                 'worker_controls':{name:worker.control_status for name,worker in [('parser',self.parser),('model',self.model),('database',self.database)]},
                 'database_sync':self._database_progress(),
                 'scheduler':self.catalog.progress(),
+                'performance':self.telemetry.snapshot(self.catalog.queue_metrics()),
                 'journal':dict(self.journal_reports), 'vector_error':self.vector_error,
+                'semantic_error':self.semantic_error,
                 'semantic':{'enabled':self.config['semantic']['enabled'],'model_ready':model_ready(self.config['semantic']['model_dir']),
+                            'active':self.semantic_active,
                             'model_loaded':self.model.proc is not None,'model_id':MODEL_ID,'lifecycle':model_status(self.config)},
                 'remote_nodes':'not_implemented'}
         from .progress import index_progress
@@ -989,7 +1239,7 @@ class Engine:
         return result
 
     def _pause_status(self, user_paused):
-        activity = {'scan': self.scanning,
+        activity = {'scan': self.scanning, 'embedding': self.semantic_active,
                     'vector_build': self.vector_thread is not None and self.vector_thread.is_alive()}
         state = 'pausing' if any(activity.values()) else 'paused'
         return {'pause_state': state if user_paused else 'running', 'background_activity': activity}
@@ -1035,6 +1285,8 @@ class Engine:
             self.observer.join(timeout=5)
         if self.thread:
             self.thread.join()
+        if self.semantic_thread:
+            self.semantic_thread.join()
         if self.vector_thread:
             self.vector_thread.join()
         self.catalog.close()

@@ -266,7 +266,7 @@ export async function createUpgradeCoordinator(options, { pollMs = 5000, onError
     const registration = { schema_version: 1, instance_id: instanceId, pid: process.pid,
       port: server.address().port, token, config_path: options.configPath, data_dir: options.dataDir,
       command: options.command || null, command_args: options.commandArgs || [], client_id: options.clientId,
-      plugin_version: '0.6.0', created_at: new Date().toISOString() };
+      plugin_version: '0.7.0', created_at: new Date().toISOString() };
     await writeFile(registrationPath + '.tmp', JSON.stringify(registration), { mode: 0o600, flag: 'wx' });
     await rename(registrationPath + '.tmp', registrationPath);
   } catch (error) {

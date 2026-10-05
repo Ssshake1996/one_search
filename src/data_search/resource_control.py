@@ -109,9 +109,9 @@ def _error(action, exc):
 
 
 class WorkerControl:
-    def __init__(self, pid, config):
+    def __init__(self, pid, config, *, role='worker', slot=0):
         self.job = None
-        self.status = {'pid': pid, 'active': True, 'platform': os.name,
+        self.status = {'pid': pid, 'active': True, 'platform': os.name, 'role': role, 'slot': slot,
                        'priority': None, 'io_priority': None, 'affinity_cpus': [],
                        'hard_memory_limit_mb': None, 'hard_cpu_percent': None,
                        'memory_metric': None, 'fallback_errors': [],
@@ -135,7 +135,18 @@ class WorkerControl:
                 self.status['fallback_errors'].append(_error(name, exc))
         try:
             eligible = process.cpu_affinity()
-            selected = eligible[:max(1, min(config['semantic'].get('threads', 1), len(eligible)))]
+            if not eligible:
+                raise ValueError('No eligible CPUs reported')
+            count = config['semantic'].get('threads', 1) if role in ('worker', 'model') else 1
+            count = max(1, min(count, len(eligible)))
+            offset = slot * count
+            if role == 'model':
+                offset += config['resource'].get('workers', 1)
+            elif role == 'database':
+                offset += config['resource'].get('workers', 1) + config['semantic'].get('threads', 1)
+            elif role == 'vectors':
+                offset += config['resource'].get('workers', 1) + config['semantic'].get('threads', 1) + 1
+            selected = [eligible[(offset + index) % len(eligible)] for index in range(count)]
             process.cpu_affinity(selected)
             self.status['affinity_cpus'] = selected
         except (psutil.Error, OSError, AttributeError, ValueError) as exc:
@@ -163,5 +174,5 @@ class WorkerControl:
         self.status['active'] = False
 
 
-def attach_worker(pid: int, config: dict) -> WorkerControl:
-    return WorkerControl(pid, config)
+def attach_worker(pid: int, config: dict, *, role='worker', slot=0) -> WorkerControl:
+    return WorkerControl(pid, config, role=role, slot=slot)

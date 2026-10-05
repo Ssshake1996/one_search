@@ -101,7 +101,8 @@ def test_settings_start_failure_restores_previous_config(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match="injected"):
         setup_ui.activate_settings(path, current, candidate)
     assert json.loads(path.read_text()) == current
-    assert calls == [("stop", 1024), ("start", 777), ("stop", 777), ("start", 1024)]
+    assert calls == [("stop", current['resource']['memory_mb']), ("start", 777),
+                     ("stop", 777), ("start", current['resource']['memory_mb'])]
 
 
 def test_status_presents_known_queues_errors_and_budgets():

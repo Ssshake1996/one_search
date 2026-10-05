@@ -42,6 +42,25 @@ def test_known_counts_are_not_whole_machine_completeness(snapshot):
     assert report['discovery']['total'] is None
     assert report['discovery']['complete']
     assert snapshot == before
+    assert report['performance'] is None
+
+
+def test_performance_preserves_engine_measurements_without_inventing_completion(snapshot):
+    performance = {
+        'schema_version': 1, 'uptime_seconds': 24.5,
+        'stages': {'parse': {'seconds': 15, 'calls': 4, 'active': 2},
+                   'write': {'seconds': 3, 'calls': 2, 'active': 0}},
+        'counters': {'files_indexed': 7, 'files_updated': 2, 'chunks_reused': 15},
+        'throughput': {'files_per_second': .4, 'window_seconds': 24.5},
+        'queue': {'oldest_seconds': 120, 'recent_files': 3, 'pending_files': 100},
+        'last_batch': {'files': 5, 'seconds': 2.1, 'workers': 2},
+    }
+    snapshot['performance'] = deepcopy(performance)
+    before = deepcopy(snapshot)
+    report = index_progress(snapshot)
+    assert report['performance'] == performance
+    assert report['overall']['scope_complete'] is False
+    assert snapshot == before
 
 
 def test_paused_and_automatic_wait_keep_work_visible(snapshot):
@@ -80,6 +99,17 @@ def test_vector_publication_is_separate_and_disabled_semantics_do_not_block(snap
     report = index_progress(snapshot)
     assert report['overall']['state'] == 'up_to_date'
     assert not report['semantic']['vector_pending'] and not report['semantic']['vector_building']
+
+
+def test_independent_semantic_failure_is_visible_without_mislabeling_content(snapshot):
+    snapshot['semantic_error'] = 'worker_timeout'
+    snapshot['semantic']['active'] = False
+    report = index_progress(snapshot)
+    assert report['overall']['state'] == 'needs_attention'
+    assert report['error_summary']['semantic_error'] == 'worker_timeout'
+    assert report['content']['counts']['ready'] == 2
+    snapshot['semantic']['enabled'] = False
+    assert index_progress(snapshot)['overall']['state'] == 'up_to_date'
 
 
 def test_unknown_new_roots_and_new_content_never_get_a_global_percent(snapshot):

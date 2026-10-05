@@ -10,6 +10,7 @@ from __future__ import annotations
 import codecs
 import csv
 import posixpath
+import re
 import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
@@ -18,6 +19,8 @@ CHUNK_CHARS = 1200
 MAX_CHUNKS = 20_000
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_ENTRIES = 20_000
+_STREAM_XML_BYTES = 2 * 1024 * 1024
+_TEXT_CONTROLS = re.compile(r"[\x00-\x08\x0b\x0e-\x1f]")
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".markdown", ".log", ".py", ".pyi", ".js", ".mjs",
     ".cjs", ".ts", ".jsx", ".tsx", ".java", ".go", ".rs", ".c", ".cpp",
@@ -82,44 +85,52 @@ def _encoding(path: Path, budget: int) -> str:
     """Validate UTF-8 in bounded blocks, including Chinese after an ASCII prefix."""
     with path.open("rb") as stream:
         sample = stream.read(min(65536, budget))
-        if sample.startswith(codecs.BOM_UTF8):
-            return "utf-8-sig"
-        if sample.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
-            return "utf-32"
-        if sample.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
-            return "utf-16"
-        if sample and sample.count(b"\0") > len(sample) // 5:
-            even = sample[::2].count(b"\0")
-            odd = sample[1::2].count(b"\0")
-            if odd > even * 4:
-                return "utf-16-le"
-            if even > odd * 4:
-                return "utf-16-be"
-            raise ValueError("binary_or_unknown_text_encoding")
-        decoder = codecs.getincrementaldecoder("utf-8")("strict")
-        checked = len(sample)
-        try:
-            decoder.decode(sample, final=False)
-            while checked < budget:
-                block = stream.read(min(65536, budget - checked))
-                if not block:
-                    decoder.decode(b"", final=True)
-                    break
-                checked += len(block)
-                decoder.decode(block, final=False)
-            return "utf-8"
-        except UnicodeDecodeError:
-            return "gb18030"
+        return _stream_encoding(stream, sample, budget)
+
+
+def _stream_encoding(stream, sample: bytes, budget: int) -> str:
+    if sample.startswith(codecs.BOM_UTF8):
+        return "utf-8-sig"
+    if sample.startswith((codecs.BOM_UTF32_LE, codecs.BOM_UTF32_BE)):
+        return "utf-32"
+    if sample.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return "utf-16"
+    if sample and sample.count(b"\0") > len(sample) // 5:
+        even = sample[::2].count(b"\0")
+        odd = sample[1::2].count(b"\0")
+        if odd > even * 4:
+            return "utf-16-le"
+        if even > odd * 4:
+            return "utf-16-be"
+        raise ValueError("binary_or_unknown_text_encoding")
+    decoder = codecs.getincrementaldecoder("utf-8")("strict")
+    checked = len(sample)
+    try:
+        decoder.decode(sample, final=False)
+        while checked < budget:
+            block = stream.read(min(65536, budget - checked))
+            if not block:
+                decoder.decode(b"", final=True)
+                break
+            checked += len(block)
+            decoder.decode(block, final=False)
+        return "utf-8"
+    except UnicodeDecodeError:
+        return "gb18030"
 
 
 def _text_blocks(path: Path, collector: _Collector):
     budget = _source_budget(collector.max_chars)
-    encoding = _encoding(path, budget)
-    decoder = codecs.getincrementaldecoder(encoding)("strict")
     total = 0
     with path.open("rb") as stream:
+        sample = stream.read(min(65536, budget))
+        encoding = _stream_encoding(stream, sample, budget)
+        decoder = codecs.getincrementaldecoder(encoding)("strict")
+        # Keep only the bounded probe. Small files need no second read; larger
+        # files still validate the entire budget before choosing UTF-8/GB18030.
+        stream.seek(len(sample))
         while total < budget:
-            block = stream.read(min(8192, budget - total))
+            block = sample[total:total + 8192] if total < len(sample) else stream.read(min(8192, budget - total))
             if not block:
                 tail = decoder.decode(b"", final=True)
                 if tail:
@@ -127,7 +138,7 @@ def _text_blocks(path: Path, collector: _Collector):
                 return
             total += len(block)
             decoded = decoder.decode(block, final=False)
-            controls = sum(ord(char) < 32 and char not in "\t\r\n\f" for char in decoded)
+            controls = len(_TEXT_CONTROLS.findall(decoded))
             if "\0" in decoded or (decoded and controls > len(decoded) / 10):
                 raise ValueError("binary_or_unknown_text_encoding")
             yield decoded
@@ -140,8 +151,7 @@ def _text_blocks(path: Path, collector: _Collector):
 
 def _plain(path: Path, out: _Collector) -> None:
     buffer = ""
-    line = start = 1
-    last = 1
+    line = 1
     pending_cr = ""
     for block in _text_blocks(path, out):
         block = pending_cr + block
@@ -149,20 +159,17 @@ def _plain(path: Path, out: _Collector) -> None:
         if pending_cr:
             block = block[:-1]
         block = block.replace("\r\n", "\n").replace("\r", "\n")
-        for character in block:
-            buffer += character
-            last = line
-            if character == "\n":
-                line += 1
-            if len(buffer) >= CHUNK_CHARS:
-                out.add(buffer, {"line_start": start, "line_end": last})
-                buffer = ""
-                start = line
+        block = buffer + block
+        complete = len(block) - len(block) % CHUNK_CHARS
+        if complete:
+            text = block[:complete]
+            out.add(text, {"line_start": line})
+            line += text.count("\n")
+        buffer = block[complete:]
     if pending_cr:
         buffer += "\n"
-        last = line
     if buffer:
-        out.add(buffer, {"line_start": start, "line_end": last})
+        out.add(buffer, {"line_start": line})
 
 
 class _HTMLText(HTMLParser):
@@ -273,6 +280,59 @@ class _Archive:
             raise _Limit("archive_expansion_limit")
         return ElementTree.fromstring(data, forbid_dtd=True)
 
+    def elements(self, member: str, tag: str | None, *, parent: str | None = None, root_tag: str | None = None):
+        """Yield complete units, then discard their XML and parsed siblings.
+
+        ``parent`` selects children of a root's direct child (Word body blocks).
+        Other callers select non-nested units by tag (cells/shared strings).
+        A single large unit and retained shared strings remain bounded by the
+        archive budget and the extraction worker's process memory limit.
+        """
+        from defusedxml import ElementTree
+
+        # Building a small tree is faster than Python start/end bookkeeping.
+        # Stream only larger XML members, where retaining the whole DOM costs
+        # significantly more memory than the extracted chunks themselves.
+        if self.zip.getinfo(member).file_size <= _STREAM_XML_BYTES:
+            tree = self.tree(member)
+            if root_tag is not None and _local(tree.tag) != root_tag:
+                raise ValueError("invalid_word_document_root" if root_tag == "document" else f"invalid_{root_tag}_root")
+            if parent:
+                for node in tree:
+                    if _local(node.tag) == parent:
+                        yield from node
+            else:
+                yield from (node for node in tree.iter() if _local(node.tag) == tag)
+            return
+        stack = []
+        retained = None
+        with self.zip.open(member) as stream:
+            reader = _ArchiveReader(self, stream)
+            for event, node in ElementTree.iterparse(reader, events=("start", "end"), forbid_dtd=True):
+                if retained is not None:
+                    # The parser already maintains the selected subtree. Avoid
+                    # duplicating its stack for every formatting/text node.
+                    if event == "end" and node is retained:
+                        yield node
+                        node.clear()
+                        if stack:
+                            stack[-1].remove(node)
+                        retained = None
+                    continue
+                if event == "start":
+                    if not stack and root_tag is not None and _local(node.tag) != root_tag:
+                        raise ValueError("invalid_word_document_root" if root_tag == "document" else f"invalid_{root_tag}_root")
+                    selected = (len(stack) == 2 and _local(stack[-1].tag) == parent) if parent else _local(node.tag) == tag
+                    if selected:
+                        retained = node
+                    else:
+                        stack.append(node)
+                else:
+                    node.clear()
+                    if len(stack) > 1:
+                        stack[-2].remove(node)
+                    stack.pop()
+
     def relationships(self, member: str) -> dict[str, tuple[str, str]]:
         directory, filename = posixpath.split(member)
         relfile = posixpath.join(directory, "_rels", filename + ".rels")
@@ -292,35 +352,43 @@ class _Archive:
         return result
 
 
+class _ArchiveReader:
+    def __init__(self, archive: _Archive, stream):
+        self.archive = archive
+        self.stream = stream
+
+    def read(self, size=-1):
+        remaining = self.archive.budget - self.archive.consumed
+        data = self.stream.read(remaining + 1 if size < 0 else min(size, remaining + 1))
+        self.archive.consumed += len(data)
+        if self.archive.consumed > self.archive.budget:
+            raise _Limit("archive_expansion_limit")
+        return data
+
+
 def _local(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
 def _docx(archive: _Archive, out: _Collector) -> None:
-    root = archive.tree("word/document.xml")
-    if _local(root.tag) != "document":
-        raise ValueError("invalid_word_document_root")
     number = 0
     table_number = 0
-    for body in root:
-        if _local(body.tag) != "body":
-            continue
-        for block in body:
-            is_table = _local(block.tag) == "tbl"
+    for block in archive.elements("word/document.xml", None, parent="body", root_tag="document"):
+        is_table = _local(block.tag) == "tbl"
+        if is_table:
+            table_number += 1
+        for paragraph in block.iter():
+            if _local(paragraph.tag) != "p":
+                continue
+            number += 1
+            text = "".join(
+                node.text or "" if _local(node.tag) == "t" else "\t" if _local(node.tag) == "tab" else "\n"
+                for node in paragraph.iter() if _local(node.tag) in {"t", "tab", "br", "cr"}
+            )
+            locator = {"paragraph": number}
             if is_table:
-                table_number += 1
-            for paragraph in block.iter():
-                if _local(paragraph.tag) != "p":
-                    continue
-                number += 1
-                text = "".join(
-                    node.text or "" if _local(node.tag) == "t" else "\t" if _local(node.tag) == "tab" else "\n"
-                    for node in paragraph.iter() if _local(node.tag) in {"t", "tab", "br", "cr"}
-                )
-                locator = {"paragraph": number}
-                if is_table:
-                    locator["table"] = table_number
-                out.add(text, locator)
+                locator["table"] = table_number
+            out.add(text, locator)
 
 
 def _xlsx(archive: _Archive, out: _Collector) -> None:
@@ -329,7 +397,7 @@ def _xlsx(archive: _Archive, out: _Collector) -> None:
 
     shared = []
     if "xl/sharedStrings.xml" in archive.zip.namelist():
-        for item in archive.tree("xl/sharedStrings.xml"):
+        for item in archive.elements("xl/sharedStrings.xml", "si"):
             shared.append("".join(node.text or "" for node in item.iter() if _local(node.tag) == "t"))
     relations = archive.relationships("xl/workbook.xml")
     book = archive.tree("xl/workbook.xml")
@@ -361,11 +429,8 @@ def _xlsx(archive: _Archive, out: _Collector) -> None:
         if not target:
             raise ValueError("missing_worksheet_relationship")
         out.add(name, {"sheet": name, "cells": None})
-        root = archive.tree(target[0])
         shared_formulas = {}
-        for cell in root.iter():
-            if _local(cell.tag) != "c":
-                continue
+        for cell in archive.elements(target[0], "c"):
             ref = cell.get("r")
             if not ref:
                 raise ValueError("missing_cell_reference")

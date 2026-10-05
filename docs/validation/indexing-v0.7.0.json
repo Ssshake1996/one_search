@@ -1,0 +1,1960 @@
+{
+  "schema_version": 1,
+  "scope": "Synthetic Engine discovery, parser subprocesses, chunks and SQLite FTS; semantic disabled.",
+  "baseline_commit": "0cb03bb43253b271ba24ed910aef550652439e20",
+  "current_base_commit": "0cb03bb43253b271ba24ed910aef550652439e20",
+  "source_sha256_method": "SHA256 of sorted src/**/*.py relative POSIX paths followed by raw file bytes, exactly scripts/bench_indexing.py source_hash.",
+  "source_sha256": {
+    "baseline": "9d799b518cf45023a53882e4fdb0773d3088f90edb0668a291f47e05c5bb5536",
+    "final": "7a12255778b95272eed504bcd0786cca35b422b4351fed2923ce5c528f45fa9c",
+    "initial_candidate": "681de1e4bc78bba3c6104c3c98254086a8298f1599b5aae14a6df081f2ffdd7a"
+  },
+  "raw_report_sha256": {
+    "initial": "c390654b07385a50ba58fd702e645c1bddfa461a6f145ff8672b87d691ae3fd7",
+    "final": "3c37edc1475373a959b72f7a523f3cb2ba273f007e60a57288921c15bbd7a3fd"
+  },
+  "environment": {
+    "platform": "Windows-10-10.0.22631-SP0",
+    "python": "3.11.3",
+    "logical_cpus": 24,
+    "total_memory_bytes": 34160050176,
+    "sqlite": "3.40.1"
+  },
+  "corpus": {
+    "file_count": 384,
+    "physical_bytes": 46720068,
+    "by_kind": {
+      "utf8": 48,
+      "gb18030": 48,
+      "csv": 48,
+      "html": 48,
+      "pdf": 48,
+      "docx": 48,
+      "xlsx": 48,
+      "pptx": 48
+    },
+    "indexed_chunks": 284256
+  },
+  "method": {
+    "semantic_enabled": false,
+    "file_events": "explicit complete reconciliation each phase; no idle scheduler or OS notification delay",
+    "verification": "all indexed chunk text and locators equal baseline extraction+chunking; each file head/tail FTS queries; obsolete head absent after edit",
+    "memory": "25ms sampled Engine plus descendant RSS, including limit helpers; excludes DSH Web/Node/MCP and fixture generation",
+    "cpu": "sampled cumulative parent+child CPU; exited child tail can be undercounted",
+    "sql": "trace-instrumented operation times; durable COMMIT + outer SAVEPOINT RELEASE, schema initialization excluded",
+    "fixed": "both versions 1024MiB process-tree ceiling, 1 parser, 512MiB worker, 25 percent worker CPU, 0 fixed delay",
+    "cache": "no OS disk-cache eviction; initial worker/import cold, later reuse or retirement follows product idle policy; one run per variant",
+    "final_comparison": "Baseline variants retained from first run; both current variants rerun after transaction fix on the identical generated corpus and baseline oracle.",
+    "verification_interpretation": "obsolete_keyword_absent false before the modified phase means not applicable; every phase checks complete text and locators. query_count counts timed head/tail queries only; modified phase also checks 384 obsolete head queries.",
+    "process_count": "Includes parser subprocesses and Windows resource limit helper processes; 12 descendants does not mean 12 parsers.",
+    "stage_timing": "Internal parse times sum individual concurrent tasks, so stages must not be summed into elapsed wall time.",
+    "cpu_precision": "25ms is the requested polling interval, not guaranteed scheduler cadence; counters may miss the exited-process tail."
+  },
+  "final_comparison": {
+    "baseline-default": {
+      "source_sha256": "9d799b518cf45023a53882e4fdb0773d3088f90edb0668a291f47e05c5bb5536",
+      "resource_config": {
+        "memory_mb": 1024,
+        "min_available_mb": 768,
+        "max_disk_mb": 10240,
+        "min_free_disk_mb": 1024,
+        "workers": 1,
+        "batch_sleep_ms": 50,
+        "worker_memory_mb": 512,
+        "worker_cpu_percent": 25
+      },
+      "extraction_config": {
+        "max_file_mb": 32,
+        "max_chars": 2000000,
+        "timeout_seconds": 30
+      },
+      "scheduler_config": {
+        "metadata_batch_size": 256,
+        "metadata_items_per_tick": 2000,
+        "directories_per_tick": 64,
+        "files_per_tick": 32,
+        "embedding_batches_per_tick": 4,
+        "phase_seconds": 2.0,
+        "tick_seconds": 1.0,
+        "journal_events_per_tick": 512
+      },
+      "worker_controls": [
+        {
+          "priority": "below_normal",
+          "io_priority": "low",
+          "affinity_cpus": [
+            0
+          ],
+          "hard_memory_limit_mb": 512,
+          "hard_cpu_percent": 25,
+          "memory_metric": "committed_virtual_memory",
+          "fallback_errors": [],
+          "cpu_rate_basis": "system_or_enclosing_job_allocation"
+        }
+      ],
+      "initialization": {
+        "wall_seconds": 0.08870389999356121,
+        "cpu_seconds": 0.015625,
+        "process_tree_rss_peak_bytes": 32698368,
+        "engine_rss_peak_bytes": 32698368,
+        "descendant_processes_peak": 0,
+        "resource_samples": 3,
+        "sample_interval_seconds": 0.025
+      },
+      "phases": [
+        {
+          "phase": "first",
+          "wall_seconds": 67.75535929994658,
+          "cpu_seconds": 12.75,
+          "process_tree_rss_peak_bytes": 118329344,
+          "engine_rss_peak_bytes": 47497216,
+          "descendant_processes_peak": 3,
+          "resource_samples": 1448,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 32,
+          "sql_transactions": {
+            "begin": 1575,
+            "commit": 1575,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 1575
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.00038225000025704503,
+            "query_p95_seconds": 0.0006466999184340239,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0
+        },
+        {
+          "phase": "unchanged",
+          "wall_seconds": 0.17599099990911782,
+          "cpu_seconds": 0.0625,
+          "process_tree_rss_peak_bytes": 120217600,
+          "engine_rss_peak_bytes": 50720768,
+          "descendant_processes_peak": 3,
+          "resource_samples": 5,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 1,
+          "sql_transactions": {
+            "begin": 8,
+            "commit": 8,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 8
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.00038519996451213956,
+            "query_p95_seconds": 0.0006640999345108867,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0
+        },
+        {
+          "phase": "modified",
+          "wall_seconds": 80.60060090001207,
+          "cpu_seconds": 16.734375,
+          "process_tree_rss_peak_bytes": 127209472,
+          "engine_rss_peak_bytes": 55627776,
+          "descendant_processes_peak": 3,
+          "resource_samples": 1726,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 33,
+          "sql_transactions": {
+            "begin": 1962,
+            "commit": 1962,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 1962
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": true,
+            "query_count": 768,
+            "query_p50_seconds": 0.0003777000238187611,
+            "query_p95_seconds": 0.0005911999614909291,
+            "obsolete_keyword_check_applicable": true
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0
+        }
+      ],
+      "completed": true
+    },
+    "baseline-fixed": {
+      "source_sha256": "9d799b518cf45023a53882e4fdb0773d3088f90edb0668a291f47e05c5bb5536",
+      "resource_config": {
+        "memory_mb": 1024,
+        "min_available_mb": 768,
+        "max_disk_mb": 10240,
+        "min_free_disk_mb": 1024,
+        "workers": 1,
+        "batch_sleep_ms": 0,
+        "worker_memory_mb": 512,
+        "worker_cpu_percent": 25,
+        "budget_mode": "fixed"
+      },
+      "extraction_config": {
+        "max_file_mb": 32,
+        "max_chars": 2000000,
+        "timeout_seconds": 30
+      },
+      "scheduler_config": {
+        "metadata_batch_size": 256,
+        "metadata_items_per_tick": 2000,
+        "directories_per_tick": 64,
+        "files_per_tick": 32,
+        "embedding_batches_per_tick": 4,
+        "phase_seconds": 2.0,
+        "tick_seconds": 1.0,
+        "journal_events_per_tick": 512
+      },
+      "worker_controls": [
+        {
+          "priority": "below_normal",
+          "io_priority": "low",
+          "affinity_cpus": [
+            0
+          ],
+          "hard_memory_limit_mb": 512,
+          "hard_cpu_percent": 25,
+          "memory_metric": "committed_virtual_memory",
+          "fallback_errors": [],
+          "cpu_rate_basis": "system_or_enclosing_job_allocation"
+        }
+      ],
+      "initialization": {
+        "wall_seconds": 0.07571919995825738,
+        "cpu_seconds": 0.015625,
+        "process_tree_rss_peak_bytes": 30658560,
+        "engine_rss_peak_bytes": 30658560,
+        "descendant_processes_peak": 0,
+        "resource_samples": 3,
+        "sample_interval_seconds": 0.025
+      },
+      "phases": [
+        {
+          "phase": "first",
+          "wall_seconds": 45.77256599999964,
+          "cpu_seconds": 13.46875,
+          "process_tree_rss_peak_bytes": 117772288,
+          "engine_rss_peak_bytes": 46850048,
+          "descendant_processes_peak": 3,
+          "resource_samples": 978,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 22,
+          "sql_transactions": {
+            "begin": 1565,
+            "commit": 1565,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 1565
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.0003790999762713909,
+            "query_p95_seconds": 0.0006609000265598297,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0
+        },
+        {
+          "phase": "unchanged",
+          "wall_seconds": 0.17452339990995824,
+          "cpu_seconds": 0.03125,
+          "process_tree_rss_peak_bytes": 121208832,
+          "engine_rss_peak_bytes": 51400704,
+          "descendant_processes_peak": 3,
+          "resource_samples": 5,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 1,
+          "sql_transactions": {
+            "begin": 8,
+            "commit": 8,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 8
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.0003772500203922391,
+            "query_p95_seconds": 0.0006775000365450978,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0
+        },
+        {
+          "phase": "modified",
+          "wall_seconds": 58.42956219997723,
+          "cpu_seconds": 18.640625,
+          "process_tree_rss_peak_bytes": 126636032,
+          "engine_rss_peak_bytes": 55709696,
+          "descendant_processes_peak": 3,
+          "resource_samples": 1248,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 23,
+          "sql_transactions": {
+            "begin": 1952,
+            "commit": 1952,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 1952
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": true,
+            "query_count": 768,
+            "query_p50_seconds": 0.0003806999884545803,
+            "query_p95_seconds": 0.0006085999775677919,
+            "obsolete_keyword_check_applicable": true
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0
+        }
+      ],
+      "completed": true
+    },
+    "current-default": {
+      "source_sha256": "7a12255778b95272eed504bcd0786cca35b422b4351fed2923ce5c528f45fa9c",
+      "resource_config": {
+        "budget_mode": "adaptive",
+        "memory_mb": 4096,
+        "memory_fraction": 0.2,
+        "reserve_fraction": 0.125,
+        "min_available_mb": 768,
+        "max_disk_mb": 10240,
+        "min_free_disk_mb": 1024,
+        "workers": 4,
+        "batch_sleep_ms": 0,
+        "worker_memory_mb": 512,
+        "worker_cpu_percent": 25
+      },
+      "extraction_config": {
+        "max_file_mb": 32,
+        "max_chars": 2000000,
+        "timeout_seconds": 30
+      },
+      "scheduler_config": {
+        "metadata_batch_size": 256,
+        "metadata_items_per_tick": 2000,
+        "directories_per_tick": 64,
+        "files_per_tick": 32,
+        "embedding_batches_per_tick": 4,
+        "phase_seconds": 2.0,
+        "tick_seconds": 1.0,
+        "journal_events_per_tick": 512
+      },
+      "worker_controls": [
+        {
+          "priority": "below_normal",
+          "io_priority": "low",
+          "affinity_cpus": [
+            0
+          ],
+          "hard_memory_limit_mb": 512,
+          "hard_cpu_percent": 25,
+          "memory_metric": "committed_virtual_memory",
+          "fallback_errors": [],
+          "cpu_rate_basis": "system_or_enclosing_job_allocation"
+        },
+        {
+          "priority": "below_normal",
+          "io_priority": "low",
+          "affinity_cpus": [
+            1
+          ],
+          "hard_memory_limit_mb": 512,
+          "hard_cpu_percent": 25,
+          "memory_metric": "committed_virtual_memory",
+          "fallback_errors": [],
+          "cpu_rate_basis": "system_or_enclosing_job_allocation"
+        },
+        {
+          "priority": "below_normal",
+          "io_priority": "low",
+          "affinity_cpus": [
+            2
+          ],
+          "hard_memory_limit_mb": 512,
+          "hard_cpu_percent": 25,
+          "memory_metric": "committed_virtual_memory",
+          "fallback_errors": [],
+          "cpu_rate_basis": "system_or_enclosing_job_allocation"
+        },
+        {
+          "priority": "below_normal",
+          "io_priority": "low",
+          "affinity_cpus": [
+            3
+          ],
+          "hard_memory_limit_mb": 512,
+          "hard_cpu_percent": 25,
+          "memory_metric": "committed_virtual_memory",
+          "fallback_errors": [],
+          "cpu_rate_basis": "system_or_enclosing_job_allocation"
+        }
+      ],
+      "initialization": {
+        "wall_seconds": 0.09087839990388602,
+        "cpu_seconds": 0.03125,
+        "process_tree_rss_peak_bytes": 32829440,
+        "engine_rss_peak_bytes": 32829440,
+        "descendant_processes_peak": 0,
+        "resource_samples": 3,
+        "sample_interval_seconds": 0.025
+      },
+      "phases": [
+        {
+          "phase": "first",
+          "wall_seconds": 46.252239399938844,
+          "cpu_seconds": 12.953125,
+          "process_tree_rss_peak_bytes": 539975680,
+          "engine_rss_peak_bytes": 277921792,
+          "descendant_processes_peak": 12,
+          "resource_samples": 983,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 18,
+          "sql_transactions": {
+            "begin": 123,
+            "commit": 123,
+            "savepoint": 391,
+            "release": 391,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 123
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.00037545006489381194,
+            "query_p95_seconds": 0.0006299999076873064,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0,
+          "effective_budget": {
+            "budget_mode": "adaptive",
+            "memory_limit_mb": 4096.0,
+            "memory_ceiling_mb": 4096.0,
+            "system_reserve_mb": 4072.2,
+            "parser_workers": 4,
+            "batch_files": 32,
+            "batch_bytes": 268435456,
+            "sqlite_cache_mb": 256,
+            "embedding_batch_size": 8,
+            "delay_seconds": 0.0,
+            "reason": "configured_limit",
+            "memory_unit": "MiB"
+          },
+          "performance": {
+            "stages": {
+              "discovery": {
+                "seconds": 0.1720000000204891,
+                "calls": 18
+              },
+              "parse": {
+                "seconds": 8.72799999883864,
+                "calls": 384
+              },
+              "write": {
+                "seconds": 41.42300000006799,
+                "calls": 49
+              },
+              "embedding": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "vectors": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "wait": {
+                "seconds": 0.0,
+                "calls": 0
+              }
+            },
+            "counters": {
+              "files_indexed": 384,
+              "files_updated": 0,
+              "chunks_written": 284256,
+              "chunks_reused": 0,
+              "chunks_removed": 0
+            }
+          }
+        },
+        {
+          "phase": "unchanged",
+          "wall_seconds": 0.17412390001118183,
+          "cpu_seconds": 0.03125,
+          "process_tree_rss_peak_bytes": 546705408,
+          "engine_rss_peak_bytes": 284651520,
+          "descendant_processes_peak": 12,
+          "resource_samples": 5,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 1,
+          "sql_transactions": {
+            "begin": 8,
+            "commit": 8,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 8
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.0003747999435290694,
+            "query_p95_seconds": 0.0005905999569222331,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0,
+          "effective_budget": {
+            "budget_mode": "adaptive",
+            "memory_limit_mb": 4096.0,
+            "memory_ceiling_mb": 4096.0,
+            "system_reserve_mb": 4072.2,
+            "parser_workers": 4,
+            "batch_files": 32,
+            "batch_bytes": 268435456,
+            "sqlite_cache_mb": 256,
+            "embedding_batch_size": 8,
+            "delay_seconds": 0.0,
+            "reason": "configured_limit",
+            "memory_unit": "MiB"
+          },
+          "performance": {
+            "stages": {
+              "discovery": {
+                "seconds": 0.14099999994505197,
+                "calls": 1
+              },
+              "parse": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "write": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "embedding": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "vectors": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "wait": {
+                "seconds": 0.0,
+                "calls": 0
+              }
+            },
+            "counters": {
+              "files_indexed": 0,
+              "files_updated": 0,
+              "chunks_written": 0,
+              "chunks_reused": 0,
+              "chunks_removed": 0
+            }
+          }
+        },
+        {
+          "phase": "modified",
+          "wall_seconds": 8.29981029999908,
+          "cpu_seconds": 1.953125,
+          "process_tree_rss_peak_bytes": 565784576,
+          "engine_rss_peak_bytes": 287903744,
+          "descendant_processes_peak": 12,
+          "resource_samples": 171,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 12,
+          "sql_transactions": {
+            "begin": 117,
+            "commit": 117,
+            "savepoint": 384,
+            "release": 384,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 117
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": true,
+            "query_count": 768,
+            "query_p50_seconds": 0.00036925001768395305,
+            "query_p95_seconds": 0.0006176999304443598,
+            "obsolete_keyword_check_applicable": true
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0,
+          "effective_budget": {
+            "budget_mode": "adaptive",
+            "memory_limit_mb": 4096.0,
+            "memory_ceiling_mb": 4096.0,
+            "system_reserve_mb": 4072.2,
+            "parser_workers": 4,
+            "batch_files": 32,
+            "batch_bytes": 268435456,
+            "sqlite_cache_mb": 256,
+            "embedding_batch_size": 8,
+            "delay_seconds": 0.0,
+            "reason": "configured_limit",
+            "memory_unit": "MiB"
+          },
+          "performance": {
+            "stages": {
+              "discovery": {
+                "seconds": 0.14000000001396984,
+                "calls": 12
+              },
+              "parse": {
+                "seconds": 6.418999996967614,
+                "calls": 384
+              },
+              "write": {
+                "seconds": 5.706000000471249,
+                "calls": 48
+              },
+              "embedding": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "vectors": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "wait": {
+                "seconds": 0.0,
+                "calls": 0
+              }
+            },
+            "counters": {
+              "files_indexed": 384,
+              "files_updated": 384,
+              "chunks_written": 384,
+              "chunks_reused": 283872,
+              "chunks_removed": 384
+            }
+          }
+        }
+      ],
+      "completed": true
+    },
+    "current-fixed": {
+      "source_sha256": "7a12255778b95272eed504bcd0786cca35b422b4351fed2923ce5c528f45fa9c",
+      "resource_config": {
+        "budget_mode": "fixed",
+        "memory_mb": 1024,
+        "memory_fraction": 0.2,
+        "reserve_fraction": 0.125,
+        "min_available_mb": 768,
+        "max_disk_mb": 10240,
+        "min_free_disk_mb": 1024,
+        "workers": 1,
+        "batch_sleep_ms": 0,
+        "worker_memory_mb": 512,
+        "worker_cpu_percent": 25
+      },
+      "extraction_config": {
+        "max_file_mb": 32,
+        "max_chars": 2000000,
+        "timeout_seconds": 30
+      },
+      "scheduler_config": {
+        "metadata_batch_size": 256,
+        "metadata_items_per_tick": 2000,
+        "directories_per_tick": 64,
+        "files_per_tick": 32,
+        "embedding_batches_per_tick": 4,
+        "phase_seconds": 2.0,
+        "tick_seconds": 1.0,
+        "journal_events_per_tick": 512
+      },
+      "worker_controls": [
+        {
+          "priority": "below_normal",
+          "io_priority": "low",
+          "affinity_cpus": [
+            0
+          ],
+          "hard_memory_limit_mb": 512,
+          "hard_cpu_percent": 25,
+          "memory_metric": "committed_virtual_memory",
+          "fallback_errors": [],
+          "cpu_rate_basis": "system_or_enclosing_job_allocation"
+        }
+      ],
+      "initialization": {
+        "wall_seconds": 0.07221999997273088,
+        "cpu_seconds": 0,
+        "process_tree_rss_peak_bytes": 30904320,
+        "engine_rss_peak_bytes": 30904320,
+        "descendant_processes_peak": 0,
+        "resource_samples": 3,
+        "sample_interval_seconds": 0.025
+      },
+      "phases": [
+        {
+          "phase": "first",
+          "wall_seconds": 47.16979309997987,
+          "cpu_seconds": 11.9375,
+          "process_tree_rss_peak_bytes": 185458688,
+          "engine_rss_peak_bytes": 114368512,
+          "descendant_processes_peak": 3,
+          "resource_samples": 1002,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 22,
+          "sql_transactions": {
+            "begin": 415,
+            "commit": 415,
+            "savepoint": 386,
+            "release": 386,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 415
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.00037999998312443495,
+            "query_p95_seconds": 0.0005868000444024801,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0,
+          "effective_budget": {
+            "budget_mode": "fixed",
+            "memory_limit_mb": 1024.0,
+            "memory_ceiling_mb": 1024.0,
+            "system_reserve_mb": 768.0,
+            "parser_workers": 1,
+            "batch_files": 8,
+            "batch_bytes": 111235072,
+            "sqlite_cache_mb": 64,
+            "embedding_batch_size": 8,
+            "delay_seconds": 0.0,
+            "reason": "configured_limit",
+            "memory_unit": "MiB"
+          },
+          "performance": {
+            "stages": {
+              "discovery": {
+                "seconds": 0.18700000003445894,
+                "calls": 22
+              },
+              "parse": {
+                "seconds": 5.596000000019558,
+                "calls": 384
+              },
+              "write": {
+                "seconds": 38.57400000013877,
+                "calls": 193
+              },
+              "embedding": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "vectors": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "wait": {
+                "seconds": 0.0,
+                "calls": 0
+              }
+            },
+            "counters": {
+              "files_indexed": 384,
+              "files_updated": 0,
+              "chunks_written": 284256,
+              "chunks_reused": 0,
+              "chunks_removed": 0
+            }
+          }
+        },
+        {
+          "phase": "unchanged",
+          "wall_seconds": 0.1932348000118509,
+          "cpu_seconds": 0.046875,
+          "process_tree_rss_peak_bytes": 188088320,
+          "engine_rss_peak_bytes": 118308864,
+          "descendant_processes_peak": 3,
+          "resource_samples": 5,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 1,
+          "sql_transactions": {
+            "begin": 8,
+            "commit": 8,
+            "savepoint": 0,
+            "release": 0,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 8
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": false,
+            "query_count": 768,
+            "query_p50_seconds": 0.0003800499835051596,
+            "query_p95_seconds": 0.0006004000315442681,
+            "obsolete_keyword_check_applicable": false
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0,
+          "effective_budget": {
+            "budget_mode": "fixed",
+            "memory_limit_mb": 1024.0,
+            "memory_ceiling_mb": 1024.0,
+            "system_reserve_mb": 768.0,
+            "parser_workers": 1,
+            "batch_files": 8,
+            "batch_bytes": 110706688,
+            "sqlite_cache_mb": 64,
+            "embedding_batch_size": 8,
+            "delay_seconds": 0.0,
+            "reason": "configured_limit",
+            "memory_unit": "MiB"
+          },
+          "performance": {
+            "stages": {
+              "discovery": {
+                "seconds": 0.125,
+                "calls": 1
+              },
+              "parse": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "write": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "embedding": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "vectors": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "wait": {
+                "seconds": 0.0,
+                "calls": 0
+              }
+            },
+            "counters": {
+              "files_indexed": 0,
+              "files_updated": 0,
+              "chunks_written": 0,
+              "chunks_reused": 0,
+              "chunks_removed": 0
+            }
+          }
+        },
+        {
+          "phase": "modified",
+          "wall_seconds": 12.10974400001578,
+          "cpu_seconds": 1.828125,
+          "process_tree_rss_peak_bytes": 191471616,
+          "engine_rss_peak_bytes": 120242176,
+          "descendant_processes_peak": 3,
+          "resource_samples": 253,
+          "sample_interval_seconds": 0.025,
+          "scan_rounds": 12,
+          "sql_transactions": {
+            "begin": 405,
+            "commit": 405,
+            "savepoint": 384,
+            "release": 384,
+            "outer_savepoint_release": 0,
+            "rollback": 0,
+            "rollback_to": 0,
+            "durable_transactions": 405
+          },
+          "verification": {
+            "documents": 384,
+            "complete_content_and_locators": true,
+            "keyword_head_and_tail": true,
+            "obsolete_keyword_absent": true,
+            "query_count": 768,
+            "query_p50_seconds": 0.00037510000402107835,
+            "query_p95_seconds": 0.0006051999516785145,
+            "obsolete_keyword_check_applicable": true
+          },
+          "queue_after": {
+            "discovery_active": false,
+            "queued_directories": 0,
+            "queued_files": 0,
+            "retry_files": 0,
+            "queued_events": 0
+          },
+          "root_discovery_errors": 0,
+          "effective_budget": {
+            "budget_mode": "fixed",
+            "memory_limit_mb": 1024.0,
+            "memory_ceiling_mb": 1024.0,
+            "system_reserve_mb": 768.0,
+            "parser_workers": 1,
+            "batch_files": 8,
+            "batch_bytes": 110444544,
+            "sqlite_cache_mb": 64,
+            "embedding_batch_size": 8,
+            "delay_seconds": 0.0,
+            "reason": "configured_limit",
+            "memory_unit": "MiB"
+          },
+          "performance": {
+            "stages": {
+              "discovery": {
+                "seconds": 0.14000000001396984,
+                "calls": 12
+              },
+              "parse": {
+                "seconds": 5.192999999853782,
+                "calls": 384
+              },
+              "write": {
+                "seconds": 5.50100000097882,
+                "calls": 192
+              },
+              "embedding": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "vectors": {
+                "seconds": 0.0,
+                "calls": 0
+              },
+              "wait": {
+                "seconds": 0.0,
+                "calls": 0
+              }
+            },
+            "counters": {
+              "files_indexed": 384,
+              "files_updated": 384,
+              "chunks_written": 384,
+              "chunks_reused": 283872,
+              "chunks_removed": 384
+            }
+          }
+        }
+      ],
+      "completed": true
+    }
+  },
+  "wall_ratios": {
+    "default": {
+      "first": {
+        "baseline_over_current_wall": 1.4649098114811747,
+        "current_wall_change_percent": -31.736411882660754
+      },
+      "unchanged": {
+        "baseline_over_current_wall": 1.0107228237928054,
+        "current_wall_change_percent": -1.0609064661830203
+      },
+      "modified": {
+        "baseline_over_current_wall": 9.71113772323459,
+        "current_wall_change_percent": -89.70254538139822
+      }
+    },
+    "fixed": {
+      "first": {
+        "baseline_over_current_wall": 0.9703787740383194,
+        "current_wall_change_percent": 3.0525426518151377
+      },
+      "unchanged": {
+        "baseline_over_current_wall": 0.9031675448690137,
+        "current_wall_change_percent": 10.721427677633155
+      },
+      "modified": {
+        "baseline_over_current_wall": 4.825003914195138,
+        "current_wall_change_percent": -79.27462821205171
+      }
+    }
+  },
+  "initial_candidate_counterexample": {
+    "conclusion": "Initial fixed-resource first-index time regressed 47.17%; later batch transaction fix reduced this to 3.05%, not a demonstrated same-resource first-index speedup.",
+    "variants": {
+      "current-default": {
+        "source_sha256": "681de1e4bc78bba3c6104c3c98254086a8298f1599b5aae14a6df081f2ffdd7a",
+        "resource_config": {
+          "budget_mode": "adaptive",
+          "memory_mb": 4096,
+          "memory_fraction": 0.2,
+          "reserve_fraction": 0.125,
+          "min_available_mb": 768,
+          "max_disk_mb": 10240,
+          "min_free_disk_mb": 1024,
+          "workers": 4,
+          "batch_sleep_ms": 0,
+          "worker_memory_mb": 512,
+          "worker_cpu_percent": 25
+        },
+        "extraction_config": {
+          "max_file_mb": 32,
+          "max_chars": 2000000,
+          "timeout_seconds": 30
+        },
+        "scheduler_config": {
+          "metadata_batch_size": 256,
+          "metadata_items_per_tick": 2000,
+          "directories_per_tick": 64,
+          "files_per_tick": 32,
+          "embedding_batches_per_tick": 4,
+          "phase_seconds": 2.0,
+          "tick_seconds": 1.0,
+          "journal_events_per_tick": 512
+        },
+        "worker_controls": [
+          {
+            "priority": "below_normal",
+            "io_priority": "low",
+            "affinity_cpus": [
+              0
+            ],
+            "hard_memory_limit_mb": 512,
+            "hard_cpu_percent": 25,
+            "memory_metric": "committed_virtual_memory",
+            "fallback_errors": [],
+            "cpu_rate_basis": "system_or_enclosing_job_allocation"
+          },
+          {
+            "priority": "below_normal",
+            "io_priority": "low",
+            "affinity_cpus": [
+              1
+            ],
+            "hard_memory_limit_mb": 512,
+            "hard_cpu_percent": 25,
+            "memory_metric": "committed_virtual_memory",
+            "fallback_errors": [],
+            "cpu_rate_basis": "system_or_enclosing_job_allocation"
+          },
+          {
+            "priority": "below_normal",
+            "io_priority": "low",
+            "affinity_cpus": [
+              2
+            ],
+            "hard_memory_limit_mb": 512,
+            "hard_cpu_percent": 25,
+            "memory_metric": "committed_virtual_memory",
+            "fallback_errors": [],
+            "cpu_rate_basis": "system_or_enclosing_job_allocation"
+          },
+          {
+            "priority": "below_normal",
+            "io_priority": "low",
+            "affinity_cpus": [
+              3
+            ],
+            "hard_memory_limit_mb": 512,
+            "hard_cpu_percent": 25,
+            "memory_metric": "committed_virtual_memory",
+            "fallback_errors": [],
+            "cpu_rate_basis": "system_or_enclosing_job_allocation"
+          }
+        ],
+        "initialization": {
+          "wall_seconds": 0.09286560001783073,
+          "cpu_seconds": 0,
+          "process_tree_rss_peak_bytes": 32972800,
+          "engine_rss_peak_bytes": 32972800,
+          "descendant_processes_peak": 0,
+          "resource_samples": 3,
+          "sample_interval_seconds": 0.025
+        },
+        "phases": [
+          {
+            "phase": "first",
+            "wall_seconds": 49.044562299968675,
+            "cpu_seconds": 14.96875,
+            "process_tree_rss_peak_bytes": 538771456,
+            "engine_rss_peak_bytes": 279425024,
+            "descendant_processes_peak": 12,
+            "resource_samples": 1048,
+            "sample_interval_seconds": 0.025,
+            "scan_rounds": 20,
+            "sql_transactions": {
+              "begin": 7,
+              "commit": 7,
+              "savepoint": 1652,
+              "release": 1652,
+              "outer_savepoint_release": 116,
+              "rollback": 0,
+              "rollback_to": 0,
+              "durable_transactions": 123
+            },
+            "verification": {
+              "documents": 384,
+              "complete_content_and_locators": true,
+              "keyword_head_and_tail": true,
+              "obsolete_keyword_absent": false,
+              "query_count": 768,
+              "query_p50_seconds": 0.0003730000462383032,
+              "query_p95_seconds": 0.0005868999287486076,
+              "obsolete_keyword_check_applicable": false
+            },
+            "queue_after": {
+              "discovery_active": false,
+              "queued_directories": 0,
+              "queued_files": 0,
+              "retry_files": 0,
+              "queued_events": 0
+            },
+            "root_discovery_errors": 0,
+            "effective_budget": {
+              "budget_mode": "adaptive",
+              "memory_limit_mb": 4096.0,
+              "memory_ceiling_mb": 4096.0,
+              "system_reserve_mb": 4072.2,
+              "parser_workers": 4,
+              "batch_files": 32,
+              "batch_bytes": 268435456,
+              "sqlite_cache_mb": 256,
+              "embedding_batch_size": 8,
+              "delay_seconds": 0.0,
+              "reason": "configured_limit",
+              "memory_unit": "MiB"
+            }
+          },
+          {
+            "phase": "unchanged",
+            "wall_seconds": 0.16055000002961606,
+            "cpu_seconds": 0.03125,
+            "process_tree_rss_peak_bytes": 545677312,
+            "engine_rss_peak_bytes": 286330880,
+            "descendant_processes_peak": 12,
+            "resource_samples": 5,
+            "sample_interval_seconds": 0.025,
+            "scan_rounds": 1,
+            "sql_transactions": {
+              "begin": 7,
+              "commit": 7,
+              "savepoint": 1,
+              "release": 1,
+              "outer_savepoint_release": 1,
+              "rollback": 0,
+              "rollback_to": 0,
+              "durable_transactions": 8
+            },
+            "verification": {
+              "documents": 384,
+              "complete_content_and_locators": true,
+              "keyword_head_and_tail": true,
+              "obsolete_keyword_absent": false,
+              "query_count": 768,
+              "query_p50_seconds": 0.00036955001996830106,
+              "query_p95_seconds": 0.0006005000323057175,
+              "obsolete_keyword_check_applicable": false
+            },
+            "queue_after": {
+              "discovery_active": false,
+              "queued_directories": 0,
+              "queued_files": 0,
+              "retry_files": 0,
+              "queued_events": 0
+            },
+            "root_discovery_errors": 0,
+            "effective_budget": {
+              "budget_mode": "adaptive",
+              "memory_limit_mb": 4096.0,
+              "memory_ceiling_mb": 4096.0,
+              "system_reserve_mb": 4072.2,
+              "parser_workers": 4,
+              "batch_files": 32,
+              "batch_bytes": 268435456,
+              "sqlite_cache_mb": 256,
+              "embedding_batch_size": 8,
+              "delay_seconds": 0.0,
+              "reason": "configured_limit",
+              "memory_unit": "MiB"
+            }
+          },
+          {
+            "phase": "modified",
+            "wall_seconds": 8.307885800022632,
+            "cpu_seconds": 3.25,
+            "process_tree_rss_peak_bytes": 553140224,
+            "engine_rss_peak_bytes": 289693696,
+            "descendant_processes_peak": 12,
+            "resource_samples": 173,
+            "sample_interval_seconds": 0.025,
+            "scan_rounds": 12,
+            "sql_transactions": {
+              "begin": 7,
+              "commit": 7,
+              "savepoint": 1646,
+              "release": 1646,
+              "outer_savepoint_release": 110,
+              "rollback": 0,
+              "rollback_to": 0,
+              "durable_transactions": 117
+            },
+            "verification": {
+              "documents": 384,
+              "complete_content_and_locators": true,
+              "keyword_head_and_tail": true,
+              "obsolete_keyword_absent": true,
+              "query_count": 768,
+              "query_p50_seconds": 0.0003724999842233956,
+              "query_p95_seconds": 0.0006339000537991524,
+              "obsolete_keyword_check_applicable": true
+            },
+            "queue_after": {
+              "discovery_active": false,
+              "queued_directories": 0,
+              "queued_files": 0,
+              "retry_files": 0,
+              "queued_events": 0
+            },
+            "root_discovery_errors": 0,
+            "effective_budget": {
+              "budget_mode": "adaptive",
+              "memory_limit_mb": 4096.0,
+              "memory_ceiling_mb": 4096.0,
+              "system_reserve_mb": 4072.2,
+              "parser_workers": 4,
+              "batch_files": 32,
+              "batch_bytes": 268435456,
+              "sqlite_cache_mb": 256,
+              "embedding_batch_size": 8,
+              "delay_seconds": 0.0,
+              "reason": "configured_limit",
+              "memory_unit": "MiB"
+            }
+          }
+        ],
+        "completed": true
+      },
+      "current-fixed": {
+        "source_sha256": "681de1e4bc78bba3c6104c3c98254086a8298f1599b5aae14a6df081f2ffdd7a",
+        "resource_config": {
+          "budget_mode": "fixed",
+          "memory_mb": 1024,
+          "memory_fraction": 0.2,
+          "reserve_fraction": 0.125,
+          "min_available_mb": 768,
+          "max_disk_mb": 10240,
+          "min_free_disk_mb": 1024,
+          "workers": 1,
+          "batch_sleep_ms": 0,
+          "worker_memory_mb": 512,
+          "worker_cpu_percent": 25
+        },
+        "extraction_config": {
+          "max_file_mb": 32,
+          "max_chars": 2000000,
+          "timeout_seconds": 30
+        },
+        "scheduler_config": {
+          "metadata_batch_size": 256,
+          "metadata_items_per_tick": 2000,
+          "directories_per_tick": 64,
+          "files_per_tick": 32,
+          "embedding_batches_per_tick": 4,
+          "phase_seconds": 2.0,
+          "tick_seconds": 1.0,
+          "journal_events_per_tick": 512
+        },
+        "worker_controls": [
+          {
+            "priority": "below_normal",
+            "io_priority": "low",
+            "affinity_cpus": [
+              0
+            ],
+            "hard_memory_limit_mb": 512,
+            "hard_cpu_percent": 25,
+            "memory_metric": "committed_virtual_memory",
+            "fallback_errors": [],
+            "cpu_rate_basis": "system_or_enclosing_job_allocation"
+          }
+        ],
+        "initialization": {
+          "wall_seconds": 0.07864410011097789,
+          "cpu_seconds": 0,
+          "process_tree_rss_peak_bytes": 30969856,
+          "engine_rss_peak_bytes": 30969856,
+          "descendant_processes_peak": 0,
+          "resource_samples": 3,
+          "sample_interval_seconds": 0.025
+        },
+        "phases": [
+          {
+            "phase": "first",
+            "wall_seconds": 67.36341719992924,
+            "cpu_seconds": 15.609375,
+            "process_tree_rss_peak_bytes": 184590336,
+            "engine_rss_peak_bytes": 113074176,
+            "descendant_processes_peak": 3,
+            "resource_samples": 1434,
+            "sample_interval_seconds": 0.025,
+            "scan_rounds": 26,
+            "sql_transactions": {
+              "begin": 7,
+              "commit": 7,
+              "savepoint": 1946,
+              "release": 1946,
+              "outer_savepoint_release": 410,
+              "rollback": 0,
+              "rollback_to": 0,
+              "durable_transactions": 417
+            },
+            "verification": {
+              "documents": 384,
+              "complete_content_and_locators": true,
+              "keyword_head_and_tail": true,
+              "obsolete_keyword_absent": false,
+              "query_count": 768,
+              "query_p50_seconds": 0.00038605002919211984,
+              "query_p95_seconds": 0.0006184999365359545,
+              "obsolete_keyword_check_applicable": false
+            },
+            "queue_after": {
+              "discovery_active": false,
+              "queued_directories": 0,
+              "queued_files": 0,
+              "retry_files": 0,
+              "queued_events": 0
+            },
+            "root_discovery_errors": 0,
+            "effective_budget": {
+              "budget_mode": "fixed",
+              "memory_limit_mb": 1024.0,
+              "memory_ceiling_mb": 1024.0,
+              "system_reserve_mb": 768.0,
+              "parser_workers": 1,
+              "batch_files": 8,
+              "batch_bytes": 111191040,
+              "sqlite_cache_mb": 64,
+              "embedding_batch_size": 8,
+              "delay_seconds": 0.0,
+              "reason": "configured_limit",
+              "memory_unit": "MiB"
+            }
+          },
+          {
+            "phase": "unchanged",
+            "wall_seconds": 0.19326189998537302,
+            "cpu_seconds": 0.0625,
+            "process_tree_rss_peak_bytes": 187678720,
+            "engine_rss_peak_bytes": 116391936,
+            "descendant_processes_peak": 3,
+            "resource_samples": 5,
+            "sample_interval_seconds": 0.025,
+            "scan_rounds": 1,
+            "sql_transactions": {
+              "begin": 7,
+              "commit": 7,
+              "savepoint": 1,
+              "release": 1,
+              "outer_savepoint_release": 1,
+              "rollback": 0,
+              "rollback_to": 0,
+              "durable_transactions": 8
+            },
+            "verification": {
+              "documents": 384,
+              "complete_content_and_locators": true,
+              "keyword_head_and_tail": true,
+              "obsolete_keyword_absent": false,
+              "query_count": 768,
+              "query_p50_seconds": 0.0003910500090569258,
+              "query_p95_seconds": 0.0006118000019341707,
+              "obsolete_keyword_check_applicable": false
+            },
+            "queue_after": {
+              "discovery_active": false,
+              "queued_directories": 0,
+              "queued_files": 0,
+              "retry_files": 0,
+              "queued_events": 0
+            },
+            "root_discovery_errors": 0,
+            "effective_budget": {
+              "budget_mode": "fixed",
+              "memory_limit_mb": 1024.0,
+              "memory_ceiling_mb": 1024.0,
+              "system_reserve_mb": 768.0,
+              "parser_workers": 1,
+              "batch_files": 8,
+              "batch_bytes": 110758912,
+              "sqlite_cache_mb": 64,
+              "embedding_batch_size": 8,
+              "delay_seconds": 0.0,
+              "reason": "configured_limit",
+              "memory_unit": "MiB"
+            }
+          },
+          {
+            "phase": "modified",
+            "wall_seconds": 12.695035199983977,
+            "cpu_seconds": 2.34375,
+            "process_tree_rss_peak_bytes": 192167936,
+            "engine_rss_peak_bytes": 120619008,
+            "descendant_processes_peak": 3,
+            "resource_samples": 262,
+            "sample_interval_seconds": 0.025,
+            "scan_rounds": 12,
+            "sql_transactions": {
+              "begin": 7,
+              "commit": 7,
+              "savepoint": 1934,
+              "release": 1934,
+              "outer_savepoint_release": 398,
+              "rollback": 0,
+              "rollback_to": 0,
+              "durable_transactions": 405
+            },
+            "verification": {
+              "documents": 384,
+              "complete_content_and_locators": true,
+              "keyword_head_and_tail": true,
+              "obsolete_keyword_absent": true,
+              "query_count": 768,
+              "query_p50_seconds": 0.00037655001506209373,
+              "query_p95_seconds": 0.0006408999906852841,
+              "obsolete_keyword_check_applicable": true
+            },
+            "queue_after": {
+              "discovery_active": false,
+              "queued_directories": 0,
+              "queued_files": 0,
+              "retry_files": 0,
+              "queued_events": 0
+            },
+            "root_discovery_errors": 0,
+            "effective_budget": {
+              "budget_mode": "fixed",
+              "memory_limit_mb": 1024.0,
+              "memory_ceiling_mb": 1024.0,
+              "system_reserve_mb": 768.0,
+              "parser_workers": 1,
+              "batch_files": 8,
+              "batch_bytes": 110415360,
+              "sqlite_cache_mb": 64,
+              "embedding_batch_size": 8,
+              "delay_seconds": 0.0,
+              "reason": "configured_limit",
+              "memory_unit": "MiB"
+            }
+          }
+        ],
+        "completed": true
+      }
+    },
+    "diagnostic_evidence": "32-file cProfile pointed at SQLite writes. Removing the single-worker executor did not resolve the regression. FTS5 3.40.1 xSavepoint/xRelease flush pending index data; safe batch-level rollback and fewer nested savepoints were then tested by the parent task."
+  },
+  "extractor_microbenchmark": {
+    "platform": "Windows-10-10.0.22631-SP0",
+    "python": "3.11.3",
+    "scope": "synthetic extractor-only warm runs; no user files, subprocess startup, index writes, or semantic inference",
+    "memory_metric": "separate tracemalloc run; Python allocation peak, not RSS",
+    "baseline_sha256": "4841ebe16878fec969c65c30993a124cca840669a905aca4cde94e0b58afebe3",
+    "current_sha256": "c33c44d94401b1b16aa965357893cddd13754c76f8ae5dc8c23755d487e13abf",
+    "fixtures": [
+      {
+        "file": "cells.xlsx",
+        "bytes": 99336,
+        "baseline": {
+          "median_seconds": 0.08236569992732257,
+          "runs_seconds": [
+            0.07930310000665486,
+            0.07972390006761998,
+            0.08451940002851188,
+            0.08434639999177307,
+            0.08236569992732257
+          ],
+          "python_allocation_peak_bytes": 18238554,
+          "result_sha256": "927b748bd027cb6957c8a318e4ec5a40a0104ea542de6fc1a0ce4c8ed9af3086",
+          "status": "ready",
+          "chunks": 12001,
+          "characters": 276896
+        },
+        "current": {
+          "median_seconds": 0.0822134999325499,
+          "runs_seconds": [
+            0.08010159991681576,
+            0.079974599997513,
+            0.08482649992220104,
+            0.08299979998264462,
+            0.0822134999325499
+          ],
+          "python_allocation_peak_bytes": 18239354,
+          "result_sha256": "927b748bd027cb6957c8a318e4ec5a40a0104ea542de6fc1a0ce4c8ed9af3086",
+          "status": "ready",
+          "chunks": 12001,
+          "characters": 276896
+        },
+        "speedup": 1.0018512774045325,
+        "peak_allocation_ratio": 1.00004386312643
+      },
+      {
+        "file": "large-cells.xlsx",
+        "bytes": 133036,
+        "baseline": {
+          "median_seconds": 0.5389242999954149,
+          "runs_seconds": [
+            0.5437652000691742,
+            0.5327966000186279,
+            0.5407554999692366,
+            0.5389242999954149,
+            0.5370177000295371
+          ],
+          "python_allocation_peak_bytes": 85944546,
+          "result_sha256": "92e63bf160d57e34519a2b971e29cc278887a8be935aefd110baf3c7634a7bf1",
+          "status": "ready",
+          "chunks": 12001,
+          "characters": 1500896
+        },
+        "current": {
+          "median_seconds": 0.5487988999811932,
+          "runs_seconds": [
+            0.545271199895069,
+            0.5386133999563754,
+            0.5487988999811932,
+            0.5547800000058487,
+            0.5503284999867901
+          ],
+          "python_allocation_peak_bytes": 9543009,
+          "result_sha256": "92e63bf160d57e34519a2b971e29cc278887a8be935aefd110baf3c7634a7bf1",
+          "status": "ready",
+          "chunks": 12001,
+          "characters": 1500896
+        },
+        "speedup": 0.9820068881586375,
+        "peak_allocation_ratio": 0.11103681902048793
+      },
+      {
+        "file": "large-paragraphs.docx",
+        "bytes": 47561,
+        "baseline": {
+          "median_seconds": 0.14618400007020682,
+          "runs_seconds": [
+            0.14829420007299632,
+            0.14618400007020682,
+            0.1458044999744743,
+            0.1491944999434054,
+            0.1457247999496758
+          ],
+          "python_allocation_peak_bytes": 30342187,
+          "result_sha256": "0fad6f2a7b9dfb221a35f3e93635c73e72e9bf0ae469d91c725d67a028c3da84",
+          "status": "ready",
+          "chunks": 16000,
+          "characters": 365780
+        },
+        "current": {
+          "median_seconds": 0.18915420002304018,
+          "runs_seconds": [
+            0.18802909995429218,
+            0.18915420002304018,
+            0.18781979999039322,
+            0.19080630003008991,
+            0.18958260002546012
+          ],
+          "python_allocation_peak_bytes": 8759556,
+          "result_sha256": "0fad6f2a7b9dfb221a35f3e93635c73e72e9bf0ae469d91c725d67a028c3da84",
+          "status": "ready",
+          "chunks": 16000,
+          "characters": 365780
+        },
+        "speedup": 0.7728297867686823,
+        "peak_allocation_ratio": 0.2886923081714578
+      },
+      {
+        "file": "legacy.log",
+        "bytes": 1830000,
+        "baseline": {
+          "median_seconds": 0.22959330002777278,
+          "runs_seconds": [
+            0.2319716999772936,
+            0.22959330002777278,
+            0.23141070001292974,
+            0.2289009999949485,
+            0.2270853000227362
+          ],
+          "python_allocation_peak_bytes": 3349112,
+          "result_sha256": "a787438798938413a4d81206970142217c5b03749a6233f943f2adbb4b60d826",
+          "status": "ready",
+          "chunks": 1159,
+          "characters": 1390000
+        },
+        "current": {
+          "median_seconds": 0.012047500000335276,
+          "runs_seconds": [
+            0.011384099954739213,
+            0.012047500000335276,
+            0.012086499948054552,
+            0.011544900014996529,
+            0.013176399981603026
+          ],
+          "python_allocation_peak_bytes": 3426929,
+          "result_sha256": "a787438798938413a4d81206970142217c5b03749a6233f943f2adbb4b60d826",
+          "status": "ready",
+          "chunks": 1159,
+          "characters": 1390000
+        },
+        "speedup": 19.057339698807496,
+        "peak_allocation_ratio": 1.023235114263124
+      },
+      {
+        "file": "page.html",
+        "bytes": 198026,
+        "baseline": {
+          "median_seconds": 0.029878899920731783,
+          "runs_seconds": [
+            0.029878899920731783,
+            0.02969730005133897,
+            0.029955399921163917,
+            0.02978490001987666,
+            0.030174899962730706
+          ],
+          "python_allocation_peak_bytes": 2927403,
+          "result_sha256": "241a791101e20ad65edbddb89b8f8d4d3775200c2c62d470d5b868e247232fd7",
+          "status": "ready",
+          "chunks": 6017,
+          "characters": 96000
+        },
+        "current": {
+          "median_seconds": 0.024801200022920966,
+          "runs_seconds": [
+            0.02522439998574555,
+            0.026048700092360377,
+            0.024339399999007583,
+            0.024801200022920966,
+            0.024330500047653913
+          ],
+          "python_allocation_peak_bytes": 2992980,
+          "result_sha256": "241a791101e20ad65edbddb89b8f8d4d3775200c2c62d470d5b868e247232fd7",
+          "status": "ready",
+          "chunks": 6017,
+          "characters": 96000
+        },
+        "speedup": 1.2047360568487844,
+        "peak_allocation_ratio": 1.0224010838275428
+      },
+      {
+        "file": "pages.pdf",
+        "bytes": 9625,
+        "baseline": {
+          "median_seconds": 0.031028200057335198,
+          "runs_seconds": [
+            0.030148699996061623,
+            0.031045400071889162,
+            0.031028200057335198,
+            0.03135049995034933,
+            0.03072280006017536
+          ],
+          "python_allocation_peak_bytes": 591354,
+          "result_sha256": "ad1895c0eec0c507583ffce766f0db8e7a17aa1e2da8f4b2e0d49ec3554f3eb4",
+          "status": "ready",
+          "chunks": 450,
+          "characters": 17100
+        },
+        "current": {
+          "median_seconds": 0.03066459996625781,
+          "runs_seconds": [
+            0.031137999962083995,
+            0.02999790001194924,
+            0.03066459996625781,
+            0.030423200107179582,
+            0.030871900031343102
+          ],
+          "python_allocation_peak_bytes": 591250,
+          "result_sha256": "ad1895c0eec0c507583ffce766f0db8e7a17aa1e2da8f4b2e0d49ec3554f3eb4",
+          "status": "ready",
+          "chunks": 450,
+          "characters": 17100
+        },
+        "speedup": 1.011857323802609,
+        "peak_allocation_ratio": 0.9998241324147634
+      },
+      {
+        "file": "paragraphs.docx",
+        "bytes": 24033,
+        "baseline": {
+          "median_seconds": 0.06630299997050315,
+          "runs_seconds": [
+            0.065380800049752,
+            0.06630299997050315,
+            0.06676469999365509,
+            0.06771079997997731,
+            0.0662904999917373
+          ],
+          "python_allocation_peak_bytes": 15172345,
+          "result_sha256": "80ba7d284fccfe063d8a3388be0682574d18d6373c1560240251eea1ee84d175",
+          "status": "ready",
+          "chunks": 8000,
+          "characters": 182890
+        },
+        "current": {
+          "median_seconds": 0.06705650000367314,
+          "runs_seconds": [
+            0.06505749991629273,
+            0.06744570005685091,
+            0.06716390000656247,
+            0.0667945999884978,
+            0.06705650000367314
+          ],
+          "python_allocation_peak_bytes": 15172721,
+          "result_sha256": "80ba7d284fccfe063d8a3388be0682574d18d6373c1560240251eea1ee84d175",
+          "status": "ready",
+          "chunks": 8000,
+          "characters": 182890
+        },
+        "speedup": 0.9887632066521708,
+        "peak_allocation_ratio": 1.0000247819305454
+      },
+      {
+        "file": "rows.csv",
+        "bytes": 232022,
+        "baseline": {
+          "median_seconds": 0.008858999935910106,
+          "runs_seconds": [
+            0.008810100029222667,
+            0.008891899953596294,
+            0.008858999935910106,
+            0.008746300009079278,
+            0.009338300093077123
+          ],
+          "python_allocation_peak_bytes": 4484673,
+          "result_sha256": "2b9bbca449d707ed285bf5697ee87404288ae616c659a23c7501eab8aa8ce94f",
+          "status": "ready",
+          "chunks": 8001,
+          "characters": 104008
+        },
+        "current": {
+          "median_seconds": 0.008874499937519431,
+          "runs_seconds": [
+            0.00871640001423657,
+            0.0088439000537619,
+            0.008874499937519431,
+            0.009072800050489604,
+            0.013269499992020428
+          ],
+          "python_allocation_peak_bytes": 4484673,
+          "result_sha256": "2b9bbca449d707ed285bf5697ee87404288ae616c659a23c7501eab8aa8ce94f",
+          "status": "ready",
+          "chunks": 8001,
+          "characters": 104008
+        },
+        "speedup": 0.9982534225344016,
+        "peak_allocation_ratio": 1.0
+      },
+      {
+        "file": "slides.pptx",
+        "bytes": 59687,
+        "baseline": {
+          "median_seconds": 0.0055819000117480755,
+          "runs_seconds": [
+            0.0056600000243633986,
+            0.005821300088427961,
+            0.0055819000117480755,
+            0.00548779999371618,
+            0.005523099913261831
+          ],
+          "python_allocation_peak_bytes": 377924,
+          "result_sha256": "7ce53e958a27aa035efb60aabf89eccbc5c6717a208031e90b04d2bb9c5c7044",
+          "status": "ready",
+          "chunks": 330,
+          "characters": 4895
+        },
+        "current": {
+          "median_seconds": 0.00573680002707988,
+          "runs_seconds": [
+            0.005613600020296872,
+            0.00573680002707988,
+            0.005882000084966421,
+            0.006866200012154877,
+            0.005396499997004867
+          ],
+          "python_allocation_peak_bytes": 377924,
+          "result_sha256": "7ce53e958a27aa035efb60aabf89eccbc5c6717a208031e90b04d2bb9c5c7044",
+          "status": "ready",
+          "chunks": 330,
+          "characters": 4895
+        },
+        "speedup": 0.9729988818504013,
+        "peak_allocation_ratio": 1.0
+      },
+      {
+        "file": "utf8.txt",
+        "bytes": 2160000,
+        "baseline": {
+          "median_seconds": 0.22551489993929863,
+          "runs_seconds": [
+            0.22377240005880594,
+            0.22551489993929863,
+            0.225383699988015,
+            0.22945539990905672,
+            0.23366439994424582
+          ],
+          "python_allocation_peak_bytes": 3257204,
+          "result_sha256": "500eb248c8bdbc2fd5fb889569e2996209f2babbcc6ec9c9042049c7a319bf72",
+          "status": "ready",
+          "chunks": 1100,
+          "characters": 1320000
+        },
+        "current": {
+          "median_seconds": 0.010029600001871586,
+          "runs_seconds": [
+            0.009681500028818846,
+            0.01077130006160587,
+            0.009989400045014918,
+            0.010029600001871586,
+            0.01013860001694411
+          ],
+          "python_allocation_peak_bytes": 3336815,
+          "result_sha256": "500eb248c8bdbc2fd5fb889569e2996209f2babbcc6ec9c9042049c7a319bf72",
+          "status": "ready",
+          "chunks": 1100,
+          "characters": 1320000
+        },
+        "speedup": 22.484934583354885,
+        "peak_allocation_ratio": 1.0244415148698085
+      }
+    ]
+  },
+  "limitations": [
+    "384 synthetic files, 44.56MiB; not hundreds of GB of real documents.",
+    "One run per variant, no randomized order or confidence interval; OS disk cache not evicted.",
+    "32GiB host; not a validation on a physical 8GiB host or the user remote machine.",
+    "RSS covers Engine and descendants only, excluding DSH Web, Node, MCP, models and fixture generation.",
+    "Measurements use explicit complete reconciliation, not file notifications, background idle scheduling or concurrent search load.",
+    "SQL tracing and process sampling add overhead. Sampled CPU and RSS can undercount short lived activity.",
+    "Oracle is baseline extraction and chunking, proving compatibility on these fixtures, not independent proof every source format is parsed completely.",
+    "Extractor-only warm medians and tracemalloc allocation peaks are not service end-to-end speedups or process RSS."
+  ]
+}

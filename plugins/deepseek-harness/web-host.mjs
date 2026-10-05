@@ -19,7 +19,7 @@ const DIRECT_ACTIONS = new Set(['status', 'pause', 'resume', 'scan', 'refresh_pa
 const STATUS_KEYS = new Set(['schema_version', 'version', 'instance_id', 'node_id', 'paused', 'last_error',
   'runtime_policy', 'capabilities', 'file_scope', 'coverage', 'resources', 'indexing', 'vector_index',
   'worker_controls', 'database_sync', 'scheduler', 'journal', 'vector_error', 'semantic', 'remote_nodes', 'progress',
-  'pause_state', 'background_activity']);
+  'pause_state', 'background_activity', 'performance', 'semantic_error']);
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 class BridgeError extends Error {
   constructor(code, message, details) { super(message); this.code = code; this.details = details; }

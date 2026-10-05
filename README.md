@@ -1,6 +1,6 @@
 # one_search
 
-面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.6.0 增加 DSH Web 服务启停、持久化强制停止、异常连接指数退避和系统定时启动任务，保留暂停索引、具体错误码、Windows 原生升级协调和 11 个 MCP 工具。安装由 Agent 按本 README 执行；文件解析、正文索引与语义计算在本机进行。
+面向 DeepSeek Harness（DSH）等 MCP 客户端的本地文件与数据库检索插件。v0.7.0 提升混合资料正文索引效率：自适应资源预算、有界并行解析、分块差分更新、独立语义队列与可见的性能指标。保留 DSH Web 启停、持久化强制停止、指数退避、系统定时任务和 11 个 MCP 工具。安装由 Agent 按本 README 执行；文件解析、正文索引与语义计算在本机进行。
 
 新安装默认只检索当前用户的文档文件夹；可以另选目录或显式开启整机范围。当前交付单机，接口已保留 `node_id`；多机传输、认证与跨机结果合并尚未实现。项目名是 `one_search`，Python 包 `data_search`、命令及 MCP 条目 `data-search` 保持兼容。
 
@@ -96,15 +96,15 @@ bash scripts/install.sh --root /srv/docs --install-dir "$HOME/.local/share/data-
 
 ## 升级或重装
 
-**从 v0.5.0 或更旧的 DSH 插件迁移到 v0.6.0：先停止所有连接该实例的 DSH 服务端/profile，再运行安装器。** 终端运行的 DSH 可用 `Ctrl+C` 正常退出；仅关闭浏览器标签页不会断开 MCP。其他 MCP 宿主也须断开该 server，并关闭 `Settings.vbs` 打开的原生设置窗口。旧版的 `data-search stop` 会留下 MCP 桥接进程及宿主自动重连；不要依靠旧版停止命令完成首次迁移。
+**从 v0.5.0 或更旧的 DSH 插件迁移到 v0.7.0：先停止所有连接该实例的 DSH 服务端/profile，再运行安装器。** 终端运行的 DSH 可用 `Ctrl+C` 正常退出；仅关闭浏览器标签页不会断开 MCP。其他 MCP 宿主也须断开该 server，并关闭 `Settings.vbs` 打开的原生设置窗口。旧版的 `data-search stop` 会留下 MCP 桥接进程及宿主自动重连；不要依靠旧版停止命令完成首次迁移。
 
 已运行 **v0.5.1 或更新兼容 bundle** 的全部 DSH profiles，可在 Windows 原生后台升级时保持打开。新安装器先让它们停止 MCP 重连、释放桥接与管理进程，再停止后台、保留快照并替换运行时；健康检查或成功回滚后恢复连接。DSH Web 页面可保持打开，维护期间显示升级状态。任一旧插件、其他未参与协调的 MCP 客户端或原生设置窗口仍需先关闭。
 
-校验 v0.6.0 原生 ZIP 并完整解压到**现有程序和数据目录之外**。在新解压目录，用原路径运行：
+校验 v0.7.0 原生 ZIP 并完整解压到**现有程序和数据目录之外**。在新解压目录，用原路径运行：
 
 ```powershell
 # 默认安装示例；自定义安装须使用原 install-manifest.json 中的路径。
-Set-Location 'D:\Downloads\one-search-0.6.0-windows-amd64-native'
+Set-Location 'D:\Downloads\one-search-0.7.0-windows-amd64-native'
 $searchApp = Join-Path $env:LOCALAPPDATA 'data-search\app'
 $searchData = Join-Path $env:LOCALAPPDATA 'data-search\data'
 .\scripts\install.ps1 -InstallDir $searchApp -DataDir $searchData
@@ -117,9 +117,9 @@ $searchCli = Join-Path $searchApp 'runtime\data-search.exe'
 
 本次同时更新 DSH bundle 时，继续使用上面的 `register.mjs` 命令为每个相关 profile 注册新包，再重启这些 profile 使新插件代码生效。随后在 DSH 实际调用 `index_status` 和一次 `search`。后台升级自动协调不等于 DSH 插件代码能够热替换。
 
-启停与定时功能需要 **v0.6.0 后台和 DSH bundle 成套更新**。升级保留检索范围、索引、暂停设置、主动停止状态和定时任务。若升级前用户已停止服务，安装完成后仍保持停止；Agent 用 `service-control` 检查该状态，不应为完成搜索验收擅自执行 `start`。用户允许启动后，再验证 `index_status` 和 `search`。
+启停与定时功能要求后台和 DSH bundle **至少 v0.6.0，本轮应成套升级至 v0.7.0**。升级保留检索范围、索引、暂停设置、主动停止状态和定时任务。若升级前用户已停止服务，安装完成后仍保持停止；Agent 用 `service-control` 检查该状态，不应为完成搜索验收擅自执行 `start`。用户允许启动后，再验证 `index_status` 和 `search`。
 
-**连接同一个后台实例的所有 DSH profiles 都必须更新至 v0.6.0 bundle**。旧插件使用不带 `--automatic` 的 `start`，会被解释为明确启动，混用旧插件无法保证主动停止保持。Linux 登录服务改为 `Restart=no`，由运行中的新版 DSH 统一执行指数退避；不再另用固定 5 秒的 systemd 重启策略。
+**连接同一个后台实例的所有 DSH profiles 都必须使用 v0.6.0 或更新 bundle，本轮统一更新至 v0.7.0**。更旧的插件使用不带 `--automatic` 的 `start`，会被解释为明确启动，混用旧插件无法保证主动停止保持。Linux 登录服务改为 `Restart=no`，由运行中的新版 DSH 统一执行指数退避；不再另用固定 5 秒的 systemd 重启策略。
 
 `runtime_in_use` 表示仍有进程占用运行时：安装器在替换前拒绝，不强杀进程；按返回的 PID/角色关闭对应宿主或设置窗口后重试。升级进程意外中断时，保留 `<DataDir>/upgrade-state.json` 和 `.upgrade-*` 快照，修复报错原因后**重跑同一解压包的安装命令**，由安装器恢复中断事务；不要手工删除维护标记强行重连。
 
@@ -141,7 +141,7 @@ Windows bootstrap 与 Linux 安装尚无这套自动事务升级：先停止所�
 
 首次扫描尚不知道整机文件总数，页面显示已知文件数和待遍历目录，不显示虚构的全机百分比。语义比例仅针对已知可处理片段；新文件加入后分母会增加。页面可见时约每 2 秒更新，底层部分计数最多缓存 5 秒；关闭面板不停止后台工作。
 
-建议后台与 DSH bundle 成套升级到 **v0.6.0**。旧版后台可保留基本 MCP 兼容，但没有新版持久启停和系统任务功能；自动升级协调仍要求所有已连接 profiles 使用 v0.5.1 或更新兼容 bundle。若没有按钮，检查是否更新了正确 profile。原有 Windows `Settings.vbs` 和 CLI 继续可用，但原生设置窗口在升级前须关闭。完整操作和状态含义见 [Web 面板说明](docs/DSH-WEB.md)。
+建议后台与 DSH bundle 成套升级到 **v0.7.0**。低于 v0.7.0 的后台缺少本轮性能指标，低于 v0.6.0 则还缺少持久启停和系统任务功能；自动升级协调仍要求所有已连接 profiles 使用 v0.5.1 或更新兼容 bundle。若没有按钮，检查是否更新了正确 profile。原有 Windows `Settings.vbs` 和 CLI 继续可用，但原生设置窗口在升级前须关闭。完整操作和状态含义见 [Web 面板说明](docs/DSH-WEB.md)。
 
 ## 启动、停止与定时启动
 
@@ -206,18 +206,22 @@ CLI 等效操作（沿用安装步骤中的变量）：
 
 | 设置 | 默认值与含义 |
 |---|---|
-| 正文与数据库调度 / 模型线程 | 按轮单路处理，ANN 独立构建；模型线程默认 1，可设 1–2 |
-| 进程树 RSS 预算 / 最低可用内存 | 1,024 / 768 MiB，采样检测 |
+| 正文与语义调度 | 正文最多 4 路受控解析；语义与 ANN 独立调度；模型线程默认 1，可设 1–2 |
+| 新安装进程树 RSS 预算 | 自适应：整机内存 20%，最多 4,096 MiB；系统保留至少 12.5% 或 768 MiB，采样检测 |
 | Windows 单 worker Job 内存限额 | 512 MiB，限制提交虚拟内存，**不是 RSS** |
 | Windows worker CPU rate cap | 25%，受系统或上层 Job 配额影响；同时限制亲和性、降低优先级 |
 | 索引与模型磁盘预算 / 最低空闲空间 | 10,240 / 1,024 MiB |
 | 单文件正文大小 / 字符上限 | 32 MiB / 200 万字符 |
 | 单文件解析超时 / 模型闲置释放 | 30 / 120 秒 |
-| 后台轮次 / 有监听时完整核对 | 180 / 3,600 秒 |
+| 无监听扫描 / 完整核对 | 180 / 3,600 秒；NTFS 日志空闲轮询约 2 秒，繁忙时受单批处理耗时影响 |
 
 Windows Job 限制若因宿主策略无法应用，会在 `worker_controls.fallback_errors` 显示；服务仍保留 RSS 采样预算。启动 worker 时显式限制 OpenBLAS、OpenMP、MKL、NumExpr 线程。Linux 当前仅有优先级/亲和性和采样预算，尚无 cgroup 硬配额，也未做 Linux 实机验收。
 
 文件发现和正文解析使用可续传的持久化队列，先建立文件名目录，再按预算处理正文和语义。Windows 尝试读取当前账号有权访问的既有 NTFS USN 日志；日志不可用、回卷或发生无法可靠定位的变更时回退核对。它不创建日志、不提升权限，也不通过 MFT 完成首次全盘发现。指定目录模式还可使用文件监听，周期核对继续作为兜底。更新时效是调度间隔加队列积压时间，数据较多时会超过几分钟，不能等同于 Everything 的文件名引擎。
+
+**升级不会自动提高旧配置的上限。** 原先未指定 `budget_mode` 的配置按 `fixed` 读取，保留内存和并发限制。要启用新策略，在 DSH Web → 资源选择“均衡”，点击“应用此档位默认值”，预览并保存；或运行 `data-search preset balanced --apply --config CONFIG`。只把模式切成自适应，同时保留旧的 1,024 MiB / 1 个解析进程，仍然会受旧上限限制。
+
+新均衡档在 8 / 16 / 32 GiB 系统上的内存预算上限约为 1.6 / 3.2 / 4 GiB，实际还受可用内存、CPU 和用户上限约束。预算是允许使用的空间，不会为了提高占用率预先填满内存。小文件、已完成的队列、慢磁盘或语义模型单路计算，仍可能表现为低 RSS。面板同时显示实际 RSS、动态预算、配置上限、允许并发、吞吐量和队列最老等待时间。实现、复现方法和限制见 [正文索引性能](docs/INDEXING-PERFORMANCE.md)。
 
 8GB/16GB 电脑、几百 GB 实际资料库还需按 [路线图](docs/roadmap/README.md) 验收。现有资源控制提供限速、暂停和缩小正文/语义范围的手段，不能仅凭磁盘容量承诺索引空间和检索耗时。
 

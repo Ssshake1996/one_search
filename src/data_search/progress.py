@@ -42,7 +42,8 @@ def index_progress(status: dict) -> dict:
         (vectors['pending'] and (eligible > 0 or vectors['published_chunks'] > 0)))
     has_errors = (status['last_error'] or coverage['source_errors'] or scan_errors['count']
                   or scope.get('unavailable_roots') or scope.get('discovery_error')
-                  or any(row['errors'] for row in roots) or (enabled and status['vector_error'])
+                  or any(row['errors'] for row in roots)
+                  or (enabled and (status['vector_error'] or status.get('semantic_error')))
                   or any(counts.get(key, 0) for key in ('error', 'budget', 'encrypted', 'partial'))
                   or any(source['last_error'] or any(row['last_error'] for row in source['tables'].values())
                          for source in sources.values()))
@@ -75,11 +76,15 @@ def index_progress(status: dict) -> dict:
                     'ready_to_process': scheduler['ready_files'], 'retry_waiting': scheduler['retry_files'],
                     'next_retry_at': scheduler['next_retry_at'], 'queued_events': scheduler['queued_events']},
         'semantic': {'enabled': enabled, 'embedded': embedded, 'eligible': eligible,
+                     'active': bool(enabled and semantic.get('active')),
                      'vector_pending': bool(enabled and vectors['pending']),
                      'vector_building': bool(enabled and vectors['building']), 'model_state': model_state},
         'databases': {'sources': sources}, 'resources': status['resources'], 'runtime_policy': policy,
+        # Timings come from the engine's sampled work; presentation never estimates them.
+        'performance': status.get('performance'),
         'error_summary': {'last_error': status['last_error'], 'source_errors': coverage['source_errors'],
                           'scan_errors': scan_errors, 'vector_error': status['vector_error'],
+                          'semantic_error': status.get('semantic_error'),
                           'unavailable_roots': scope.get('unavailable_roots', []),
                           'discovery_error': scope.get('discovery_error')},
     }

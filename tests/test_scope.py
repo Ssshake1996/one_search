@@ -146,7 +146,7 @@ def test_machine_uses_periodic_scans_without_recursive_watchers(tmp_path, monkey
     config['scan_interval_seconds'] = 1
     engine = Engine(config)
     calls = []
-    monkeypatch.setattr(engine, 'scan_once', lambda full=True: calls.append(full))
+    monkeypatch.setattr(engine, 'scan_once', lambda full=True, **kwargs: calls.append(full))
     try:
         engine.start_background()
         deadline = time.monotonic() + 4

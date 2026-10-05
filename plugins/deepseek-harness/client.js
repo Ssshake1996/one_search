@@ -10,7 +10,14 @@ window.__ModuleLoader__.load({
     const lines = value => String(value || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean);
     const number = value => Number.isFinite(value) ? value.toLocaleString('zh-CN') : '—';
     const date = value => value ? new Date(typeof value === 'number' ? value * 1000 : value).toLocaleString('zh-CN') : '—';
-    const mb = value => Number.isFinite(value) ? `${number(Math.round(value))} MB` : '—';
+    const mb = value => Number.isFinite(value) ? `${number(Math.round(value))} MiB` : '—';
+    const duration = value => {
+      if (!Number.isFinite(value) || value < 0) return '—';
+      if (value < 60) return `${value.toLocaleString('zh-CN', { maximumFractionDigits: 1 })} 秒`;
+      if (value < 3600) return `${Math.floor(value / 60)} 分 ${Math.floor(value % 60)} 秒`;
+      return `${Math.floor(value / 3600)} 小时 ${Math.floor(value % 3600 / 60)} 分`;
+    };
+    const rate = value => Number.isFinite(value) && value >= 0 ? `${value.toLocaleString('zh-CN', { maximumFractionDigits: 2 })} 文件/秒` : '—';
     const labels = {
       maintenance: '升级维护中', pausing: '正在暂停', paused: '已暂停', waiting: '等待资源', indexing: '正在扫描与建索引', needs_attention: '需要关注',
       up_to_date: '当前已知任务已处理', user_pause: '手动暂停', system_busy: '电脑繁忙，稍后继续',
@@ -25,6 +32,9 @@ window.__ModuleLoader__.load({
       waiting_for_idle: '等待电脑空闲', battery_saving: '电池模式下减速', retry_backoff: '等待失败任务重试',
       model_not_ready: '等待语义模型准备', incomplete_sources: '部分来源需要处理', known_tasks_pending: '正在处理已知任务',
       low: '节省资源', balanced: '均衡', fast: '优先速度', stopped: '服务未启动', running_service: '后台运行中',
+      configured_limit: '已达到配置的并发上限', memory_capacity: '可用内存限制了并发', cpu_capacity: '可用 CPU 限制了并发',
+      system_cpu_pressure: '电脑繁忙，暂时减少并发', backlog: '当前可处理任务较少',
+      adaptive: '自适应预算', fixed: '固定预算',
     };
     const label = value => labels[value] || value || '—';
 
@@ -189,6 +199,7 @@ window.__ModuleLoader__.load({
 .os-index-controls{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap;margin-top:22px;padding:16px 0;border-top:1px solid var(--os-line);border-bottom:1px solid var(--os-line)}.os-index-controls>div{min-width:0}.os-index-controls p{margin:3px 0 0;font-size:12px;color:var(--os-muted)}.os-index-controls .os-select{width:auto;max-width:100%}.os-index-controls .os-actions{flex-shrink:0;max-width:100%}.os-index-controls+.os-tabs{margin-top:18px}
 .os-service-controls{margin-top:22px;padding:18px 0 0;border-top:1px solid var(--os-line)}.os-service-row{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}.os-service-row>div{min-width:0}.os-service-row>.os-actions{flex-shrink:0}.os-service-controls+.os-index-controls{margin-top:14px}.os-schedule{border-bottom:1px solid var(--os-line);padding:17px 0}.os-schedule .os-section-head{margin-bottom:8px}.os-schedule-state{font-size:12px;color:var(--os-muted);margin-left:10px}.os-schedule-editor{margin-top:20px;padding:18px;border:1px solid var(--os-line);border-radius:8px}.os-schedule-editor h3{margin:0 0 16px;font-size:15px}.os-state[data-state=stopped] .os-dot,.os-state[data-state=unknown] .os-dot{background:#8a92a0}.os-state[data-state=offline] .os-dot{background:#b84949}
 .os-tabs{display:flex;gap:24px;border-bottom:1px solid var(--os-line);margin:26px 0 24px;overflow-x:auto}.os-tab{font:inherit;color:var(--os-muted);border:0;border-bottom:2px solid transparent;background:transparent;padding:0 0 12px;white-space:nowrap;cursor:pointer}.os-tab[aria-selected=true]{border-color:var(--os-blue);color:var(--os-blue);font-weight:600}.os-panel button:focus-visible,.os-panel input:focus-visible,.os-panel select:focus-visible,.os-panel textarea:focus-visible,.os-panel summary:focus-visible{outline:2px solid var(--os-blue);outline-offset:3px}.os-panel button:disabled{opacity:.48;cursor:not-allowed}.os-btn{font:inherit;font-size:13px;color:inherit;background:transparent;border:1px solid var(--os-line);border-radius:8px;min-height:34px;padding:6px 12px;cursor:pointer;white-space:normal}.os-btn:hover:enabled{background:var(--os-soft)}.os-btn.os-primary{background:var(--os-blue);border-color:var(--os-blue);color:#fff}.os-btn.os-primary:hover:enabled{filter:brightness(.94)}.os-btn.os-danger{color:#b84949}.os-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.os-section{border-top:1px solid var(--os-line);padding:22px 0}.os-section:first-child{border-top:0;padding-top:0}.os-section h2{margin:0 0 4px;font-size:16px;font-weight:600}.os-section>p{margin:0 0 17px;color:var(--os-muted);font-size:13px}.os-section-head{display:flex;justify-content:space-between;gap:14px;margin-bottom:15px;align-items:center}.os-section-head h2{margin:0}.os-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:4px 0 24px;gap:18px}.os-metric small{display:block;color:var(--os-muted);font-size:12px}.os-metric strong{display:block;font-weight:550;font-size:26px;letter-spacing:-.6px;margin:5px 0}.os-metric span{font-size:12px;color:var(--os-muted)}.os-stage{display:grid;grid-template-columns:150px 1fr;gap:20px;padding:15px 0;border-bottom:1px solid var(--os-line)}.os-stage:last-child{border-bottom:0}.os-stage-title{font-weight:550}.os-stage p{margin:0;color:var(--os-muted);font-size:13px}.os-stage strong{font-weight:500}.os-root{display:grid;grid-template-columns:minmax(100px,1fr) auto;gap:8px;padding:10px 0;border-bottom:1px solid var(--os-line);font-size:13px}.os-root:last-child{border:0}.os-path{overflow-wrap:anywhere;font-family:var(--ds-font-family-code,monospace);font-size:12px}.os-note{color:var(--os-muted);font-size:12px;margin:8px 0}.os-alert{border:1px solid var(--os-line);background:var(--os-soft);border-left:3px solid var(--os-blue);padding:10px 13px;border-radius:5px;margin:12px 0;overflow-wrap:anywhere}.os-alert.os-error{border-left-color:#b84949}.os-alert p{margin:3px 0}.os-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px 22px}.os-field{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px}.os-field>span{font-weight:500}.os-field input,.os-field textarea,.os-field select,.os-select{font:inherit;color:inherit;background:var(--dsw-alias-bg-base,#fff);border:1px solid var(--os-line);border-radius:7px;padding:8px 10px;min-height:36px;width:100%}.os-field textarea{resize:vertical;min-height:82px;line-height:1.65}.os-field small{font-weight:400;color:var(--os-muted)}.os-wide{grid-column:1/-1}.os-check{display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:13px;margin:10px 0}.os-check input{accent-color:var(--os-blue);margin-top:4px}.os-fields{border:0;margin:0;padding:0;min-width:0}.os-radio-group{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}.os-radio{display:flex;align-items:center;gap:8px;padding:11px 15px;border:1px solid var(--os-line);border-radius:8px;cursor:pointer}.os-radio:has(input:checked){border-color:var(--os-blue);background:var(--os-soft)}.os-radio input{accent-color:var(--os-blue)}.os-save{position:sticky;bottom:0;background:var(--dsw-alias-bg-base,#fff);border-top:1px solid var(--os-line);padding:14px 0 6px;display:flex;gap:16px;justify-content:space-between;align-items:center;margin-top:18px;z-index:1}.os-save p{margin:0;font-size:12px;color:var(--os-muted)}.os-pre{font:12px/1.6 var(--ds-font-family-code,monospace);white-space:pre-wrap;overflow-wrap:anywhere;max-height:290px;overflow:auto;background:var(--os-soft);padding:12px;border-radius:6px}.os-details summary{cursor:pointer;font-size:13px;padding:8px 0}.os-db-list{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 20px}.os-db-item{display:flex;gap:5px;align-items:center}.os-table-wrap{overflow:auto;max-height:350px;margin:10px 0}.os-table{border-collapse:collapse;width:100%;font-size:12px;text-align:left}.os-table th,.os-table td{padding:8px 10px;border-bottom:1px solid var(--os-line);vertical-align:top}.os-table th{color:var(--os-muted);font-weight:500}.os-table input{accent-color:var(--os-blue)}.os-table-picker{border:1px solid var(--os-line);border-radius:8px;padding:12px 16px;margin:10px 0}.os-table-picker>summary{cursor:pointer;font-weight:500;overflow-wrap:anywhere}.os-loading{padding:36px 0;color:var(--os-muted)}.os-preset small{display:block;color:var(--os-muted);font-size:11px}.os-preset .os-radio{flex:1;min-width:160px;align-items:flex-start}.os-empty{padding:14px 0;color:var(--os-muted);font-size:13px}.os-panel [hidden]{display:none!important}
+.os-performance-metrics{grid-template-columns:repeat(2,minmax(0,1fr));padding-bottom:12px}.os-performance-metrics strong{font-size:22px;overflow-wrap:anywhere}.os-timing-summary{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:13px;padding-bottom:8px}.os-timing-summary strong{font-weight:500;color:var(--os-blue)}.os-budget-state{border-left:3px solid var(--os-blue);padding:3px 0 3px 14px;margin:0 0 18px}.os-budget-state p{margin:4px 0}.os-budget-form{margin-top:14px}
 @media(max-width:760px){.os-body{padding:22px 18px}.os-head{flex-wrap:wrap;gap:14px}.os-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.os-form-grid{grid-template-columns:1fr}.os-stage{grid-template-columns:1fr;gap:5px}.os-save{align-items:flex-start;flex-direction:column}.os-root{grid-template-columns:1fr}.os-tabs{gap:23px}.os-section-head{align-items:flex-start;flex-wrap:wrap}}
 `;
 
@@ -207,6 +218,26 @@ window.__ModuleLoader__.load({
     function Details({ title = '查看详细结果', value }) { return h('details', { className: 'os-details' }, h('summary', null, title), h('pre', { className: 'os-pre' }, JSON.stringify(value, null, 2))); }
     function Metric({ title, value, note }) { return h('div', { className: 'os-metric' }, h('small', null, title), h('strong', null, value), h('span', null, note)); }
     function Stage({ title, children }) { return h('div', { className: 'os-stage' }, h('div', { className: 'os-stage-title' }, title), h('div', null, children)); }
+
+    function Performance({ performance }) {
+      if (!performance || performance.schema_version !== 1) return h('section', { className: 'os-section' },
+        h('h2', null, '处理速度'), h('p', { className: 'os-note' }, '当前后台版本尚未提供性能指标。已有索引进度与服务控制仍可使用。'));
+      const stages = performance.stages || {}, queue = performance.queue || {}, batch = performance.last_batch;
+      const names = [['discovery', '发现文件'], ['parse', '正文解析'], ['write', '索引写入'], ['embedding', '语义计算'], ['vectors', '向量发布'], ['wait', '调度等待']];
+      return h('section', { className: 'os-section', 'aria-label': '索引处理速度' },
+        h('h2', null, '处理速度'), h('p', null, '最近的处理速率与队列等待，随文件类型和大小变化。'),
+        h('div', { className: 'os-metrics os-performance-metrics' },
+          h(Metric, { title: '正文处理速度', value: rate(performance.throughput?.files_per_second), note: `最近 ${duration(performance.throughput?.window_seconds)}，包含实际等待` }),
+          h(Metric, { title: '最老任务已等待', value: duration(queue.oldest_seconds), note: `待处理 ${number(queue.pending_files)} · 新增或修改 ${number(queue.recent_files)}` })),
+        h('div', { className: 'os-timing-summary' }, [['parse', '解析'], ['write', '写入'], ['embedding', '语义']].map(([key, title]) =>
+          h('span', { key }, `${title} ${duration(stages[key]?.seconds)}`, stages[key]?.active > 0 && h('strong', null, ` · ${number(stages[key].active)} 项进行中`)))),
+        h('details', { className: 'os-details' }, h('summary', null, '查看本次运行计时'),
+          h('p', { className: 'os-note' }, `后台本次已运行 ${duration(performance.uptime_seconds)}。阶段耗时为累计计时，并行工作可能重叠，不能相加为总用时或完成百分比。`),
+          h('div', { className: 'os-table-wrap' }, h('table', { className: 'os-table' },
+            h('thead', null, h('tr', null, ['阶段', '累计耗时', '调用次数', '进行中'].map(title => h('th', { key: title }, title)))),
+            h('tbody', null, names.map(([key, title]) => h('tr', { key }, h('td', null, title), h('td', null, duration(stages[key]?.seconds)), h('td', null, number(stages[key]?.calls)), h('td', null, number(stages[key]?.active))))))),
+          batch && h('p', { className: 'os-note' }, `最近一批：${number(batch.files)} 个文件 · ${duration(batch.seconds)} · ${number(batch.workers)} 个解析进程`)));
+    }
 
     function ServiceControls({ status, run, busy, disconnected }) {
       const [confirmForce, setConfirmForce] = useState(false);
@@ -269,7 +300,7 @@ window.__ModuleLoader__.load({
       const content = progress.content || {}, semantic = progress.semantic || {}, discovery = progress.discovery || {};
       const errors = progress.error_summary || {};
       const failed = ['error','budget','encrypted','partial'].reduce((sum, key) => sum + (content.counts?.[key] || 0), 0);
-      const hasErrors = failed > 0 || errors.last_error || errors.vector_error || Object.keys(errors.source_errors || {}).length > 0 || (errors.scan_errors?.count || 0) > 0 || (errors.unavailable_roots || []).length > 0 || errors.discovery_error;
+      const hasErrors = failed > 0 || errors.last_error || errors.vector_error || semantic.enabled && errors.semantic_error || Object.keys(errors.source_errors || {}).length > 0 || (errors.scan_errors?.count || 0) > 0 || (errors.unavailable_roots || []).length > 0 || errors.discovery_error;
       const sources = Object.entries(progress.databases?.sources || {});
       const pathAction = action => run(action, { path: path.trim() }, result => setPathResult({ action, result }));
       return h(React.Fragment, null,
@@ -278,6 +309,7 @@ window.__ModuleLoader__.load({
           h(Metric, { title: '正文待处理', value: number(content.pending), note: `${number(content.retry_waiting)} 项等待重试` }),
           h(Metric, { title: '语义片段', value: `${number(semantic.embedded)} / ${number(semantic.eligible)}`, note: '已计算 / 当前可计算' }),
           h(Metric, { title: '内存占用', value: mb(progress.resources?.rss_mb), note: '后台及其工作进程' })),
+        h(Performance, { performance: progress.performance || index.performance }),
         h('section', { className: 'os-section' },
           h('div', { className: 'os-section-head' }, h('h2', null, '扫描与建立索引'),
             h(Button, { onClick: () => run('scan'), disabled: busy }, '重新扫描')),
@@ -286,7 +318,8 @@ window.__ModuleLoader__.load({
             h('p', null, `${number(discovery.queued_directories)} 个目录等待扫描。首次扫描总量未知，不显示整机百分比。`)),
           h(Stage, { title: '正文解析' }, h('strong', null, `已解析 ${number(content.counts?.ready || 0)} · 待处理 ${number(content.pending)} · 失败或不完整 ${number(failed)}`),
             h('p', null, `仅文件名 ${number((content.counts?.metadata || 0) + (content.counts?.unsupported || 0))} · 文件变动队列 ${number(content.queued_events)} 项${content.next_retry_at ? ` · 下次重试 ${date(content.next_retry_at)}` : ''}`)),
-          h(Stage, { title: '语义索引' }, h('strong', null, !semantic.enabled ? '已关闭' : `模型${label(semantic.model_state)} · ${!model.ready ? '等待模型就绪' : semantic.vector_building ? '正在构建检索索引' : semantic.vector_pending ? '等待更新检索索引' : '当前向量批次已处理'}`),
+          h(Stage, { title: '语义索引' }, h('strong', null, !semantic.enabled ? '已关闭' : `模型${label(semantic.model_state)} · ${errors.semantic_error ? '语义计算需要关注' : !model.ready ? '等待模型就绪' : semantic.active ? '正在计算语义片段' : semantic.vector_building ? '正在构建检索索引' : semantic.vector_pending ? '等待更新检索索引' : '当前向量批次已处理'}`),
+            semantic.enabled && errors.semantic_error && h('p', null, `错误码：${errors.semantic_error}。正文检索仍可使用，详情见“需要关注”。`),
             h('p', null, '文件发现与正文解析会增加待计算片段。文件名与已解析正文可先使用。')),
           h(Stage, { title: '数据库同步' }, sources.length ? sources.map(([name, source]) => h('div', { key: name },
             h('strong', null, name), Object.entries(source.tables || {}).map(([table, data]) => h('p', { key: table }, `${table} · ${label(data.phase)} · 本轮读取 ${number(data.scanned_rows)} 行 / ${number(data.pages)} 页`, data.last_error && ` · ${data.last_error}`)),
@@ -331,17 +364,44 @@ window.__ModuleLoader__.load({
       const policy = values.runtime_policy;
       const change = (key, value) => update('runtime_policy', { ...policy, [key]: value });
       const resources = status?.index?.progress?.resources || status?.index?.resources || {};
+      const configured = resources.configured_budget || {}, effective = resources.effective_budget;
+      const resource = values.resource;
+      const changeResource = (key, value) => update('resource', { ...resource, [key]: value });
+      const choosePreset = key => {
+        update('preset', key); change('preset', key);
+        if (resource) {
+          const [memory_mb, workers, memory_fraction, reserve_fraction] = { low: [768, 1, .1, .15], balanced: [4096, 4, .2, .125], fast: [8192, 8, .25, .125] }[key];
+          update('resource', { ...resource, budget_mode: 'adaptive', memory_mb, workers, memory_fraction, reserve_fraction });
+        }
+      };
       return h(React.Fragment, null, h('section', { className: 'os-section' }, h('h2', null, '选择资源档位'), h('p', null, '降低后台索引开销会延长首次建立索引的时间，已建立的索引仍可检索。'),
-        h('div', { className: 'os-radio-group os-preset' }, [['low','节省资源','768 MB 预算 · 较小批次'],['balanced','均衡','1,024 MB 预算 · 默认档位'],['fast','优先速度','2,048 MB 预算 · 更大批次']].map(([key,title,note]) => h('label', { className: 'os-radio', key }, h('input', { type: 'radio', name: 'one-search-preset', checked: values.preset === key, onChange: () => { update('preset', key); change('preset', key); } }), h('span', null, title, h('small', null, note)))))),
+        h('div', { className: 'os-radio-group os-preset' }, [['low','节省资源','较小批次，优先减少干扰'],['balanced','均衡','按可用资源调节，默认档位'],['fast','优先速度','允许更高并发与更大批次']].map(([key,title,note]) => h('label', { className: 'os-radio', key }, h('input', { type: 'radio', name: 'one-search-preset', checked: values.preset === key, onChange: () => choosePreset(key) }), h('span', null, title, h('small', null, note))))),
+        resource && h('div', { className: 'os-actions' }, h(Button, { onClick: () => choosePreset(values.preset) }, '应用此档位默认值'), h('span', { className: 'os-note' }, '更新本页草稿，保存后生效。')),
+        resource && h('details', { className: 'os-details' }, h('summary', null, '预算与并发上限'),
+          h('p', { className: 'os-note' }, '自适应模式在这些上限内按空闲资源调整。固定模式保留指定预算；两种模式都不会为占满内存而分配无用缓存。'),
+          h('div', { className: 'os-form-grid os-budget-form' },
+            h(Field, { title: '预算方式' }, h(Select, { value: resource.budget_mode, options: [['adaptive', '自适应'], ['fixed', '固定']], onChange: value => changeResource('budget_mode', value) })),
+            h(Field, { title: '内存硬上限（MiB）', hint: '采样预算，不是预先占用或绝对峰值保证。' }, h(Input, { type: 'number', min: 64, step: 64, value: resource.memory_mb, onChange: value => changeResource('memory_mb', Number(value)) })),
+            h(Field, { title: '解析进程上限', hint: '实际并发还受 CPU、内存与待处理任务限制。' }, h(Input, { type: 'number', min: 1, max: 8, step: 1, value: resource.workers, onChange: value => changeResource('workers', Number(value)) })),
+            h(Field, { title: '最多使用总内存（%）', hint: '自适应模式使用，并同时遵守内存硬上限。' }, h(Input, { type: 'number', min: 1, max: 50, step: .1, disabled: resource.budget_mode !== 'adaptive', value: Number.isFinite(resource.memory_fraction) ? Number((resource.memory_fraction * 100).toFixed(2)) : '', onChange: value => changeResource('memory_fraction', Number(value) / 100) })),
+            h(Field, { title: '为系统保留总内存（%）', hint: '自适应模式使用，另保留配置的最低可用内存。' }, h(Input, { type: 'number', min: 0, max: 50, step: .1, disabled: resource.budget_mode !== 'adaptive', value: Number.isFinite(resource.reserve_fraction) ? Number((resource.reserve_fraction * 100).toFixed(2)) : '', onChange: value => changeResource('reserve_fraction', Number(value) / 100) }))))),
         h('section', { className: 'os-section' }, h('h2', null, '后台运行策略'),
           h(Check, { checked: policy.enabled, onChange: value => change('enabled', value) }, '电脑繁忙或电量偏低时自动退让'),
           h(Check, { checked: policy.idle_only, onChange: value => change('idle_only', value) }, '仅在电脑空闲时建立索引'),
           h(Check, { checked: policy.on_ac_only, onChange: value => change('on_ac_only', value) }, '仅在接通电源时建立索引'),
           h('div', { className: 'os-form-grid', style: { marginTop: 15 } }, h(Field, { title: '空闲等待（秒）' }, h(Input, { type: 'number', min: 15, max: 86400, value: policy.idle_seconds, onChange: value => change('idle_seconds', Number(value)) })),
             h(Field, { title: '繁忙阈值（整机 CPU %）' }, h(Input, { type: 'number', min: 1, max: 100, value: policy.busy_cpu_percent, onChange: value => change('busy_cpu_percent', Number(value)) })))),
-        h('section', { className: 'os-section' }, h('h2', null, '当前占用'),
-          h('div', { className: 'os-metrics' }, h(Metric, { title: '后台内存', value: mb(resources.rss_mb), note: `当前预算 ${mb(settings.resource?.memory_mb)}` }), h(Metric, { title: '系统可用内存', value: mb(resources.available_mb), note: '整机剩余资源' }), h(Metric, { title: '索引空间', value: mb(resources.disk_mb), note: `当前预算 ${mb(settings.resource?.max_disk_mb)}` }), h(Metric, { title: '磁盘可用空间', value: mb(resources.free_disk_mb), note: '索引所在磁盘' })),
-          h('p', { className: 'os-note' }, '内存为后台进程树采样值，磁盘占用定期校准；不包含浏览器与 DSH 模型。档位中的预算不是固定占用或绝对峰值保证。')));
+        h('section', { className: 'os-section' }, h('h2', null, '实际使用与预算'),
+          effective && h('div', { className: 'os-budget-state' },
+            h('strong', null, `${label(effective.budget_mode)} · 当前允许 ${number(effective.parser_workers)} 个解析进程`),
+            h('p', null, effective.reason === 'idle' ? '当前没有待处理任务，无需增加并发。' : label(effective.reason)),
+            h('p', { className: 'os-note' }, `配置上限 ${number(configured.workers)} 个进程 · 本批最多 ${number(effective.batch_files)} 个文件 · 为系统保留 ${mb(effective.system_reserve_mb)}`)),
+          h('div', { className: 'os-metrics' },
+            h(Metric, { title: '实际内存 RSS', value: mb(resources.rss_mb), note: '后台及其工作进程' }),
+            h(Metric, { title: '当前有效内存预算', value: effective ? mb(effective.memory_limit_mb) : '—', note: effective ? `配置上限 ${mb(configured.memory_mb)}` : `旧版配置预算 ${mb(settings.resource?.memory_mb)}` }),
+            h(Metric, { title: '系统可用内存', value: mb(resources.available_mb), note: Number.isFinite(resources.system_cpu_percent) ? `整机 CPU ${number(Math.round(resources.system_cpu_percent))}%` : '整机剩余资源' }),
+            h(Metric, { title: '索引空间', value: mb(resources.disk_mb), note: `磁盘剩余 ${mb(resources.free_disk_mb)}` })),
+          h('p', { className: 'os-note' }, '有空余内存时可以提高允许的并发和批次；实际吞吐还取决于 CPU、磁盘和文件类型。预算不是占用目标，内存越满不代表越快。RSS 不包含浏览器与 DSH 模型；磁盘占用定期校准。')));
     }
 
     function Databases({ values, update, request, task, busy, onDirty }) {
@@ -634,6 +694,6 @@ window.__ModuleLoader__.load({
       ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'one-search' }, () => h(Panel, { request })));
     }
     return { name: 'one-search-web', inject: ['slots', 'connection'], apply,
-      __testing: { unwrap, createPoller, freshDraft, packSelections, selectionFor, connectionSource, lines, errorDescription, pauseStatus, serviceStatus, scheduleDraft, scheduleTask, scheduleDate, Panel, Scope, Overview, IndexControls, ServiceControls, Schedules, Databases } };
+      __testing: { unwrap, createPoller, freshDraft, packSelections, selectionFor, connectionSource, lines, errorDescription, pauseStatus, serviceStatus, scheduleDraft, scheduleTask, scheduleDate, duration, Panel, Scope, Overview, Performance, Resources, IndexControls, ServiceControls, Schedules, Databases } };
   },
 });

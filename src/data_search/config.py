@@ -26,13 +26,15 @@ def defaults(data_dir: str, roots: list[str] | None = None) -> dict:
                       "embedding_batches_per_tick": 4, "phase_seconds": 2.0,
                       "tick_seconds": 1.0, "journal_events_per_tick": 512},
         "exclude_names": [".git", ".venv", "node_modules", "__pycache__", "$RECYCLE.BIN", "System Volume Information"],
-        "resource": {"memory_mb": 1024, "min_available_mb": 768, "max_disk_mb": 10240,
-                     "min_free_disk_mb": 1024, "workers": 1, "batch_sleep_ms": 50,
+        "resource": {"budget_mode": "adaptive", "memory_mb": 4096, "memory_fraction": .20,
+                     "reserve_fraction": .125, "min_available_mb": 768, "max_disk_mb": 10240,
+                     "min_free_disk_mb": 1024, "workers": 4, "batch_sleep_ms": 0,
                      "worker_memory_mb": 512, "worker_cpu_percent": 25},
         "extraction": {"max_file_mb": 32, "max_chars": 2_000_000, "timeout_seconds": 30},
         "semantic": {"enabled": True, "model_dir": str(Path(data) / "models" / "bge-small-zh-v1.5"),
                      "threads": 1, "idle_seconds": 120, "batch_size": 8,
                      "segment_size": 20000, "max_segments_per_sync": 4,
+                     "vector_publish_chunks": 256, "vector_publish_seconds": 10,
                      "compact_deleted_ratio": 0.3},
         "databases": [], "nodes": [{"id": "local", "transport": "local"}],
     }
@@ -60,6 +62,12 @@ def load_config(path: str | Path) -> dict:
             config[k].update(v)
         else:
             config[k] = v
+    # Existing installations explicitly chose the old memory/worker limits.
+    # A missing mode must not silently turn those limits into an auto preset.
+    if 'budget_mode' not in value.get('resource', {}):
+        config['resource'].update(budget_mode='fixed')
+        for key, legacy in (('memory_mb', 1024), ('workers', 1), ('batch_sleep_ms', 50)):
+            config['resource'][key] = value.get('resource', {}).get(key, legacy)
     if not config["node_id"] or len(config["node_id"]) > 100:
         raise ValueError("invalid node_id")
     config["data_dir"] = str(Path(config["data_dir"]).expanduser().resolve())
@@ -106,8 +114,15 @@ def load_config(path: str | Path) -> dict:
         number = config['resource'][key]
         if isinstance(number,bool) or not isinstance(number,(int,float)) or not math.isfinite(number) or number < 0:
             raise ValueError(f'resource.{key} must be a finite nonnegative number')
-    if config['resource']['workers'] != 1:
-        raise ValueError('Only one background indexing worker is supported')
+    if config['resource']['budget_mode'] not in {'fixed', 'adaptive'}:
+        raise ValueError('resource.budget_mode must be fixed or adaptive')
+    for key, minimum, maximum in (('memory_fraction', .01, .5), ('reserve_fraction', 0, .5)):
+        number = config['resource'][key]
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number) or not minimum <= number <= maximum:
+            raise ValueError(f'resource.{key} must be between {minimum} and {maximum}')
+    workers = config['resource']['workers']
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 8:
+        raise ValueError('resource.workers must be an integer from 1 to 8')
     for key, minimum, maximum in (('worker_memory_mb',64,65536), ('worker_cpu_percent',1,100)):
         number = config['resource'][key]
         if isinstance(number,bool) or not isinstance(number,int) or not minimum <= number <= maximum:
@@ -117,7 +132,8 @@ def load_config(path: str | Path) -> dict:
             raise ValueError(f'semantic.{key} must be an integer from 1 to {maximum}')
     if not isinstance(config['semantic']['enabled'],bool):
         raise ValueError('semantic.enabled must be boolean')
-    for key, minimum, maximum in (('segment_size',256,50000), ('max_segments_per_sync',1,32)):
+    for key, minimum, maximum in (('segment_size',256,50000), ('max_segments_per_sync',1,32),
+                                  ('vector_publish_chunks',1,10000), ('vector_publish_seconds',1,300)):
         number = config['semantic'][key]
         if isinstance(number,bool) or not isinstance(number,int) or not minimum <= number <= maximum:
             raise ValueError(f'semantic.{key} must be an integer from {minimum} to {maximum}')
